@@ -20,6 +20,7 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/prep.h"
+#include "optimizer/tlist.h"
 #include "partitioning/partbounds.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -46,6 +47,8 @@ static void try_partitionwise_join(PlannerInfo *root, RelOptInfo *rel1,
 					   List *parent_restrictlist);
 static int match_expr_to_partition_keys(Expr *expr, RelOptInfo *rel,
 							 bool strict_op);
+static void make_grouped_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2, RelOptInfo *joinrel,
+					  SpecialJoinInfo *sjinfo, List *restrictlist);
 
 
 /*
@@ -742,6 +745,15 @@ make_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2)
 	populate_joinrel_with_paths(root, rel1, rel2, joinrel, sjinfo,
 								restrictlist);
 
+	/*
+	 * If we have grouped paths for either side of the join, create a
+	 * grouped join relation. (Paths where the grouping is done at this
+	 * join relation, is considered later, in generate_grouped_join_paths, after
+	 * building partition-wise join paths.)
+	 */
+	if (rel1->grouped_rel || rel2->grouped_rel)
+		make_grouped_join_rel(root, rel1, rel2, joinrel, sjinfo, restrictlist);
+
 	bms_free(joinrelids);
 
 	return joinrel;
@@ -907,6 +919,103 @@ populate_joinrel_with_paths(PlannerInfo *root, RelOptInfo *rel1,
 	/* Apply partitionwise join technique, if possible. */
 	try_partitionwise_join(root, rel1, rel2, joinrel, sjinfo, restrictlist);
 }
+
+/*
+ * make_grouping_rel
+ *
+ * Create a new grouping rel and set basic properties.
+ *
+ * input_rel represents the underlying scan/join relation.
+ * target is the output expected from the grouping relation.
+ */
+RelOptInfo *
+make_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
+				  PathTarget *target, bool target_parallel_safe,
+				  Node *havingQual)
+{
+	RelOptInfo *grouped_rel;
+
+	grouped_rel = build_group_rel(root, input_rel);
+
+	/* Set target. */
+	grouped_rel->reltarget = target;
+
+	/*
+	 * If the input relation is not parallel-safe, then the grouped relation
+	 * can't be parallel-safe, either.  Otherwise, it's parallel-safe if the
+	 * target list and HAVING quals are parallel-safe.
+	 */
+	if (input_rel->consider_parallel && target_parallel_safe &&
+		is_parallel_safe(root, (Node *) havingQual))
+		grouped_rel->consider_parallel = true;
+
+	/*
+	 * If the input rel belongs to a single FDW, so does the grouped rel.
+	 */
+	grouped_rel->serverid = input_rel->serverid;
+	grouped_rel->userid = input_rel->userid;
+	grouped_rel->useridiscurrent = input_rel->useridiscurrent;
+	grouped_rel->fdwroutine = input_rel->fdwroutine;
+
+	return grouped_rel;
+}
+
+/*
+ * make_grouped_join_rel
+ *
+ * Create grouped paths for a join rel, where one side of the join already
+ * has grouped paths.
+ */
+static void
+make_grouped_join_rel(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2, RelOptInfo *joinrel,
+					  SpecialJoinInfo *sjinfo, List *restrictlist)
+{
+	RelOptInfo *grouped_rel;
+
+	/* At least one side of the join should have grouped paths, or we have nothing to do. */
+	Assert(rel1->grouped_rel || rel2->grouped_rel);
+
+	/*
+	 * Also build join rels for grouped children.
+	 *
+	 * The paths for grouping at this join rel are generated later, see
+	 * generate_grouped_join_paths.
+	 */
+	Assert(!joinrel->grouped_rel);
+	grouped_rel = build_group_rel(root, joinrel);
+	joinrel->grouped_rel = grouped_rel;
+
+	/*
+	 * It's possible for *both* sides of a join to have grouped paths.
+	 */
+	if (rel1->grouped_rel)
+	{
+		add_new_columns_to_pathtarget(grouped_rel->reltarget,
+									  rel1->grouped_rel->reltarget->exprs);
+		add_new_columns_to_pathtarget(grouped_rel->reltarget,
+									  rel2->reltarget->exprs);
+		populate_joinrel_with_paths(root,
+									rel1->grouped_rel,
+									rel2,
+									grouped_rel,
+									sjinfo,
+									restrictlist);
+	}
+	if (rel2->grouped_rel)
+	{
+		add_new_columns_to_pathtarget(grouped_rel->reltarget,
+									  rel1->reltarget->exprs);
+		add_new_columns_to_pathtarget(grouped_rel->reltarget,
+									  rel2->grouped_rel->reltarget->exprs);
+		populate_joinrel_with_paths(root,
+									rel1,
+									rel2->grouped_rel,
+									grouped_rel,
+									sjinfo,
+									restrictlist);
+	}
+}
+
 
 
 /*

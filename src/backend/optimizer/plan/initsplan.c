@@ -144,20 +144,57 @@ add_base_rels_to_query(PlannerInfo *root, Node *jtnode)
  *	  Add targetlist entries for each var needed in the query's final tlist
  *	  (and HAVING clause, if any) to the appropriate base relations.
  *
- * We mark such vars as needed by "relation 0" to ensure that they will
- * propagate up through all join plan steps.
+ * Vars that are needed in the final target list are marked as needed by
+ * "relation 0", to ensure that they will propagate up through all join and
+ * grouping plan steps. Vars that are needed in aggregate functions are
+' marked as needed by "NEEDED_IN_GROUPING" magic relation.
  */
 void
 build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 {
-	List	   *tlist_vars = pull_var_clause((Node *) final_tlist,
-											 PVC_RECURSE_AGGREGATES |
-											 PVC_RECURSE_WINDOWFUNCS |
-											 PVC_INCLUDE_PLACEHOLDERS);
+	List	   *tlist_vars;
+	ListCell   *lc;
+	ListCell   *lc2;
 
-	if (tlist_vars != NIL)
+	foreach (lc, final_tlist)
 	{
-		add_vars_to_targetlist(root, tlist_vars, bms_make_singleton(0), true);
+		TargetEntry *tle = lfirst_node(TargetEntry, lc);
+
+		if (tle->resjunk)
+		{
+			tlist_vars = pull_var_clause((Node *) tle->expr,
+										 PVC_RECURSE_AGGREGATES |
+										 PVC_RECURSE_WINDOWFUNCS |
+										 PVC_INCLUDE_PLACEHOLDERS);
+			add_vars_to_targetlist(root, tlist_vars,
+								   bms_make_singleton(NEEDED_IN_GROUPING), true);
+		}
+		else
+		{
+			tlist_vars = pull_var_clause((Node *) tle->expr,
+										 PVC_INCLUDE_AGGREGATES |
+										 PVC_RECURSE_WINDOWFUNCS |
+										 PVC_INCLUDE_PLACEHOLDERS);
+			foreach(lc2, tlist_vars)
+			{
+				Expr *expr = (Expr *) lfirst(lc2);
+
+				if (IsA(expr, Aggref) || IsA(expr, GroupingFunc))
+				{
+					List *aggref_vars;
+
+					aggref_vars = pull_var_clause((Node *) expr,
+												  PVC_RECURSE_AGGREGATES |
+												  PVC_RECURSE_WINDOWFUNCS |
+												  PVC_INCLUDE_PLACEHOLDERS);
+					add_vars_to_targetlist(root, aggref_vars,
+										   bms_make_singleton(NEEDED_IN_GROUPING), true);
+				}
+				else
+					add_vars_to_targetlist(root, list_make1(expr), bms_make_singleton(0), true);
+
+			}
+		}
 		list_free(tlist_vars);
 	}
 
@@ -174,7 +211,7 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
 		if (having_vars != NIL)
 		{
 			add_vars_to_targetlist(root, having_vars,
-								   bms_make_singleton(0), true);
+								   bms_make_singleton(NEEDED_IN_GROUPING), true);
 			list_free(having_vars);
 		}
 	}
@@ -186,6 +223,9 @@ build_base_rel_tlists(PlannerInfo *root, List *final_tlist)
  *	  relation's targetlist if not already present, and mark the variable
  *	  as being needed for the indicated join (or for final output if
  *	  where_needed includes "relation 0").
+ *
+ *    where_needed can also include NEEDED_IN_GROUPING, to mean that it's
+ *	  needed to compute aggregates, but possibly not in the final output.
  *
  *	  The list may also contain PlaceHolderVars.  These don't necessarily
  *	  have a single owning relation; we keep their attr_needed info in

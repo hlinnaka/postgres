@@ -36,6 +36,7 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/plancat.h"
+#include "optimizer/planmain.h"
 #include "optimizer/planner.h"
 #include "optimizer/prep.h"
 #include "optimizer/restrictinfo.h"
@@ -72,6 +73,7 @@ join_search_hook_type join_search_hook = NULL;
 static void set_base_rel_consider_startup(PlannerInfo *root);
 static void set_base_rel_sizes(PlannerInfo *root);
 static void set_base_rel_pathlists(PlannerInfo *root);
+static void set_base_rel_groupings(PlannerInfo *root);
 static void set_rel_size(PlannerInfo *root, RelOptInfo *rel,
 			 Index rti, RangeTblEntry *rte);
 static void set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
@@ -178,6 +180,11 @@ make_one_rel(PlannerInfo *root, List *joinlist)
 	 */
 	set_base_rel_sizes(root);
 	set_base_rel_pathlists(root);
+
+	/*
+	 * Generate paths that implement grouping directly on top of base rels.
+	 */
+	set_base_rel_groupings(root);
 
 	/*
 	 * Generate access paths for the entire join tree.
@@ -308,6 +315,33 @@ set_base_rel_pathlists(PlannerInfo *root)
 			continue;
 
 		set_rel_pathlist(root, rel, rti, root->simple_rte_array[rti]);
+	}
+}
+
+/*
+ * set_base_rel_groupings
+ *	  Generate paths to perform grouping for each base relation.
+ */
+static void
+set_base_rel_groupings(PlannerInfo *root)
+{
+	Index		rti;
+
+	for (rti = 1; rti < root->simple_rel_array_size; rti++)
+	{
+		RelOptInfo *rel = root->simple_rel_array[rti];
+
+		/* there may be empty slots corresponding to non-baserel RTEs */
+		if (rel == NULL)
+			continue;
+
+		Assert(rel->relid == rti);	/* sanity check on array */
+
+		/* ignore RTEs that are "other rels" */
+		if (rel->reloptkind != RELOPT_BASEREL)
+			continue;
+
+		set_rel_grouping(root, rel);
 	}
 }
 
@@ -2676,6 +2710,103 @@ make_rel_from_joinlist(PlannerInfo *root, List *joinlist)
 }
 
 /*
+ * set_rel_grouping
+ *	  Generate grouping paths for a relation
+ */
+void
+set_rel_grouping(PlannerInfo *root, RelOptInfo *rel)
+{
+	PathTarget *final_target;
+	PathTarget *scanjoin_target;
+	List	   *scanjoin_targets;
+	List	   *scanjoin_targets_contain_srfs;
+	bool		scanjoin_target_parallel_safe;
+	bool		scanjoin_target_same_exprs;
+	PathTarget *grouping_target;
+	bool		grouping_target_parallel_safe;
+
+	/* If there's no GROUP BY or aggregates, nothing to do. */
+	if (!root->have_grouping)
+		return;
+
+	/*
+	 * XXX: for testing: always do grouping at the lowest available level.
+	 * So if we already computed grouped paths, where the grouping was
+	 * done at a lower level, use those paths.
+	 */
+	if (rel->grouped_rel)
+		return;
+
+	/*
+	 * Can we apply the GROUPing on this rel?
+	 */
+	if (!is_grouping_computable_at_rel(root, rel))
+		return;
+
+	/*
+	 * Construct a target list for the scan/join below the GROUPing,
+	 * as well as for the grouping rel itself.
+	 */
+	final_target = create_pathtarget(root, root->processed_tlist);
+	scanjoin_target = make_group_input_target(root, rel);
+	scanjoin_target_parallel_safe =
+		is_parallel_safe(root, (Node *) scanjoin_target->exprs);
+
+	grouping_target = make_grouping_target(root, rel, scanjoin_target, final_target);
+	grouping_target_parallel_safe =
+		is_parallel_safe(root, (Node *) grouping_target->exprs);
+
+	if (root->parse->hasTargetSRFs)
+	{
+		/* scanjoin_target will not have any SRFs precomputed for it */
+		split_pathtarget_at_srfs(root, scanjoin_target, NULL,
+								 &scanjoin_targets,
+								 &scanjoin_targets_contain_srfs);
+		scanjoin_target = linitial_node(PathTarget, scanjoin_targets);
+		Assert(!linitial_int(scanjoin_targets_contain_srfs));
+	}
+	else
+	{
+		scanjoin_targets = list_make1(scanjoin_target);
+		scanjoin_targets_contain_srfs = NIL;
+	}
+
+	scanjoin_target_same_exprs = list_length(scanjoin_targets) == 1
+		&& equal(scanjoin_target->exprs, rel->reltarget->exprs);
+	apply_scanjoin_target_to_paths(root,
+								   rel,
+								   scanjoin_targets,
+								   scanjoin_targets_contain_srfs,
+								   scanjoin_target_parallel_safe,
+								   scanjoin_target_same_exprs);
+
+	/*
+	 * Create grouping relation to hold fully aggregated grouping and/or
+	 * aggregation paths.
+	 */
+	if (!rel->grouped_rel)
+	{
+		rel->grouped_rel = make_grouping_rel(root, rel, grouping_target,
+										grouping_target_parallel_safe,
+										root->parse->havingQual);
+	}
+
+	/* We can apply grouping here. Construct Paths on */
+	create_grouping_paths(root,
+						  rel,
+						  rel->grouped_rel,
+						  grouping_target,
+						  grouping_target_parallel_safe,
+						  root->agg_costs,
+						  root->gd);
+
+#if 0
+	elog(NOTICE, "input: %s", nodeToString(scanjoin_target));
+	elog(NOTICE, "group: %s", nodeToString(grouping_target));
+#endif
+}
+
+/*
  * standard_join_search
  *	  Find possible joinpaths for a query by successively finding ways
  *	  to join component relations into join relations.
@@ -2757,6 +2888,9 @@ standard_join_search(PlannerInfo *root, int levels_needed, List *initial_rels)
 
 			/* Create paths for partitionwise joins. */
 			generate_partitionwise_join_paths(root, rel);
+
+			/* Create paths for groupings. */
+			generate_grouped_join_paths(root, rel);
 
 			/*
 			 * Except for the topmost scan/join rel, consider gathering
@@ -3582,6 +3716,27 @@ generate_partitionwise_join_paths(PlannerInfo *root, RelOptInfo *rel)
 }
 
 
+/*
+ * generate_grouped_join_paths
+ * 		Create paths representing GROUP BY / aggregation over join rel.
+ */
+void
+generate_grouped_join_paths(PlannerInfo *root, RelOptInfo *rel)
+{
+	if (!root->have_grouping)
+		return;
+
+	/* Handle only join relations here. */
+	if (!IS_JOIN_REL(rel))
+		return;
+
+	/* Guard against stack overflow due to overly deep partition hierarchy. */
+	check_stack_depth();
+
+	set_rel_grouping(root, rel);
+}
+
+
 /*****************************************************************************
  *			DEBUG SUPPORT
  *****************************************************************************/
@@ -3877,6 +4032,13 @@ debug_print_rel(PlannerInfo *root, RelOptInfo *rel)
 		print_path(root, rel->cheapest_total_path, 1);
 	}
 	printf("\n");
+
+	if (rel->grouped_rel)
+	{
+		printf("GROUPED ");
+		debug_print_rel(root, rel->grouped_rel);
+	}
+
 	fflush(stdout);
 }
 

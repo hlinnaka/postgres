@@ -220,10 +220,10 @@ process_jointree(PlannerInfo *root, List *tlist)
 /*
  * query_planner
  *	  Generate paths (that is, simplified plans) for a basic query,
- *	  which may involve joins but not any fancier features.
+ *	  which may involve joins and grouping, but not any fancier features.
  *
- * Since query_planner does not handle the toplevel processing (grouping,
- * sorting, etc) it cannot select the best path by itself.  Instead, it
+ * Since query_planner does not handle the toplevel processing (sorting,
+ * etc) it cannot select the best path by itself.  Instead, it
  * returns the RelOptInfo for the top level of joining, and the caller
  * (grouping_planner) can choose among the surviving paths for the rel.
  *
@@ -267,6 +267,16 @@ query_planner(PlannerInfo *root)
 		/* Select cheapest path (pretty easy in this case...) */
 		set_cheapest(final_rel);
 
+		/*
+		 * If there is grouping/aggregation (i.e. something like "SELECT COUNT(*);"),
+		 * add an Agg node on top of the Result.
+		 */
+		if (root->have_grouping)
+		{
+			set_rel_grouping(root, final_rel);
+			final_rel = final_rel->grouped_rel;
+		}
+
 		return final_rel;
 	}
 
@@ -279,6 +289,18 @@ query_planner(PlannerInfo *root)
 	if (!final_rel || !final_rel->cheapest_total_path ||
 		final_rel->cheapest_total_path->param_info != NULL)
 		elog(ERROR, "failed to construct the join relation");
+
+	/*
+	 * If there is grouping and/or aggregation involved, return the
+	 * grouped plan.
+	 */
+	if (root->have_grouping)
+	{
+		if (!final_rel->grouped_rel)
+			elog(ERROR, "grouping query, but no grouping node was created as part of scan/join planning");
+
+		final_rel = final_rel->grouped_rel;
+	}
 
 	return final_rel;
 }

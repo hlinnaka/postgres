@@ -1106,6 +1106,62 @@ PartitionSchemeData object.  This reduces memory consumed by
 PartitionSchemeData objects and makes it easy to compare the partition schemes
 of joining relations.
 
+Grouping
+--------
+
+If the query involves GROUP BY or aggregates, grouping is considered together with
+scans and joins. Grouping can always be performed on top of all the Joins, but
+sometimes it can be performed before joining all the relations. For example:
+
+SELECT t1.a, count(*) FROM t1, t2 WHERE t1.a = t2.x
+GROUP BY t1.a
+
+The most straightforward plan might look like this:
+
+ Aggregate
+   ->  Join
+         ->  Seq Scan on t1
+         ->  Seq Scan on t2
+
+But under some circumstances, the Aggregate can be performed before the join, like
+this:
+
+ Join
+   ->  Aggregate
+         ->  Seq Scan on t1
+   ->  Seq Scan on t2
+
+This transformation is only safe, if we can prove that performing the Join doesn't
+introduce any new rows that would need to be passed to the aggregate functions.
+The conditions for this are called "Invariant Grouping". A grouping is invariant
+in respect of a join node 'n', if:
+
+Definition 3.1:
+A node n of a given left-deep tree has the invariant grouping property if the following conditions are true:
+1. Every aggregating column of the query is a candidate aggregating column of n.
+2. Every join column of n is also a grouping column of the query.
+3. For every join-node that is an ancestor of n, the join is an equijoin predicate on a foreign key column of n.
+
+
+In the dynamic programming algorithm, when we build the join relations, we also
+consider performing Aggregation at each join relation. However, it is not always
+a win to perform the Aggregation at the lowest possible join. Performing a join
+first might eliminate a lot of rows, avoiding the cost of doing the aggregation
+for the eliminated rows. Therefore, we build both aggregated and non-aggregated
+Paths for each join relation.
+
+
+
+This approach is explained in papers:
+
+Optimizing Queries with aggregate Views, by Surajit Chaudhuri an
+block-level encryption.
+  https://pdfs.semanticscholar.org/f205/625ca2c066985303e74fa4da9cde430eb725.pdf
+
+Including Group-By in Query Optimization
+  https://pdfs.semanticscholar.org/3079/5447cec18753254edbbd7839f0afa58b2a39.pdf
+
+
 Partition-wise aggregates/grouping
 ----------------------------------
 

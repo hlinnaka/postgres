@@ -61,10 +61,14 @@ extern void create_partial_bitmap_paths(PlannerInfo *root, RelOptInfo *rel,
 							Path *bitmapqual);
 extern void generate_partitionwise_join_paths(PlannerInfo *root,
 								  RelOptInfo *rel);
+extern void generate_grouped_join_paths(PlannerInfo *root,
+								  RelOptInfo *rel);
 
 #ifdef OPTIMIZER_DEBUG
 extern void debug_print_rel(PlannerInfo *root, RelOptInfo *rel);
 #endif
+
+extern void set_rel_grouping(PlannerInfo *root, RelOptInfo *rel);
 
 /*
  * indxpath.c
@@ -110,6 +114,9 @@ extern void add_paths_to_joinrel(PlannerInfo *root, RelOptInfo *joinrel,
 extern void join_search_one_level(PlannerInfo *root, int level);
 extern RelOptInfo *make_join_rel(PlannerInfo *root,
 			  RelOptInfo *rel1, RelOptInfo *rel2);
+extern RelOptInfo *make_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
+				  PathTarget *target, bool target_parallel_safe,
+				  Node *havingQual);
 extern bool have_join_order_restriction(PlannerInfo *root,
 							RelOptInfo *rel1, RelOptInfo *rel2);
 extern bool have_dangerous_phv(PlannerInfo *root,
@@ -123,12 +130,17 @@ extern bool have_partkey_equi_join(RelOptInfo *joinrel,
  * aggpath.c
  *	  routines to create grouping paths
  */
-extern RelOptInfo *create_grouping_paths(PlannerInfo *root,
+extern void create_grouping_paths(PlannerInfo *root,
 					  RelOptInfo *input_rel,
+					  RelOptInfo *grouped_rel,
 					  PathTarget *target,
 					  bool target_parallel_safe,
 					  const AggClauseCosts *agg_costs,
-										 grouping_sets_data *gd);
+										 struct grouping_sets_data *gd);
+extern PathTarget *make_group_input_target(PlannerInfo *root, RelOptInfo *rel);
+extern PathTarget *make_grouping_target(PlannerInfo *root, RelOptInfo *rel, PathTarget *input_target, PathTarget *final_target);
+extern bool is_grouping_computable_at_rel(PlannerInfo *root, RelOptInfo *rel);
+
 extern List *remap_to_groupclause_idx(List *groupClause, List *gsets,
 						 int *tleref_to_colnum_map);
 
@@ -228,6 +240,14 @@ extern List *build_join_pathkeys(PlannerInfo *root,
 extern List *make_pathkeys_for_sortclauses(PlannerInfo *root,
 							  List *sortclauses,
 							  List *tlist);
+extern PathKey *make_pathkey_from_sortop(PlannerInfo *root,
+						 Expr *expr,
+						 Relids nullable_relids,
+						 Oid ordering_op,
+						 bool nulls_first,
+						 Index sortref,
+						 bool create_it);
+
 extern void initialize_mergeclause_eclasses(PlannerInfo *root,
 								RestrictInfo *restrictinfo);
 extern void update_mergeclause_eclasses(PlannerInfo *root,

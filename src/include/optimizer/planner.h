@@ -61,4 +61,12 @@ extern grouping_sets_data *preprocess_grouping_sets(PlannerInfo *root);
 extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 extern int	plan_create_index_workers(Oid tableOid, Oid indexOid);
 
+extern void
+apply_scanjoin_target_to_paths(PlannerInfo *root,
+							   RelOptInfo *rel,
+							   List *scanjoin_targets,
+							   List *scanjoin_targets_contain_srfs,
+							   bool scanjoin_target_parallel_safe,
+							   bool tlist_same_exprs);
+
 #endif							/* PLANNER_H */

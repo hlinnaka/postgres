@@ -236,6 +236,9 @@ typedef struct PlannerInfo
 	List	   *join_rel_list;	/* list of join-relation RelOptInfos */
 	struct HTAB *join_rel_hash; /* optional hashtable for join relations */
 
+	struct PathTarget *final_target;
+	Relids		agg_relids;
+
 	/*
 	 * When doing a dynamic-programming-style join search, join_rel_level[k]
 	 * is a list of all join-relation RelOptInfos of level k, and
@@ -281,6 +284,10 @@ typedef struct PlannerInfo
 	List	   *query_pathkeys; /* desired pathkeys for query_planner() */
 
 	List	   *group_pathkeys; /* groupClause pathkeys, if any */
+
+	List	   *group_ecs;		/* groupClause equivalence classes, one for each groupClause item */
+	List	   *group_sortrefs; /* sortrefs, for each entry in group_ecs */
+
 	List	   *window_pathkeys;	/* pathkeys of bottom window, if any */
 	List	   *distinct_pathkeys;	/* distinctClause pathkeys, if any */
 	List	   *sort_pathkeys;	/* sortClause pathkeys, if any */
@@ -289,6 +296,11 @@ typedef struct PlannerInfo
 								 * query. */
 
 	List	   *initial_rels;	/* RelOptInfos we are now trying to join */
+
+	AggClauseCosts *agg_costs;
+	struct grouping_sets_data *gd;
+
+	bool		have_grouping;
 
 	/* Use fetch_upper_rel() to get any particular upper rel */
 	List	   *upper_rels[UPPERREL_FINAL + 1]; /* upper-rel RelOptInfos */
@@ -609,6 +621,20 @@ typedef enum RelOptKind
 	 (rel)->reloptkind == RELOPT_OTHER_JOINREL || \
 	 (rel)->reloptkind == RELOPT_OTHER_UPPER_REL)
 
+/*
+ * NEEDED_IN_GROUPING is a magic range table index used in 'attr_needed',
+ * to indicate that an attribute is needed to compute an Aggregate, ie.
+ * is used as an argument to an aggregate function. It's similar to the
+ * magic '0' value used to indicate that an attribute is needed by the
+ * final target list.
+ *
+ * XXX: obviously 1000 won't work when you have 1000 relations in a query.
+ * I think we'll need to offset the bitmaps by some constant, to make room
+ * for more this magic value. (too bad that Bitmapset doesn't support
+ * negative values)
+ */
+#define NEEDED_IN_GROUPING 1000
+
 typedef struct RelOptInfo
 {
 	NodeTag		type;
@@ -637,6 +663,8 @@ typedef struct RelOptInfo
 	struct Path *cheapest_total_path;
 	struct Path *cheapest_unique_path;
 	List	   *cheapest_parameterized_paths;
+
+	struct RelOptInfo *grouped_rel;
 
 	/* parameterization information needed for both base rels and join rels */
 	/* (see also lateral_vars and lateral_referencers) */
@@ -2430,7 +2458,7 @@ typedef struct JoinCostWorkspace
  * Data specific to grouping sets
  */
 
-typedef struct
+typedef struct grouping_sets_data
 {
 	List	   *rollups;
 	List	   *hash_sets_idx;

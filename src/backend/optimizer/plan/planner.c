@@ -129,8 +129,6 @@ static RelOptInfo *create_ordered_paths(PlannerInfo *root,
 					 PathTarget *target,
 					 bool target_parallel_safe,
 					 double limit_tuples);
-static PathTarget *make_group_input_target(PlannerInfo *root,
-						PathTarget *final_target);
 static List *postprocess_setop_tlist(List *new_tlist, List *orig_tlist);
 static List *select_active_windows(PlannerInfo *root, WindowFuncLists *wflists);
 static PathTarget *make_window_input_target(PlannerInfo *root,
@@ -143,15 +141,11 @@ static PathTarget *make_sort_input_target(PlannerInfo *root,
 					   bool *have_postponed_srfs);
 static void adjust_paths_for_srfs(PlannerInfo *root, RelOptInfo *rel,
 					  List *targets, List *targets_contain_srfs);
-static void apply_scanjoin_target_to_paths(PlannerInfo *root,
-							   RelOptInfo *rel,
-							   List *scanjoin_targets,
-							   List *scanjoin_targets_contain_srfs,
-							   bool scanjoin_target_parallel_safe,
-							   bool tlist_same_exprs);
 static List *extract_rollup_sets(List *groupingSets);
 static List *reorder_grouping_sets(List *groupingSets, List *sortclause);
-
+static void slice_n_dice_targetlist(PlannerInfo *root,
+						List *tlist,
+						List *activeWindows);
 
 /*****************************************************************************
  *
@@ -1687,15 +1681,11 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		List	   *sort_input_targets;
 		List	   *sort_input_targets_contain_srfs;
 		bool		sort_input_target_parallel_safe;
-		PathTarget *grouping_target;
-		List	   *grouping_targets;
-		List	   *grouping_targets_contain_srfs;
-		bool		grouping_target_parallel_safe;
-		PathTarget *scanjoin_target;
-		List	   *scanjoin_targets;
-		List	   *scanjoin_targets_contain_srfs;
-		bool		scanjoin_target_parallel_safe;
-		bool		scanjoin_target_same_exprs;
+		PathTarget *scanjoingrouping_target;
+		List	   *scanjoingrouping_targets;
+		List	   *scanjoingrouping_targets_contain_srfs;
+		bool		scanjoingrouping_target_parallel_safe;
+		bool		scanjoingrouping_target_same_exprs;
 		bool		have_grouping;
 		AggClauseCosts agg_costs;
 		WindowFuncLists *wflists = NULL;
@@ -1716,6 +1706,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			if (parse->groupClause)
 				parse->groupClause = preprocess_groupclause(root, NIL);
 		}
+		root->gd = gset_data;
 
 		/* Preprocess targetlist */
 		tlist = preprocess_targetlist(root);
@@ -1750,6 +1741,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			get_agg_clause_costs(root, parse->havingQual, AGGSPLIT_SIMPLE,
 								 &agg_costs);
 		}
+		root->agg_costs = &agg_costs;
 
 		/*
 		 * Locate any window functions in the tlist.  (We don't need to look
@@ -1808,6 +1800,12 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 						 ? (gset_data->rollups ? linitial_node(RollupData, gset_data->rollups)->groupClause : NIL)
 						 : parse->groupClause);
 
+		have_grouping = (parse->groupClause || parse->groupingSets ||
+						 parse->hasAggs || root->hasHavingQual);
+		root->have_grouping = have_grouping;
+
+		slice_n_dice_targetlist(root, tlist, activeWindows);
+
 		/*
 		 * Generate the best unsorted and presorted paths for the scan/join
 		 * portion of this Query, ie the processing represented by the
@@ -1822,7 +1820,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		 * because the target width estimates can use per-Var width numbers
 		 * that were obtained within process_jointree().
 		 */
-		final_target = create_pathtarget(root, tlist);
+		final_target = root->final_target;
 		final_target_parallel_safe =
 			is_parallel_safe(root, (Node *) final_target->exprs);
 
@@ -1852,35 +1850,16 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		 */
 		if (activeWindows)
 		{
-			grouping_target = make_window_input_target(root,
-													   final_target,
-													   activeWindows);
-			grouping_target_parallel_safe =
-				is_parallel_safe(root, (Node *) grouping_target->exprs);
+			scanjoingrouping_target = make_window_input_target(root,
+															   final_target,
+															   activeWindows);
+			scanjoingrouping_target_parallel_safe =
+				is_parallel_safe(root, (Node *) scanjoingrouping_target->exprs);
 		}
 		else
 		{
-			grouping_target = sort_input_target;
-			grouping_target_parallel_safe = sort_input_target_parallel_safe;
-		}
-
-		/*
-		 * If we have grouping or aggregation to do, the topmost scan/join
-		 * plan node must emit what the grouping step wants; otherwise, it
-		 * should emit grouping_target.
-		 */
-		have_grouping = (parse->groupClause || parse->groupingSets ||
-						 parse->hasAggs || root->hasHavingQual);
-		if (have_grouping)
-		{
-			scanjoin_target = make_group_input_target(root, final_target);
-			scanjoin_target_parallel_safe =
-				is_parallel_safe(root, (Node *) grouping_target->exprs);
-		}
-		else
-		{
-			scanjoin_target = grouping_target;
-			scanjoin_target_parallel_safe = grouping_target_parallel_safe;
+			scanjoingrouping_target = sort_input_target;
+			scanjoingrouping_target_parallel_safe = sort_input_target_parallel_safe;
 		}
 
 		/*
@@ -1898,41 +1877,56 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 			final_target = linitial_node(PathTarget, final_targets);
 			Assert(!linitial_int(final_targets_contain_srfs));
 			/* likewise for sort_input_target vs. grouping_target */
-			split_pathtarget_at_srfs(root, sort_input_target, grouping_target,
+			split_pathtarget_at_srfs(root, sort_input_target, scanjoingrouping_target,
 									 &sort_input_targets,
 									 &sort_input_targets_contain_srfs);
 			sort_input_target = linitial_node(PathTarget, sort_input_targets);
 			Assert(!linitial_int(sort_input_targets_contain_srfs));
 			/* likewise for grouping_target vs. scanjoin_target */
-			split_pathtarget_at_srfs(root, grouping_target, scanjoin_target,
-									 &grouping_targets,
-									 &grouping_targets_contain_srfs);
-			grouping_target = linitial_node(PathTarget, grouping_targets);
-			Assert(!linitial_int(grouping_targets_contain_srfs));
-			/* scanjoin_target will not have any SRFs precomputed for it */
-			split_pathtarget_at_srfs(root, scanjoin_target, NULL,
-									 &scanjoin_targets,
-									 &scanjoin_targets_contain_srfs);
-			scanjoin_target = linitial_node(PathTarget, scanjoin_targets);
-			Assert(!linitial_int(scanjoin_targets_contain_srfs));
+			split_pathtarget_at_srfs(root, scanjoingrouping_target, current_rel->reltarget,
+									 &scanjoingrouping_targets,
+									 &scanjoingrouping_targets_contain_srfs);
+			scanjoingrouping_target = linitial_node(PathTarget, scanjoingrouping_targets);
+			Assert(!linitial_int(scanjoingrouping_targets_contain_srfs));
 		}
 		else
 		{
 			/* initialize lists; for most of these, dummy values are OK */
 			final_targets = final_targets_contain_srfs = NIL;
 			sort_input_targets = sort_input_targets_contain_srfs = NIL;
-			grouping_targets = grouping_targets_contain_srfs = NIL;
-			scanjoin_targets = list_make1(scanjoin_target);
-			scanjoin_targets_contain_srfs = NIL;
+			scanjoingrouping_targets = list_make1(scanjoingrouping_target);
+			scanjoingrouping_targets_contain_srfs = NIL;
 		}
 
-		/* Apply scan/join target. */
-		scanjoin_target_same_exprs = list_length(scanjoin_targets) == 1
-			&& equal(scanjoin_target->exprs, current_rel->reltarget->exprs);
-		apply_scanjoin_target_to_paths(root, current_rel, scanjoin_targets,
-									   scanjoin_targets_contain_srfs,
-									   scanjoin_target_parallel_safe,
-									   scanjoin_target_same_exprs);
+		/*
+		 * We might have MIN/MAX paths stashed in UPPERREL_GROUP_AGG.
+		 * Merge them into the current rel.
+		 */
+		if (have_grouping)
+		{
+			RelOptInfo *grouped_rel;
+
+			grouped_rel = fetch_upper_rel(root, UPPERREL_GROUP_AGG, NULL);
+
+			foreach(lc, current_rel->pathlist)
+			{
+				Path	   *path = (Path *) lfirst(lc);
+
+				path->parent = grouped_rel;
+				add_path(grouped_rel, path);
+			}
+
+			set_cheapest(grouped_rel);
+			current_rel = grouped_rel;
+		}
+
+		/* Apply scan/join/grouping target. */
+		scanjoingrouping_target_same_exprs = list_length(scanjoingrouping_targets) == 1
+			&& equal(scanjoingrouping_target->exprs, current_rel->reltarget->exprs);
+		apply_scanjoin_target_to_paths(root, current_rel, scanjoingrouping_targets,
+											   scanjoingrouping_targets_contain_srfs,
+											   scanjoingrouping_target_parallel_safe,
+											   scanjoingrouping_target_same_exprs);
 
 		/*
 		 * Save the various upper-rel PathTargets we just computed into
@@ -1943,27 +1937,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		 */
 		root->upper_targets[UPPERREL_FINAL] = final_target;
 		root->upper_targets[UPPERREL_WINDOW] = sort_input_target;
-		root->upper_targets[UPPERREL_GROUP_AGG] = grouping_target;
-
-		/*
-		 * If we have grouping and/or aggregation, consider ways to implement
-		 * that.  We build a new upperrel representing the output of this
-		 * phase.
-		 */
-		if (have_grouping)
-		{
-			current_rel = create_grouping_paths(root,
-												current_rel,
-												grouping_target,
-												grouping_target_parallel_safe,
-												&agg_costs,
-												gset_data);
-			/* Fix things up if grouping_target contains SRFs */
-			if (parse->hasTargetSRFs)
-				adjust_paths_for_srfs(root, current_rel,
-									  grouping_targets,
-									  grouping_targets_contain_srfs);
-		}
+		root->upper_targets[UPPERREL_GROUP_AGG] = scanjoingrouping_target;
 
 		/*
 		 * If we have window functions, consider ways to implement those.  We
@@ -1973,7 +1947,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		{
 			current_rel = create_window_paths(root,
 											  current_rel,
-											  grouping_target,
+											  scanjoingrouping_target,
 											  sort_input_target,
 											  sort_input_target_parallel_safe,
 											  tlist,
@@ -3941,105 +3915,6 @@ create_ordered_paths(PlannerInfo *root,
 	return ordered_rel;
 }
 
-
-/*
- * make_group_input_target
- *	  Generate appropriate PathTarget for initial input to grouping nodes.
- *
- * If there is grouping or aggregation, the scan/join subplan cannot emit
- * the query's final targetlist; for example, it certainly can't emit any
- * aggregate function calls.  This routine generates the correct target
- * for the scan/join subplan.
- *
- * The query target list passed from the parser already contains entries
- * for all ORDER BY and GROUP BY expressions, but it will not have entries
- * for variables used only in HAVING clauses; so we need to add those
- * variables to the subplan target list.  Also, we flatten all expressions
- * except GROUP BY items into their component variables; other expressions
- * will be computed by the upper plan nodes rather than by the subplan.
- * For example, given a query like
- *		SELECT a+b,SUM(c+d) FROM table GROUP BY a+b;
- * we want to pass this targetlist to the subplan:
- *		a+b,c,d
- * where the a+b target will be used by the Sort/Group steps, and the
- * other targets will be used for computing the final results.
- *
- * 'final_target' is the query's final target list (in PathTarget form)
- *
- * The result is the PathTarget to be computed by the Paths returned from
- * query_planner().
- */
-static PathTarget *
-make_group_input_target(PlannerInfo *root, PathTarget *final_target)
-{
-	Query	   *parse = root->parse;
-	PathTarget *input_target;
-	List	   *non_group_cols;
-	List	   *non_group_vars;
-	int			i;
-	ListCell   *lc;
-
-	/*
-	 * We must build a target containing all grouping columns, plus any other
-	 * Vars mentioned in the query's targetlist and HAVING qual.
-	 */
-	input_target = create_empty_pathtarget();
-	non_group_cols = NIL;
-
-	i = 0;
-	foreach(lc, final_target->exprs)
-	{
-		Expr	   *expr = (Expr *) lfirst(lc);
-		Index		sgref = get_pathtarget_sortgroupref(final_target, i);
-
-		if (sgref && parse->groupClause &&
-			get_sortgroupref_clause_noerr(sgref, parse->groupClause) != NULL)
-		{
-			/*
-			 * It's a grouping column, so add it to the input target as-is.
-			 */
-			add_column_to_pathtarget(input_target, expr, sgref);
-		}
-		else
-		{
-			/*
-			 * Non-grouping column, so just remember the expression for later
-			 * call to pull_var_clause.
-			 */
-			non_group_cols = lappend(non_group_cols, expr);
-		}
-
-		i++;
-	}
-
-	/*
-	 * If there's a HAVING clause, we'll need the Vars it uses, too.
-	 */
-	if (parse->havingQual)
-		non_group_cols = lappend(non_group_cols, parse->havingQual);
-
-	/*
-	 * Pull out all the Vars mentioned in non-group cols (plus HAVING), and
-	 * add them to the input target if not already present.  (A Var used
-	 * directly as a GROUP BY item will be present already.)  Note this
-	 * includes Vars used in resjunk items, so we are covering the needs of
-	 * ORDER BY and window specifications.  Vars used within Aggrefs and
-	 * WindowFuncs will be pulled out here, too.
-	 */
-	non_group_vars = pull_var_clause((Node *) non_group_cols,
-									 PVC_RECURSE_AGGREGATES |
-									 PVC_RECURSE_WINDOWFUNCS |
-									 PVC_INCLUDE_PLACEHOLDERS);
-	add_new_columns_to_pathtarget(input_target, non_group_vars);
-
-	/* clean up cruft */
-	list_free(non_group_vars);
-	list_free(non_group_cols);
-
-	/* XXX this causes some redundant cost calculation ... */
-	return set_pathtarget_cost_width(root, input_target);
-}
-
 /*
  * mark_partial_aggref
  *	  Adjust an Aggref to make it represent a partial-aggregation step.
@@ -5020,7 +4895,7 @@ done:
 /*
  * apply_scanjoin_target_to_paths
  *
- * Adjust the final scan/join relation, and recursively all of its children,
+ * Adjust the final scan/join relation, and recursively all of its children (if partitioned),
  * to generate the final scan/join target.  It would be more correct to model
  * this as a separate planning step with a new RelOptInfo at the toplevel and
  * for each child relation, but doing it this way is noticeably cheaper.
@@ -5031,7 +4906,7 @@ done:
  * appropriate sortgroupref information.  By avoiding the creation of
  * projection paths we save effort both immediately and at plan creation time.
  */
-static void
+void
 apply_scanjoin_target_to_paths(PlannerInfo *root,
 							   RelOptInfo *rel,
 							   List *scanjoin_targets,
@@ -5123,9 +4998,10 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 		Path	   *subpath = (Path *) lfirst(lc);
 		Path	   *newpath;
 
-		Assert(subpath->param_info == NULL);
+		//Assert(subpath->param_info == NULL);
 
-		if (tlist_same_exprs)
+		if (tlist_same_exprs &&
+			equal(scanjoin_target->exprs, subpath->pathtarget->exprs))
 			subpath->pathtarget->sortgrouprefs =
 				scanjoin_target->sortgrouprefs;
 		else
@@ -5143,7 +5019,7 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 		Path	   *newpath;
 
 		/* Shouldn't have any parameterized paths anymore */
-		Assert(subpath->param_info == NULL);
+		//Assert(subpath->param_info == NULL);
 
 		if (tlist_same_exprs)
 			subpath->pathtarget->sortgrouprefs =
@@ -5234,4 +5110,246 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 	 * this relation.
 	 */
 	set_cheapest(rel);
+}
+
+
+/*
+ *
+ *
+ */
+static void
+slice_n_dice_targetlist(PlannerInfo *root,
+						List *tlist,
+						List *activeWindows)
+{
+	Query	   *parse = root->parse;
+	PathTarget *final_target;
+	ListCell   *lc;
+	List	   *processed_tlist = NIL;
+	int			resno;
+	Bitmapset  *agg_relids;
+	List	   *l;
+
+	/*
+	 * Take the original target list.
+	 *
+	 * Extract junk entries.
+	 *
+	 * 1. "final" target list. What the user actually entered in SELECT. In case
+	 *    of an UPDATE, can also contain junk columns like ctid.
+	 * 2. "sort input" target list. Needed to evaluate ORDER BY
+	 * 3. "window input" target list. Needed to evaluate window functions
+	 * 4. "grouping input" target list. Needed to evaluate GROUP BY
+	 *
+	 * Below that, each scan/join node contains a target list, containing only Vars.
+	 * and only those Vars needed by the upper tlists.
+	 */
+
+
+	/*
+	 * The grouping input is a bit tricky. It needs to include all columns needed by
+	 * the upper rels.
+	 *
+	 * There's a distinction between expressions listed in GROUP BY, and those passed
+	 * as arguments to aggregates, or those that appear in HAVING. For the purposes
+	 * of computing the grouping, we can take advantage of equivalence classes, and
+	 * substitute a GROUP BY expression with any member in the same equivalence class.
+	 * For example, these produce the same result:
+	 *
+	 * SELECT COUNT(*) FROM t1, t2 WHERE t1.key = t2.key GROUP BY t1.key
+	 *
+	 * SELECT COUNT(*) FROM t1, t2 WHERE t1.key = t2.key GROUP BY t2.key
+	 *
+	 * However, these might not:
+	 *
+	 * SELECT string_agg(t1.key) FROM t1, t2 WHERE t1.key = t2.key GROUP BY t1.key
+	 * SELECT string_agg(t2.key) FROM t1, t2 WHERE t1.key = t2.key GROUP BY t2.key
+	 *
+	 * nor these:
+	 *
+	 * SELECT t1.key FROM t1, t2 WHERE t1.key = t2.key GROUP BY t1.key
+	 * SELECT t2.key FROM t1, t2 WHERE t1.key = t2.key GROUP BY t2.key
+	 *
+	 * To deal with that, the grouping_input contains:
+	 * - all Vars needed above the grouping (e.g. for ORDER BY, or in the final SELECT list)
+	 * - all Vars passed as arguments to aggregates
+	 *
+	 *
+	 * Needed at final:
+	 * - anything mentioned in SELECT clause
+	 *
+	 * Needed at ORDER BY stage:
+	 * - anything mentioned in SELECT clause
+	 * - ORDER BY columns. Their PathKeys.
+	 *
+	 * Needed at GROUP BY stage:
+	 * - anything mentioned in SELECT clause (except aggs)
+	 * - HAVING expressions
+	 * - GROUP BY columns. Their ECs.
+	 * - anything needed to evaluate aggregates
+	 */
+
+	/*
+	 * Divide the targetlist. This removes any GROUP BY columns, that are not
+	 * mentioned explicitly in the SELECT, from the final target list. They
+	 * are needed during the scan/join/group planning, of course, but we'll
+	 * use the EC representation in parse->group_ecs in that stage.
+	 */
+	final_target = create_empty_pathtarget();
+
+	processed_tlist = NIL;
+	resno = 1;
+	foreach(lc, tlist)
+	{
+		TargetEntry *tle = lfirst_node(TargetEntry, lc);
+		bool keepit = false;
+
+		/* all non-junk columns go into the final target list, for sure. */
+		if (!tle->resjunk)
+			keepit = true;
+
+		/* Is it a GROUP BY column? */
+		if (!keepit && tle->ressortgroupref && parse->groupClause &&
+			get_sortgroupref_clause_noerr(tle->ressortgroupref, parse->groupClause) != NULL)
+		{
+			/* Yes. But if it's also in ORDER BY, we have to keep it */
+			if (parse->sortClause &&
+				get_sortgroupref_clause_noerr(tle->ressortgroupref, parse->sortClause) != NULL)
+			{
+				keepit = true;
+			}
+			/* Or in DISTINCT */
+			else if (parse->distinctClause &&
+				get_sortgroupref_clause_noerr(tle->ressortgroupref, parse->distinctClause) != NULL)
+			{
+				keepit = true;
+			}
+			/* Or in window PARTITION/ORDER BY clauses */
+			else
+			{
+				ListCell *lw;
+
+				foreach (lw, activeWindows)
+				{
+					WindowClause *wc = lfirst_node(WindowClause, lw);
+
+					if (wc->partitionClause &&
+						get_sortgroupref_clause_noerr(tle->ressortgroupref, wc->partitionClause) != NULL)
+					{
+						keepit = true;
+						break;
+					}
+					if (wc->orderClause &&
+						get_sortgroupref_clause_noerr(tle->ressortgroupref, wc->orderClause) != NULL)
+					{
+						keepit = true;
+						break;
+					}
+				}
+			}
+		}
+		else
+		{
+			/* not in GROUP BY. Assume it's needed somewhere, then */
+			keepit = true;
+		}
+
+		if (keepit)
+		{
+			add_column_to_pathtarget(final_target, tle->expr, tle->ressortgroupref);
+			processed_tlist = lappend(processed_tlist, tle);
+			Assert(resno == tle->resno);
+			resno++;
+		}
+		else
+		{
+			/* we can leave it out from the final targetlist */
+			/*
+			 * XXX: leaving out entries from the final target list confuses
+			 * the "physical tlist" optimization. Hence, replace them with NULLs instead
+			 */
+			add_column_to_pathtarget(final_target,
+									 (Expr *) makeNullConst(exprType((Node *) tle->expr),
+															exprTypmod((Node *) tle->expr),
+															exprCollation((Node *) tle->expr)),
+									 tle->ressortgroupref);
+			processed_tlist = lappend(processed_tlist, tle);
+			Assert(resno == tle->resno);
+			resno++;
+		}
+	}
+
+	/*
+	 * from standard_qp_callback. But here we process the original groupClause,
+	 * not the grouping sets expanded one.
+	 *
+	 * Calculate ECs to represent grouping/ordering requirements.  The
+	 * sortClause is certainly sort-able, but GROUP BY and DISTINCT might not
+	 * be, in which case we just leave their pathkeys empty.
+	 *
+	 * XXX: deal with non-sortable grouping clause
+	 */
+	if (parse->groupClause)
+	{
+		List	   *ecs = NIL;
+		List	   *sortrefs = NIL;
+		List	   *sortclauses = parse->groupClause;
+		ListCell   *l;
+
+		foreach(l, sortclauses)
+		{
+			SortGroupClause *sortcl = (SortGroupClause *) lfirst(l);
+			Expr	   *sortkey;
+			PathKey    *pathkey;
+			EquivalenceClass *eclass;
+
+			sortkey = (Expr *) get_sortgroupclause_expr(sortcl, tlist);
+
+			if (OidIsValid(sortcl->sortop))
+			{
+				pathkey = make_pathkey_from_sortop(root,
+												   sortkey,
+												   root->nullable_baserels,
+												   sortcl->sortop,
+												   sortcl->nulls_first,
+												   sortcl->tleSortGroupRef,
+												   true);
+				eclass = pathkey->pk_eclass;
+			}
+			else
+			{
+				eclass = NULL;
+			}
+
+			ecs = lappend(ecs, eclass);
+			sortrefs = lappend_int(sortrefs, sortcl->tleSortGroupRef);
+		}
+		root->group_ecs = ecs;
+		root->group_sortrefs = sortrefs;
+	}
+
+	set_pathtarget_cost_width(root, final_target);
+
+	/*
+	 * Compute the minimum set of relations needed to compute aggregates.
+	 */
+	agg_relids = NULL;
+	l = pull_var_clause((Node *) tlist,
+						PVC_INCLUDE_AGGREGATES |
+						PVC_RECURSE_WINDOWFUNCS |
+						PVC_RECURSE_PLACEHOLDERS); /* placeholders? */
+	foreach(lc, l)
+	{
+		Node	   *e = (Node *) lfirst(lc);
+
+		if (IsA(e, Aggref))
+		{
+			agg_relids = bms_join(agg_relids, pull_varnos(e));
+		}
+	}
+
+	root->agg_relids = agg_relids;
+	root->processed_tlist = processed_tlist;
+	root->final_target = final_target;
+	return;
 }

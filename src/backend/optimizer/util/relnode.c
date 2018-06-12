@@ -915,12 +915,23 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 			ndx = 0 - baserel->min_attr;
 		}
 		else
+		{
+			/*
+			 * If this rel is above grouping, then we can have Aggrefs
+			 * and grouping column expressions in the target list. Carry
+			 * them up to the join rel. They will surely be needed at
+			 * the top of the join tree. (Unless they're only used in
+			 * HAVING?)
+			 */
+#if 0
 			elog(ERROR, "unexpected node type in rel targetlist: %d",
 				 (int) nodeTag(var));
-
+#endif
+			baserel = NULL;
+		}
 
 		/* Is the target expression still needed above this joinrel? */
-		if (bms_nonempty_difference(baserel->attr_needed[ndx], relids))
+		if (baserel == NULL || bms_nonempty_difference(baserel->attr_needed[ndx], relids))
 		{
 			/* Yup, add it to the output */
 			joinrel->reltarget->exprs = lappend(joinrel->reltarget->exprs, var);
@@ -930,7 +941,9 @@ build_joinrel_tlist(PlannerInfo *root, RelOptInfo *joinrel,
 			 * if it's a ConvertRowtypeExpr, it will be computed only for the
 			 * base relation, costing nothing for a join.
 			 */
-			joinrel->reltarget->width += baserel->attr_widths[ndx];
+			/* XXX: where to get estimate here if !baserel? */
+			if (baserel)
+				joinrel->reltarget->width += baserel->attr_widths[ndx];
 		}
 	}
 }
@@ -1759,4 +1772,30 @@ build_joinrel_partition_info(RelOptInfo *joinrel, RelOptInfo *outer_rel,
 		joinrel->partexprs[cnt] = partexpr;
 		joinrel->nullable_partexprs[cnt] = nullable_partexpr;
 	}
+}
+
+RelOptInfo *
+build_group_rel(PlannerInfo *root, RelOptInfo *parent)
+{
+	RelOptInfo *grouped_rel;
+
+	grouped_rel = makeNode(RelOptInfo);
+	grouped_rel->reloptkind = parent->reloptkind;
+	grouped_rel->relids = bms_copy(parent->relids);
+	grouped_rel->relids = bms_add_member(grouped_rel->relids, NEEDED_IN_GROUPING);
+
+	/* cheap startup cost is interesting iff not all tuples to be retrieved */
+	grouped_rel->consider_startup = (root->tuple_fraction > 0);
+	grouped_rel->consider_param_startup = false;
+	grouped_rel->consider_parallel = false;	/* might get changed later */
+	grouped_rel->reltarget = create_empty_pathtarget();
+	grouped_rel->pathlist = NIL;
+	grouped_rel->cheapest_startup_path = NULL;
+	grouped_rel->cheapest_total_path = NULL;
+	grouped_rel->cheapest_unique_path = NULL;
+	grouped_rel->cheapest_parameterized_paths = NIL;
+
+	build_joinrel_tlist(root, grouped_rel, parent);
+
+	return grouped_rel;
 }

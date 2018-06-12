@@ -45,9 +45,6 @@
 #include "utils/selfuncs.h"
 #include "utils/syscache.h"
 
-static RelOptInfo *make_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
-				  PathTarget *target, bool target_parallel_safe,
-				  Node *havingQual);
 static bool is_degenerate_grouping(PlannerInfo *root);
 static void create_degenerate_grouping_paths(PlannerInfo *root,
 								 RelOptInfo *input_rel,
@@ -264,24 +261,17 @@ estimate_hashagg_tablesize(Path *path, const AggClauseCosts *agg_costs,
  * Note: all Paths in input_rel are expected to return the target computed
  * by make_group_input_target.
  */
-RelOptInfo *
+void
 create_grouping_paths(PlannerInfo *root,
 					  RelOptInfo *input_rel,
+					  RelOptInfo *grouped_rel,
 					  PathTarget *target,
 					  bool target_parallel_safe,
 					  const AggClauseCosts *agg_costs,
-					  grouping_sets_data *gd)
+					  struct grouping_sets_data *gd)
 {
 	Query	   *parse = root->parse;
-	RelOptInfo *grouped_rel;
 	RelOptInfo *partially_grouped_rel;
-
-	/*
-	 * Create grouping relation to hold fully aggregated grouping and/or
-	 * aggregation paths.
-	 */
-	grouped_rel = make_grouping_rel(root, input_rel, target,
-									target_parallel_safe, parse->havingQual);
 
 	/*
 	 * Create either paths for a degenerate grouping or paths for ordinary
@@ -363,61 +353,6 @@ create_grouping_paths(PlannerInfo *root,
 	}
 
 	set_cheapest(grouped_rel);
-	return grouped_rel;
-}
-
-/*
- * make_grouping_rel
- *
- * Create a new grouping rel and set basic properties.
- *
- * input_rel represents the underlying scan/join relation.
- * target is the output expected from the grouping relation.
- */
-static RelOptInfo *
-make_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
-				  PathTarget *target, bool target_parallel_safe,
-				  Node *havingQual)
-{
-	RelOptInfo *grouped_rel;
-
-	if (IS_OTHER_REL(input_rel))
-	{
-		grouped_rel = fetch_upper_rel(root, UPPERREL_GROUP_AGG,
-									  input_rel->relids);
-		grouped_rel->reloptkind = RELOPT_OTHER_UPPER_REL;
-	}
-	else
-	{
-		/*
-		 * By tradition, the relids set for the main grouping relation is
-		 * NULL.  (This could be changed, but might require adjustments
-		 * elsewhere.)
-		 */
-		grouped_rel = fetch_upper_rel(root, UPPERREL_GROUP_AGG, NULL);
-	}
-
-	/* Set target. */
-	grouped_rel->reltarget = target;
-
-	/*
-	 * If the input relation is not parallel-safe, then the grouped relation
-	 * can't be parallel-safe, either.  Otherwise, it's parallel-safe if the
-	 * target list and HAVING quals are parallel-safe.
-	 */
-	if (input_rel->consider_parallel && target_parallel_safe &&
-		is_parallel_safe(root, (Node *) havingQual))
-		grouped_rel->consider_parallel = true;
-
-	/*
-	 * If the input rel belongs to a single FDW, so does the grouped rel.
-	 */
-	grouped_rel->serverid = input_rel->serverid;
-	grouped_rel->userid = input_rel->userid;
-	grouped_rel->useridiscurrent = input_rel->useridiscurrent;
-	grouped_rel->fdwroutine = input_rel->fdwroutine;
-
-	return grouped_rel;
 }
 
 /*
@@ -1454,10 +1389,12 @@ create_partitionwise_grouping_paths(PlannerInfo *root,
 		 * Create grouping relation to hold fully aggregated grouping and/or
 		 * aggregation paths for the child.
 		 */
+		Assert(!child_input_rel->grouped_rel);
 		child_grouped_rel = make_grouping_rel(root, child_input_rel,
 											  child_target,
 											  extra->target_parallel_safe,
 											  child_extra.havingQual);
+		child_input_rel->grouped_rel = child_grouped_rel;
 
 		/* Ignore empty children. They contribute nothing. */
 		if (IS_DUMMY_REL(child_input_rel))
@@ -1964,4 +1901,467 @@ remap_to_groupclause_idx(List *groupClause,
 	}
 
 	return result;
+}
+
+/*
+ * make_group_input_target
+ *	  Generate appropriate PathTarget for initial input to grouping nodes.
+ *
+ * If there is grouping or aggregation, the scan/join subplan cannot emit
+ * the query's final targetlist; for example, it certainly can't emit any
+ * aggregate function calls.  This routine generates the correct target
+ * for the scan/join subplan.
+ *
+ * The query target list passed from the parser already contains entries
+ * for all ORDER BY and GROUP BY expressions, but it will not have entries
+ * for variables used only in HAVING clauses; so we need to add those
+ * variables to the subplan target list.  Also, we flatten all expressions
+ * except GROUP BY items into their component variables; other expressions
+ * will be computed by the upper plan nodes rather than by the subplan.
+ * For example, given a query like
+ *		SELECT a+b,SUM(c+d) FROM table GROUP BY a+b;
+ * we want to pass this targetlist to the subplan:
+ *		a+b,c,d
+ * where the a+b target will be used by the Sort/Group steps, and the
+ * other targets will be used for computing the final results.
+ *
+ * 'final_target' is the query's final target list (in PathTarget form)
+ *
+ * The result is the PathTarget to be computed by the Paths returned from
+ * query_planner().
+ */
+/*
+ * Adds anything needed to compute HAVING, as well as GROUP BY columns,
+ * to the target list. 'rel' is the relation at which we're evaluating
+ * the grouping.
+ */
+PathTarget *
+make_group_input_target(PlannerInfo *root, RelOptInfo *rel)
+{
+	Query	   *parse = root->parse;
+	PathTarget *final_target = root->final_target;
+	PathTarget *input_target;
+	List	   *non_group_cols;
+	List	   *non_group_vars;
+	int			i;
+	ListCell   *lc;
+	ListCell *lec;
+	ListCell *lsortref;
+
+	/*
+	 * We must build a target containing all grouping columns, plus any other
+	 * Vars mentioned in the query's targetlist and HAVING qual.
+	 */
+	input_target = create_empty_pathtarget();
+	non_group_cols = NIL;
+
+	/*
+	 * Add any grouping columns.
+	 *
+	 * This matters, when we decide to compute the grouping based on a different
+	 * column than is listed in groupClause, which we know to be equivalent.
+	 */
+	forboth(lec, root->group_ecs, lsortref, root->group_sortrefs)
+	{
+		EquivalenceClass *eclass = lfirst_node(EquivalenceClass, lec);
+		int			sgref = lfirst_int(lsortref);
+		Expr	   *expr;
+
+		if (eclass)
+		{
+			expr = find_em_expr_for_rel(eclass, rel);
+			if (!expr)
+				elog(ERROR, "could not find equivalence class member for given relations");
+		}
+		else
+		{
+			expr = get_sortgroupref_tle(sgref, root->processed_tlist)->expr;
+		}
+
+		add_column_to_pathtarget(input_target, expr, sgref);
+	}
+
+	i = 0;
+	foreach(lc, final_target->exprs)
+	{
+		Expr	   *expr = (Expr *) lfirst(lc);
+
+		if (bms_is_subset(pull_varnos((Node *) expr), rel->relids))
+		{
+			/*
+			 * Non-grouping column, so just remember the expression for later
+			 * call to pull_var_clause.
+			 */
+			non_group_cols = lappend(non_group_cols, expr);
+		}
+
+		i++;
+	}
+
+	/*
+	 * If there's a HAVING clause, we'll need the Vars it uses, too.
+	 */
+	if (parse->havingQual)
+		non_group_cols = lappend(non_group_cols, parse->havingQual);
+
+	/*
+	 * Pull out all the Vars mentioned in non-group cols (plus HAVING), and
+	 * add them to the input target if not already present.  (A Var used
+	 * directly as a GROUP BY item will be present already.)  Note this
+	 * includes Vars used in resjunk items, so we are covering the needs of
+	 * ORDER BY and window specifications.  Vars used within Aggrefs and
+	 * WindowFuncs will be pulled out here, too.
+	 */
+	non_group_vars = pull_var_clause((Node *) non_group_cols,
+									 PVC_RECURSE_AGGREGATES |
+									 PVC_RECURSE_WINDOWFUNCS |
+									 PVC_INCLUDE_PLACEHOLDERS);
+
+	add_new_columns_to_pathtarget(input_target, non_group_vars);
+
+	/* XXX: Add anything needed to evaluate Aggs here, i.e. agg arguments */
+
+	/* clean up cruft */
+	list_free(non_group_vars);
+	list_free(non_group_cols);
+
+	/* XXX this causes some redundant cost calculation ... */
+	return set_pathtarget_cost_width(root, input_target);
+}
+
+PathTarget *
+make_grouping_target(PlannerInfo *root, RelOptInfo *rel, PathTarget *input_target, PathTarget *final_target)
+{
+	/*
+	 * - grouping columns
+	 * - aggregates
+	 * - columns needed for joins above this node
+	 */
+	Query	   *parse = root->parse;
+	PathTarget *grouping_target;
+	List	   *non_group_cols;
+	List	   *non_group_vars;
+	int			i;
+	ListCell   *lc;
+	Relids		relids;
+	Bitmapset  *group_col_sortrefs = NULL;
+
+	/*
+	 * We must build a target containing all grouping columns, plus any other
+	 * Vars mentioned in the query's targetlist. We can ignore HAVING here,
+	 * it's been evaluated at the Grouping node already.
+	 */
+	grouping_target = create_empty_pathtarget();
+	non_group_cols = NIL;
+
+	/*
+	 * 1. Take the input target list. It should include all grouping cols. Remove everything that's
+	 * not a grouping col.
+	 * 2. Add Aggrefs.
+	 */
+
+	i = 0;
+	foreach(lc, final_target->exprs)
+	{
+		Expr	   *expr = (Expr *) lfirst(lc);
+		Index		sgref = get_pathtarget_sortgroupref(final_target, i);
+
+		if (bms_is_subset(pull_varnos((Node *) expr), rel->relids))
+		{
+			if (sgref && parse->groupClause &&
+				get_sortgroupref_clause_noerr(sgref, parse->groupClause) != NULL)
+			{
+				/*
+				 * It's a grouping column, so add it to the input target as-is.
+				 */
+				group_col_sortrefs = bms_add_member(group_col_sortrefs, sgref);
+				add_column_to_pathtarget(grouping_target, expr, sgref);
+			}
+			else
+			{
+				/*
+				 * Non-grouping column, so just remember the expression for later
+				 * call to pull_var_clause.
+				 */
+				non_group_cols = lappend(non_group_cols, expr);
+			}
+		}
+
+		i++;
+	}
+
+	/* attrs_needed refers to parent relids and not those of a child. */
+	if (rel->top_parent_relids)
+		relids = rel->top_parent_relids;
+	else
+		relids = rel->relids;
+
+	relids = bms_add_member(bms_copy(relids), NEEDED_IN_GROUPING);
+
+	i = 0;
+	foreach(lc, input_target->exprs)
+	{
+		Var		   *var = (Var *) lfirst(lc);
+		RelOptInfo *baserel;
+		int			ndx;
+		Index		sgref = get_pathtarget_sortgroupref(input_target, i);
+
+		/* this is similar to build_joinrel_tlist. */
+
+		if (sgref && bms_is_member(sgref, group_col_sortrefs))
+		{
+			i++;
+			continue;
+		}
+
+		/*
+		 * Ignore PlaceHolderVars in the input tlists; we'll make our own
+		 * decisions about whether to copy them.
+		 */
+		if (IsA(var, PlaceHolderVar))
+		{
+			i++;
+			continue;
+		}
+
+		/*
+		 * Otherwise, anything in a baserel or joinrel targetlist ought to be
+		 * a Var. Children of a partitioned table may have ConvertRowtypeExpr
+		 * translating whole-row Var of a child to that of the parent.
+		 * Children of an inherited table or subquery child rels can not
+		 * directly participate in a join, so other kinds of nodes here.
+		 */
+		if (IsA(var, Var))
+		{
+			baserel = find_base_rel(root, var->varno);
+			ndx = var->varattno - baserel->min_attr;
+		}
+		else if (IsA(var, ConvertRowtypeExpr))
+		{
+			ConvertRowtypeExpr *child_expr = (ConvertRowtypeExpr *) var;
+			Var		   *childvar = (Var *) child_expr->arg;
+
+			/*
+			 * Child's whole-row references are converted to look like those
+			 * of parent using ConvertRowtypeExpr. There can be as many
+			 * ConvertRowtypeExpr decorations as the depth of partition tree.
+			 * The argument to the deepest ConvertRowtypeExpr is expected to
+			 * be a whole-row reference of the child.
+			 */
+			while (IsA(childvar, ConvertRowtypeExpr))
+			{
+				child_expr = (ConvertRowtypeExpr *) childvar;
+				childvar = (Var *) child_expr->arg;
+			}
+			Assert(IsA(childvar, Var) &&childvar->varattno == 0);
+
+			baserel = find_base_rel(root, childvar->varno);
+			ndx = 0 - baserel->min_attr;
+		}
+		else
+		{
+			/*
+			 * If this rel is above grouping, then we can have Aggrefs
+			 * and grouping column expressions in the target list. Carry
+			 * them up to the join rel. They will surely be needed at
+			 * the top of the join tree. (Unless they're only used in
+			 * HAVING?)
+			 */
+#if 0
+			elog(ERROR, "unexpected node type in rel targetlist: %d",
+				 (int) nodeTag(var));
+#endif
+			baserel = NULL;
+		}
+
+		/* Is the target expression still needed above this joinrel? */
+		if (baserel == NULL || bms_nonempty_difference(baserel->attr_needed[ndx], relids))
+		{
+			/* Yup, add it to the output */
+			add_column_to_pathtarget(grouping_target, (Expr *) var, sgref);
+		}
+		i++;
+	}
+
+	/*
+	 * Pull out all the Vars mentioned in non-group cols, and
+	 * add them to the input target if not already present.  (A Var used
+	 * directly as a GROUP BY item will be present already.)  Note this
+	 * includes Vars used in resjunk items, so we are covering the needs of
+	 * ORDER BY and window specifications.  Vars used within
+	 * WindowFuncs will be pulled out here, too. Aggrefs will be included
+	 * as is.
+	 */
+	non_group_vars = pull_var_clause((Node *) non_group_cols,
+									 PVC_INCLUDE_AGGREGATES |
+									 PVC_RECURSE_WINDOWFUNCS |
+									 PVC_INCLUDE_PLACEHOLDERS);
+	foreach (lc, non_group_vars)
+	{
+		Node *n = lfirst(lc);
+
+		if (IsA(n, Aggref))
+			add_new_column_to_pathtarget(grouping_target, (Expr *) n);
+	}
+
+	add_new_columns_to_pathtarget(grouping_target, non_group_vars);
+
+	/* XXX: Add anything needed to evaluate Aggs here, i.e. agg arguments */
+
+	/* clean up cruft */
+	list_free(non_group_vars);
+	list_free(non_group_cols);
+
+	/* XXX this causes some redundant cost calculation ... */
+	return set_pathtarget_cost_width(root, grouping_target);
+}
+
+/*
+ * Is the GROUP BY computable based on the given 'relids'?
+ *
+ * From "Including Group-By in Query Optimization" paper:
+ *
+ * Definition 3.1: A node n of a given left-deep tree has the invariant
+ * grouping property if the following conditions are true:
+ *
+ * 1. Every aggregating column of the query is a candidate aggregating
+ * column of n.
+ *
+ * 2. Every join column of n is also a grouping column of the query.
+ *
+ * 3. For every join-node that is an ancestor of n, the join is an
+ * equijoin predicate on a foreign key column of n.
+ */
+bool
+is_grouping_computable_at_rel(PlannerInfo *root, RelOptInfo *rel)
+{
+	ListCell   *lc;
+	ListCell   *lec;
+	Relids		relids;
+	Relids		other_relids;
+	int			x;
+
+	if (bms_is_subset(root->all_baserels, rel->relids))
+	{
+		/*
+		 * If this is the final, top, join node, then surely the grouping
+		 * can be done here.
+		 */
+		return true;
+	}
+
+	/*
+	 * Currently, give up on SRFs in target list. It gets too complicated to
+	 * evaluate them in the middle of the join tree. (Note that we check for
+	 * this after checking if this is the final rel, so we still produce
+	 * grouping plans with SRFs, at the top)
+	 */
+	if (root->parse->hasTargetSRFs)
+		return false;
+
+	/*
+	 * 1. Every aggregating column of the query is a candidate aggregating
+	 * column of n.
+	 *
+	 * What this means is that we must be able to compute the aggregates
+	 * at this relation. For example, "AVG(tbl.col)" can only be computed
+	 * if 'tbl' is part of this join relation.
+	 */
+	if (!bms_is_subset(root->agg_relids, rel->relids))
+		return false;
+
+	relids = rel->relids;
+
+	/*
+	 * We must also be able to compute each grouping column here.
+	 */
+	foreach (lec, root->group_ecs)
+	{
+		EquivalenceClass *ec = lfirst_node(EquivalenceClass, lec);
+
+		if (!find_em_expr_for_rel(ec, rel))
+			return false;
+	}
+
+	/*
+	 * non-equijoins can only be evaluated correctly before grouping.
+	 *
+	 * XXX: A parameterized path, for use in the inner side of a nested
+	 * loop join, where all the vars are available as Params, would be
+	 * acceptable, though.
+	 */
+	foreach (lc, rel->joininfo)
+	{
+		RestrictInfo *rinfo = lfirst_node(RestrictInfo, lc);
+
+		if (!bms_is_subset(rinfo->required_relids, rel->relids))
+			return false;
+	}
+
+	x = -1;
+	other_relids = bms_difference(root->all_baserels, relids);
+	while ((x = bms_next_member(other_relids, x)) >= 0)
+	{
+		List	   *joinquals;
+		Relids		joinrelids;
+		Relids		outer_relids;
+		RelOptInfo *other_rel;
+
+		other_rel = find_base_rel(root, x);
+
+		outer_relids = bms_make_singleton(x);
+		joinrelids = bms_add_members(bms_make_singleton(x), relids);
+
+		joinquals = generate_join_implied_equalities(root,
+													 joinrelids,
+													 outer_relids,
+													 other_rel);
+
+		/*
+		 * Check condition 2: the join column must be in GROUP BY.
+		 */
+		foreach(lc, joinquals)
+		{
+			RestrictInfo *joinqual = lfirst_node(RestrictInfo, lc);
+
+			if (!joinqual->can_join)
+			{
+				/* Not a joinable binary opclause */
+				return false;
+			}
+
+			foreach (lec, root->group_ecs)
+			{
+				EquivalenceClass *ec = lfirst_node(EquivalenceClass, lec);
+
+				/* XXX: are left_ec/right_ec guaranteed to be valid here? */
+				if (ec == joinqual->left_ec ||
+					ec == joinqual->right_ec)
+				{
+					break;
+				}
+			}
+			if (lec == NULL)
+			{
+				/* This join qual was not in GROUP BY */
+				return false;
+			}
+		}
+
+		/*
+		 * Check condition 3: the join mustn't "add" any more rows
+		 */
+		if (!innerrel_is_unique(root,
+								joinrelids, /* joinrelids */
+								relids, /* outerrelids */
+								other_rel, /* innerrel */
+								JOIN_INNER, /* XXX */
+								joinquals,
+								false)) /* force_cache */
+		{
+			return false;
+		}
+	}
+
+	return true;
 }

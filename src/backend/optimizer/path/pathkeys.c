@@ -225,7 +225,7 @@ make_pathkey_from_sortinfo(PlannerInfo *root,
  * This should eventually go away, but we need to restructure SortGroupClause
  * first.
  */
-static PathKey *
+PathKey *
 make_pathkey_from_sortop(PlannerInfo *root,
 						 Expr *expr,
 						 Relids nullable_relids,
