@@ -2424,4 +2424,23 @@ typedef struct JoinCostWorkspace
 	double		inner_rows_total;
 } JoinCostWorkspace;
 
+
+
+/*
+ * Data specific to grouping sets
+ */
+
+typedef struct
+{
+	List	   *rollups;
+	List	   *hash_sets_idx;
+	double		dNumHashGroups;
+	bool		any_hashable;
+	Bitmapset  *unsortable_refs;
+	Bitmapset  *unhashable_refs;
+	List	   *unsortable_sets;
+	int		   *tleref_to_colnum_map;
+} grouping_sets_data;
+
+
 #endif							/* RELATION_H */

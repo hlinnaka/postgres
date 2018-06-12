@@ -120,6 +120,19 @@ extern bool have_partkey_equi_join(RelOptInfo *joinrel,
 					   JoinType jointype, List *restrictlist);
 
 /*
+ * aggpath.c
+ *	  routines to create grouping paths
+ */
+extern RelOptInfo *create_grouping_paths(PlannerInfo *root,
+					  RelOptInfo *input_rel,
+					  PathTarget *target,
+					  bool target_parallel_safe,
+					  const AggClauseCosts *agg_costs,
+										 grouping_sets_data *gd);
+extern List *remap_to_groupclause_idx(List *groupClause, List *gsets,
+						 int *tleref_to_colnum_map);
+
+/*
  * equivclass.c
  *	  routines for managing EquivalenceClasses
  */

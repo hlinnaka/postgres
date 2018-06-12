@@ -55,6 +55,8 @@ extern Path *get_cheapest_fractional_path(RelOptInfo *rel,
 extern Expr *expression_planner(Expr *expr);
 
 extern Expr *preprocess_phv_expression(PlannerInfo *root, Expr *expr);
+extern List *preprocess_groupclause(PlannerInfo *root, List *force);
+extern grouping_sets_data *preprocess_grouping_sets(PlannerInfo *root);
 
 extern bool plan_cluster_use_sort(Oid tableOid, Oid indexOid);
 extern int	plan_create_index_workers(Oid tableOid, Oid indexOid);

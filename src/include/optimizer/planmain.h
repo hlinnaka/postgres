@@ -42,6 +42,7 @@ extern RelOptInfo *query_planner(PlannerInfo *root);
  */
 extern void preprocess_minmax_aggregates(PlannerInfo *root, List *tlist);
 
+
 /*
  * prototypes for plan/createplan.c
  */
