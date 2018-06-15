@@ -29,73 +29,35 @@
 
 
 /*
- * query_planner
- *	  Generate a path (that is, a simplified plan) for a basic query,
- *	  which may involve joins but not any fancier features.
+ * process_jointree
+ *	  Analyze the jointree of a query.
  *
- * Since query_planner does not handle the toplevel processing (grouping,
- * sorting, etc) it cannot select the best path by itself.  Instead, it
- * returns the RelOptInfo for the top level of joining, and the caller
- * (grouping_planner) can choose among the surviving paths for the rel.
+ * This builds the base relations, restrict/join quals, and equivalence
+ * classes.
  *
  * root describes the query to plan
  * tlist is the target list the query should produce
  *		(this is NOT necessarily root->parse->targetList!)
- * qp_callback is a function to compute query_pathkeys once it's safe to do so
- * qp_extra is optional extra data to pass to qp_callback
- *
- * Note: the PlannerInfo node also includes a query_pathkeys field, which
- * tells query_planner the sort order that is desired in the final output
- * plan.  This value is *not* available at call time, but is computed by
- * qp_callback once we have completed merging the query's equivalence classes.
- * (We cannot construct canonical pathkeys until that's done.)
  */
-RelOptInfo *
-query_planner(PlannerInfo *root, List *tlist,
-			  query_pathkeys_callback qp_callback, void *qp_extra)
+void
+process_jointree(PlannerInfo *root, List *tlist)
 {
 	Query	   *parse = root->parse;
-	List	   *joinlist;
-	RelOptInfo *final_rel;
 	Index		rti;
 	double		total_pages;
+	List	   *joinlist;
 
 	/*
-	 * If the query has an empty join tree, then it's something easy like
-	 * "SELECT 2+2;" or "INSERT ... VALUES()".  Fall through quickly.
+	 * If the query has an empty join tree, fall through quickly.
 	 */
 	if (parse->jointree->fromlist == NIL)
 	{
-		/* We need a dummy joinrel to describe the empty set of baserels */
-		final_rel = build_empty_join_rel(root);
-
 		/*
-		 * If query allows parallelism in general, check whether the quals are
-		 * parallel-restricted.  (We need not check final_rel->reltarget
-		 * because it's empty at this point.  Anything parallel-restricted in
-		 * the query tlist will be dealt with later.)
-		 */
-		if (root->glob->parallelModeOK)
-			final_rel->consider_parallel =
-				is_parallel_safe(root, parse->jointree->quals);
-
-		/* The only path for it is a trivial Result path */
-		add_path(final_rel, (Path *)
-				 create_result_path(root, final_rel,
-									final_rel->reltarget,
-									(List *) parse->jointree->quals));
-
-		/* Select cheapest path (pretty easy in this case...) */
-		set_cheapest(final_rel);
-
-		/*
-		 * We still are required to call qp_callback, in case it's something
-		 * like "SELECT 2+2 ORDER BY 1".
+		 * Initialize canon_pathkeys, in case it's something like
+		 * "SELECT 2+2 ORDER BY 1".
 		 */
 		root->canon_pathkeys = NIL;
-		(*qp_callback) (root, qp_extra);
-
-		return final_rel;
+		return;
 	}
 
 	/*
@@ -171,10 +133,11 @@ query_planner(PlannerInfo *root, List *tlist,
 
 	/*
 	 * We have completed merging equivalence sets, so it's now possible to
-	 * generate pathkeys in canonical form; so compute query_pathkeys and
-	 * other pathkeys fields in PlannerInfo.
+	 * generate pathkeys in canonical form.  (We don't do that here, though.
+	 * The caller will compute query_pathkeys and other pathkeys fields in
+	 * PlannerInfo, based on the "upper" parts of the query, like GROUP BY
+	 * and ORDER BY.)
 	 */
-	(*qp_callback) (root, qp_extra);
 
 	/*
 	 * Examine any "placeholder" expressions generated during subquery pullup.
@@ -190,7 +153,7 @@ query_planner(PlannerInfo *root, List *tlist,
 	 * jointree preprocessing, but the necessary information isn't available
 	 * until we've built baserel data structures and classified qual clauses.
 	 */
-	joinlist = remove_useless_joins(root, joinlist);
+	root->join_subproblem_list = remove_useless_joins(root, joinlist);
 
 	/*
 	 * Also, reduce any semijoins with unique inner rels to plain inner joins.
@@ -252,11 +215,65 @@ query_planner(PlannerInfo *root, List *tlist,
 			total_pages += (double) brel->pages;
 	}
 	root->total_table_pages = total_pages;
+}
+
+/*
+ * query_planner
+ *	  Generate paths (that is, simplified plans) for a basic query,
+ *	  which may involve joins but not any fancier features.
+ *
+ * Since query_planner does not handle the toplevel processing (grouping,
+ * sorting, etc) it cannot select the best path by itself.  Instead, it
+ * returns the RelOptInfo for the top level of joining, and the caller
+ * (grouping_planner) can choose among the surviving paths for the rel.
+ *
+ * The PlannerInfo node also includes a query_pathkeys field, which tells
+ * query_planner the sort order that is desired in the final output plan.
+ * The pathkeys must be in canonical form, therefore they can only be
+ * computed after we have completed merging the query's equivalence classes,
+ * ie. after process_jointree().
+ */
+RelOptInfo *
+query_planner(PlannerInfo *root)
+{
+	Query	   *parse = root->parse;
+	RelOptInfo *final_rel;
+
+	/*
+	 * If the query has an empty join tree, then it's something easy like
+	 * "SELECT 2+2;" or "INSERT ... VALUES()".  Fall through quickly.
+	 */
+	if (parse->jointree->fromlist == NIL)
+	{
+		/* We need a dummy joinrel to describe the empty set of baserels */
+		final_rel = build_empty_join_rel(root);
+
+		/*
+		 * If query allows parallelism in general, check whether the quals are
+		 * parallel-restricted.  (We need not check final_rel->reltarget
+		 * because it's empty at this point.  Anything parallel-restricted in
+		 * the query tlist will be dealt with later.)
+		 */
+		if (root->glob->parallelModeOK)
+			final_rel->consider_parallel =
+				is_parallel_safe(root, parse->jointree->quals);
+
+		/* The only path for it is a trivial Result path */
+		add_path(final_rel, (Path *)
+				 create_result_path(root, final_rel,
+									final_rel->reltarget,
+									(List *) parse->jointree->quals));
+
+		/* Select cheapest path (pretty easy in this case...) */
+		set_cheapest(final_rel);
+
+		return final_rel;
+	}
 
 	/*
 	 * Ready to do the primary planning.
 	 */
-	final_rel = make_one_rel(root, joinlist);
+	final_rel = make_one_rel(root, root->join_subproblem_list);
 
 	/* Check that we got at least one usable path */
 	if (!final_rel || !final_rel->cheapest_total_path ||

@@ -218,6 +218,13 @@ typedef struct PlannerInfo
 	Relids		nullable_baserels;
 
 	/*
+	 * join_subprolem_list represents the join tree, as a tree of join order
+	 * decisions that need to be made by make_one_rel().  See
+	 * deconstruct_jointree().
+	 */
+	List	   *join_subproblem_list;
+
+	/*
 	 * join_rel_list is a list of all join-relation RelOptInfos we have
 	 * considered in this planning run.  For small problems we just scan the
 	 * list to do lookups, but when there are many join relations we build a
@@ -339,7 +346,7 @@ typedef struct PlannerInfo
 /*
  * In places where it's known that simple_rte_array[] must have been prepared
  * already, we just index into it to fetch RTEs.  In code that might be
- * executed before or after entering query_planner(), use this macro.
+ * executed before or after entering process_jointree(), use this macro.
  */
 #define planner_rt_fetch(rti, root) \
 	((root)->simple_rte_array ? (root)->simple_rte_array[rti] : \

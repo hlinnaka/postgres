@@ -31,14 +31,11 @@ extern double cursor_tuple_fraction;
 extern int	force_parallel_mode;
 extern bool parallel_leader_participation;
 
-/* query_planner callback to compute query_pathkeys */
-typedef void (*query_pathkeys_callback) (PlannerInfo *root, void *extra);
-
 /*
  * prototypes for plan/planmain.c
  */
-extern RelOptInfo *query_planner(PlannerInfo *root, List *tlist,
-			  query_pathkeys_callback qp_callback, void *qp_extra);
+extern void process_jointree(PlannerInfo *root, List *tlist);
+extern RelOptInfo *query_planner(PlannerInfo *root);
 
 /*
  * prototypes for plan/planagg.c

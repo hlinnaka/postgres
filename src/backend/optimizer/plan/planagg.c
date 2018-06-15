@@ -50,7 +50,6 @@
 static bool find_minmax_aggs_walker(Node *node, List **context);
 static bool build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 				  Oid eqop, Oid sortop, bool nulls_first);
-static void minmax_qp_callback(PlannerInfo *root, void *extra);
 static Oid	fetch_agg_sort_op(Oid aggfnoid);
 
 
@@ -63,9 +62,9 @@ static Oid	fetch_agg_sort_op(Oid aggfnoid);
  * the (UPPERREL_GROUP_AGG, NULL) upperrel.
  *
  * This should be called by grouping_planner() just before it's ready to call
- * query_planner(), because we generate indexscan paths by cloning the
- * planner's state and invoking query_planner() on a modified version of
- * the query parsetree.  Thus, all preprocessing needed before query_planner()
+ * process_jointree(), because we generate indexscan paths by cloning the
+ * planner's state and invoking the scan/join planner on a modified version of
+ * the query parsetree.  Thus, all preprocessing needed before process_jointree()
  * must already be done.
  *
  * Note: we are passed the preprocessed targetlist separately, because it's
@@ -435,13 +434,33 @@ build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 										   FLOAT8PASSBYVAL);
 
 	/*
-	 * Generate the best paths for this query, telling query_planner that we
-	 * have LIMIT 1.
+	 * Build base relation and equivalence classes, knowing that we have
+	 * LIMIT 1.
 	 */
 	subroot->tuple_fraction = 1.0;
 	subroot->limit_tuples = 1.0;
 
-	final_rel = query_planner(subroot, tlist, minmax_qp_callback, NULL);
+	process_jointree(subroot, tlist);
+
+	/*
+	 * Compute query_pathkeys to represent the desired order.  There is no
+	 * GROUP BY, window functions, or DISTINCT in the generated query.
+	 */
+	subroot->group_pathkeys = NIL;
+	subroot->window_pathkeys = NIL;
+	subroot->distinct_pathkeys = NIL;
+
+	subroot->sort_pathkeys =
+		make_pathkeys_for_sortclauses(subroot,
+									  subroot->parse->sortClause,
+									  subroot->parse->targetList);
+
+	subroot->query_pathkeys = subroot->sort_pathkeys;
+
+	/*
+	 * Generate the best paths for the generated query.
+	 */
+	final_rel = query_planner(subroot);
 
 	/*
 	 * Since we didn't go through subquery_planner() to handle the subquery,
@@ -492,24 +511,6 @@ build_minmax_path(PlannerInfo *root, MinMaxAggInfo *mminfo,
 	mminfo->pathcost = path_cost;
 
 	return true;
-}
-
-/*
- * Compute query_pathkeys and other pathkeys during query_planner()
- */
-static void
-minmax_qp_callback(PlannerInfo *root, void *extra)
-{
-	root->group_pathkeys = NIL;
-	root->window_pathkeys = NIL;
-	root->distinct_pathkeys = NIL;
-
-	root->sort_pathkeys =
-		make_pathkeys_for_sortclauses(root,
-									  root->parse->sortClause,
-									  root->parse->targetList);
-
-	root->query_pathkeys = root->sort_pathkeys;
 }
 
 /*

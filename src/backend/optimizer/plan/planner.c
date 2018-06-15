@@ -116,6 +116,7 @@ static void preprocess_qual_conditions(PlannerInfo *root, Node *jtnode);
 static void inheritance_planner(PlannerInfo *root);
 static void grouping_planner(PlannerInfo *root, bool inheritance_update,
 				 double tuple_fraction);
+static void compute_pathkeys(PlannerInfo *root, List *tlist, List *activeWindows, List *groupClause);
 static grouping_sets_data *preprocess_grouping_sets(PlannerInfo *root);
 static List *remap_to_groupclause_idx(List *groupClause, List *gsets,
 						 int *tleref_to_colnum_map);
@@ -128,7 +129,6 @@ static void remove_useless_groupby_columns(PlannerInfo *root);
 static List *preprocess_groupclause(PlannerInfo *root, List *force);
 static List *extract_rollup_sets(List *groupingSets);
 static List *reorder_grouping_sets(List *groupingSets, List *sortclause);
-static void standard_qp_callback(PlannerInfo *root, void *extra);
 static double get_number_of_groups(PlannerInfo *root,
 					 double path_rows,
 					 grouping_sets_data *gd,
@@ -1787,7 +1787,6 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		WindowFuncLists *wflists = NULL;
 		List	   *activeWindows = NIL;
 		grouping_sets_data *gset_data = NULL;
-		standard_qp_extra qp_extra;
 
 		/* A recursive query should always have setOperations */
 		Assert(!root->hasRecursion);
@@ -1880,29 +1879,34 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 		else
 			root->limit_tuples = limit_tuples;
 
-		/* Set up data needed by standard_qp_callback */
-		qp_extra.tlist = tlist;
-		qp_extra.activeWindows = activeWindows;
-		qp_extra.groupClause = (gset_data
-								? (gset_data->rollups ? linitial_node(RollupData, gset_data->rollups)->groupClause : NIL)
-								: parse->groupClause);
+		/*
+		 * Build the base relations and equivalence classes, based on the
+		 * scan/join portion of this query, ie the FROM/WHERE clauses.
+		 */
+		process_jointree(root, tlist);
+
+		/*
+		 * Generate pathkey representations of the query's sort clause,
+		 * distinct clause, etc.
+		 */
+		compute_pathkeys(root, tlist, activeWindows,
+						 gset_data
+						 ? (gset_data->rollups ? linitial_node(RollupData, gset_data->rollups)->groupClause : NIL)
+						 : parse->groupClause);
 
 		/*
 		 * Generate the best unsorted and presorted paths for the scan/join
 		 * portion of this Query, ie the processing represented by the
 		 * FROM/WHERE clauses.  (Note there may not be any presorted paths.)
-		 * We also generate (in standard_qp_callback) pathkey representations
-		 * of the query's sort clause, distinct clause, etc.
 		 */
-		current_rel = query_planner(root, tlist,
-									standard_qp_callback, &qp_extra);
+		current_rel = query_planner(root);
 
 		/*
 		 * Convert the query's result tlist into PathTarget format.
 		 *
-		 * Note: it's desirable to not do this till after query_planner(),
+		 * Note: it's desirable to not do this till after process_jointree(), (FIXME: or query_planner()?)
 		 * because the target width estimates can use per-Var width numbers
-		 * that were obtained within query_planner().
+		 * that were obtained within process_jointree().
 		 */
 		final_target = create_pathtarget(root, tlist);
 		final_target_parallel_safe =
@@ -3440,26 +3444,23 @@ reorder_grouping_sets(List *groupingsets, List *sortclause)
 }
 
 /*
- * Compute query_pathkeys and other pathkeys during plan generation
+ * Compute query_pathkeys and other pathkeys, to tell query_planner() which
+ * orderings would be useful for the later planner stages.
  */
 static void
-standard_qp_callback(PlannerInfo *root, void *extra)
+compute_pathkeys(PlannerInfo *root, List *tlist, List *activeWindows, List *groupClause)
 {
 	Query	   *parse = root->parse;
-	standard_qp_extra *qp_extra = (standard_qp_extra *) extra;
-	List	   *tlist = qp_extra->tlist;
-	List	   *activeWindows = qp_extra->activeWindows;
 
 	/*
 	 * Calculate pathkeys that represent grouping/ordering requirements.  The
 	 * sortClause is certainly sort-able, but GROUP BY and DISTINCT might not
 	 * be, in which case we just leave their pathkeys empty.
 	 */
-	if (qp_extra->groupClause &&
-		grouping_is_sortable(qp_extra->groupClause))
+	if (groupClause && grouping_is_sortable(groupClause))
 		root->group_pathkeys =
 			make_pathkeys_for_sortclauses(root,
-										  qp_extra->groupClause,
+										  groupClause,
 										  tlist);
 	else
 		root->group_pathkeys = NIL;
