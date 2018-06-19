@@ -188,6 +188,7 @@ extern bool eclass_useful_for_merging(PlannerInfo *root,
 						  EquivalenceClass *eclass,
 						  RelOptInfo *rel);
 extern bool is_redundant_derived_clause(RestrictInfo *rinfo, List *clauselist);
+extern Expr *find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel);
 
 /*
  * pathkeys.c

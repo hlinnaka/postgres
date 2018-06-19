@@ -49,6 +49,7 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/plannodes.h"
 #include "optimizer/clauses.h"
+#include "optimizer/paths.h"
 #include "optimizer/prep.h"
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
