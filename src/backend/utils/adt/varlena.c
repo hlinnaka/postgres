@@ -43,6 +43,13 @@ int			bytea_output = BYTEA_OUTPUT_HEX;
 typedef struct varlena unknown;
 typedef struct varlena VarString;
 
+/*
+ * Buffer size for multibyte text_position() functions, in logical characters
+ * (Note: it can be very useful to shrink this down to a few characters, for
+ * testing.)
+ */
+#define TEXT_POS_CHUNK_SIZE (10 * 1024)
+
 typedef struct
 {
 	bool		use_wchar;		/* T if multibyte encoding */
@@ -55,6 +62,23 @@ typedef struct
 	/* Skip table for Boyer-Moore-Horspool search algorithm: */
 	int			skiptablemask;	/* mask for ANDing with skiptable subscripts */
 	int			skiptable[256]; /* skip distance for given mismatched char */
+
+	/*
+	 * In multibyte mode, we only keep a small chunk of the haystack string
+	 * loaded in the buffer (wstr1), at any time. The allocated size of
+	 * 'wstr1' is TEXT_POS_CHUNK_SIZE + len2.
+	 *
+	 * 'remaining' points to the remaining input data, that hasn't been
+	 * converted and loaded to the wstr1 buffer yet.
+	 *
+	 * 'shifted_chars' is the number of logical characters that have already
+	 * been discarded from the buffer.
+	 */
+	int			buffer_size;
+	char	   *remaining;		/* remaining original text */
+	int			remaining_bytes; /* in bytes */
+	int			shifted_chars;
+
 } TextPositionState;
 
 typedef struct
@@ -107,6 +131,7 @@ static text *text_overlay(text *t1, text *t2, int sp, int sl);
 static int	text_position(text *t1, text *t2);
 static void text_position_setup(text *t1, text *t2, TextPositionState *state);
 static int	text_position_next(int start_pos, TextPositionState *state);
+static int text_position_next_internal(int start_pos, TextPositionState *state);
 static void text_position_cleanup(TextPositionState *state);
 static int	text_cmp(text *arg1, text *arg2, Oid collid);
 static bytea *bytea_catenate(bytea *t1, bytea *t2);
@@ -1132,19 +1157,45 @@ text_position_setup(text *t1, text *t2, TextPositionState *state)
 	else
 	{
 		/* not as simple - multibyte encoding */
-		pg_wchar   *p1,
-				   *p2;
+		/*
+		 * In PostgreSQL, both inputs are converted to wchar format, but that's
+		 * been changed in GPDB to avoid making such large allocations (and in
+		 * particular, to avoid "out of memory" error if the wchar array would
+		 * be larger than 1 GB).
+		 *
+		 * The second input, the needle, is fully converted, like in upstream.
+		 * But for the haystack, we allocate a smaller working buffer.
+		 */
+		pg_wchar   *p2;
+		int			buffer_chars;
+		int			converted_bytes;
+		int			converted_chars;
 
-		p1 = (pg_wchar *) palloc((len1 + 1) * sizeof(pg_wchar));
-		len1 = pg_mb2wchar_with_len(VARDATA_ANY(t1), p1, len1);
+		/* Convert the needle string fully */
 		p2 = (pg_wchar *) palloc((len2 + 1) * sizeof(pg_wchar));
 		len2 = pg_mb2wchar_with_len(VARDATA_ANY(t2), p2, len2);
 
 		state->use_wchar = true;
-		state->wstr1 = p1;
 		state->wstr2 = p2;
-		state->len1 = len1;
 		state->len2 = len2;
+
+		/*
+		 * Allocate working buffer for the haystack.
+		 */
+		buffer_chars = Min(len1, TEXT_POS_CHUNK_SIZE + len2);
+		state->buffer_size = buffer_chars;
+		state->wstr1 = palloc((buffer_chars + 1) * sizeof(pg_wchar));
+
+		state->remaining = VARDATA_ANY(t1);
+		state->remaining_bytes = len1;
+		state->shifted_chars = 0;
+
+		/* Convert and load first batch of input into the buffer. */
+		converted_bytes = pg_mbcharcliplen(state->remaining, len1, buffer_chars);
+		converted_chars = pg_mb2wchar_with_len(state->remaining, state->wstr1, converted_bytes);
+		state->remaining += converted_bytes;
+		state->remaining_bytes -= converted_bytes;
+		state->len1 = converted_chars;
 	}
 
 	/*
@@ -1228,6 +1279,112 @@ text_position_setup(text *t1, text *t2, TextPositionState *state)
 
 static int
 text_position_next(int start_pos, TextPositionState *state)
+{
+	int			needle_len = state->len2;
+	int			result;
+
+	result = text_position_next_internal(start_pos - state->shifted_chars, state);
+
+	/*---
+	 * In multibyte mode, try to load more data if there are no more matches in
+	 * the buffer.
+	 *
+	 * To minimize changes against upstream, which doesn't use a sliding window
+	 * but converts the whole input in one go, the sliding window is implemented
+	 * here, and the text_position_next_internal() function is kept unchanged
+	 * from upstream. We manage the buffer here, and call the upstream
+	 * text_position_next_internal() function to do the searching within the
+	 * buffer.
+	 *
+	 * We use a sliding window through the haystack input. For example, input:
+	 *
+	 * Haystack: ABCDEFGHIJKLMNOPQRSTUVXYZ
+	 * Needle:   MNO
+	 *
+	 * The allocated size of the buffer is TEXT_POS_CHUNK_SIZE + length of the
+	 * needle (in logical characters). If TEXT_POS_CHUNK_SIZE was 5, the initial
+	 * batch would be:
+	 *
+	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
+	 * ^^^^^^^^
+	 *
+	 * In the next iteration, we "shift off" characters from the beginning of the
+	 * buffer. We must keep 'needle_len' characters, because even if there was no
+	 * match in the buffer, those characters might form the beginning of the next
+	 * match:
+	 *
+	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
+	 *      ^^^^^^^^
+	 *
+	 * Still no match within the buffer. Shift off the next 5 characters, and load
+	 * next chunk of input:
+	 *
+	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
+	 *           ^^^^^^^^
+	 *
+	 * A-ha, now we find a match.
+	 * ---
+	 */
+	while (state->use_wchar && result == 0 && state->remaining_bytes > 0)
+	{
+		/* No more hits in this chunk. Load more data. */
+		int			keep_chars;
+		int			max_convert_chars;
+		int			converted_bytes;
+		int			converted_chars;
+		int			start_bufpos;
+
+		/*
+		 * First compute the desired starting position as an offset from
+		 * the beginning of the current buffer. We take into account
+		 * the starting position requested by the caller. And we know that
+		 * just scanned the the buffer, and found no more matches, so we
+		 * can skip over to the last (needle_len - 1) characters
+		 */
+		start_bufpos = Max((start_pos - 1) - state->shifted_chars,
+						   state->len1 - (needle_len - 1));
+
+		/*
+		 * Move the tail part of the buffer that we still need, to the
+		 * beginning of the buffer. (We must use memmove() rather than
+		 * memcpy(), in case the needle takes up more than half of the
+		 * buffer.)
+		 */
+		keep_chars = state->len1 - start_bufpos;
+		memmove(state->wstr1,
+				&state->wstr1[start_bufpos],
+				keep_chars * sizeof(pg_wchar));
+		state->shifted_chars += start_bufpos;
+
+		/*
+		 * Convert and append next batch of input into the buffer, right
+		 * after the part we kept from previous iteration.
+		 */
+		max_convert_chars = state->buffer_size - keep_chars;
+		converted_bytes = pg_mbcharcliplen(state->remaining,
+										   state->remaining_bytes,
+										   max_convert_chars);
+		converted_chars = pg_mb2wchar_with_len(state->remaining,
+											   &state->wstr1[keep_chars],
+											   converted_bytes);
+		state->remaining += converted_bytes;
+		state->remaining_bytes -= converted_bytes;
+		state->len1 = keep_chars + converted_chars;
+
+		/*
+		 * Finally, restart the search with the new buffer.
+		 */
+		result = text_position_next_internal(1, state);
+	}
+
+	if (result == 0)
+		return 0;
+	else
+		return result + state->shifted_chars;
+}
+
+static int
+text_position_next_internal(int start_pos, TextPositionState *state)
 {
 	int			haystack_len = state->len1;
 	int			needle_len = state->len2;
