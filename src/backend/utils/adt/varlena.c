@@ -48,15 +48,22 @@ typedef struct varlena VarString;
  * (Note: it can be very useful to shrink this down to a few characters, for
  * testing.)
  */
-#define TEXT_POS_CHUNK_SIZE (10 * 1024)
+//#define TEXT_POS_CHUNK_SIZE (10 * 1024)
+#define TEXT_POS_CHUNK_SIZE 5
 
 typedef struct
 {
 	bool		use_wchar;		/* T if multibyte encoding */
 	char	   *str1;			/* use these if not use_wchar */
 	char	   *str2;			/* note: these point to original texts */
-	pg_wchar   *wstr1;			/* use these if use_wchar */
+
+	pg_wchar   *haystack_buf;	/* use these if use_wchar */
+	pg_wchar   *haystack_endptr;
+	int			buf_endpos;
+	int			buf_size;
+
 	pg_wchar   *wstr2;			/* note: these are palloc'd */
+
 	int			len1;			/* string lengths in logical characters */
 	int			len2;
 	/* Skip table for Boyer-Moore-Horspool search algorithm: */
@@ -70,14 +77,9 @@ typedef struct
 	 *
 	 * 'remaining' points to the remaining input data, that hasn't been
 	 * converted and loaded to the wstr1 buffer yet.
-	 *
-	 * 'shifted_chars' is the number of logical characters that have already
-	 * been discarded from the buffer.
 	 */
-	int			buffer_size;
 	char	   *remaining;		/* remaining original text */
 	int			remaining_bytes; /* in bytes */
-	int			shifted_chars;
 
 } TextPositionState;
 
@@ -131,7 +133,11 @@ static text *text_overlay(text *t1, text *t2, int sp, int sl);
 static int	text_position(text *t1, text *t2);
 static void text_position_setup(text *t1, text *t2, TextPositionState *state);
 static int	text_position_next(int start_pos, TextPositionState *state);
-static int text_position_next_internal(int start_pos, TextPositionState *state);
+static int text_position_next_onebyte_needle(int start_pos, TextPositionState *state);
+static int text_position_next_nowchar(int start_pos, TextPositionState *state);
+static int text_position_next_onechar_needle(int start_pos, TextPositionState *state);
+static int text_position_next_multibyte(int start_pos, TextPositionState *state);
+static void text_position_fill_buffer(int endpos, TextPositionState *state);
 static void text_position_cleanup(TextPositionState *state);
 static int	text_cmp(text *arg1, text *arg2, Oid collid);
 static bytea *bytea_catenate(bytea *t1, bytea *t2);
@@ -1158,18 +1164,16 @@ text_position_setup(text *t1, text *t2, TextPositionState *state)
 	{
 		/* not as simple - multibyte encoding */
 		/*
-		 * In PostgreSQL, both inputs are converted to wchar format, but that's
-		 * been changed in GPDB to avoid making such large allocations (and in
+		 * FIXME , both inputs used to be converted to wchar format, but that's
+		 * been changed to avoid making such large allocations (and in
 		 * particular, to avoid "out of memory" error if the wchar array would
 		 * be larger than 1 GB).
 		 *
-		 * The second input, the needle, is fully converted, like in upstream.
+		 * The second input, the needle, is fully converted.
 		 * But for the haystack, we allocate a smaller working buffer.
 		 */
 		pg_wchar   *p2;
 		int			buffer_chars;
-		int			converted_bytes;
-		int			converted_chars;
 
 		/* Convert the needle string fully */
 		p2 = (pg_wchar *) palloc((len2 + 1) * sizeof(pg_wchar));
@@ -1183,19 +1187,14 @@ text_position_setup(text *t1, text *t2, TextPositionState *state)
 		 * Allocate working buffer for the haystack.
 		 */
 		buffer_chars = Min(len1, TEXT_POS_CHUNK_SIZE + len2);
-		state->buffer_size = buffer_chars;
-		state->wstr1 = palloc((buffer_chars + 1) * sizeof(pg_wchar));
+		state->haystack_buf = palloc((buffer_chars + 1) * sizeof(pg_wchar));
 
 		state->remaining = VARDATA_ANY(t1);
 		state->remaining_bytes = len1;
-		state->shifted_chars = 0;
+		state->len1 = 10;
+		state->buf_size = buffer_chars;
 
-		/* Convert and load first batch of input into the buffer. */
-		converted_bytes = pg_mbcharcliplen(state->remaining, len1, buffer_chars);
-		converted_chars = pg_mb2wchar_with_len(state->remaining, state->wstr1, converted_bytes);
-		state->remaining += converted_bytes;
-		state->remaining_bytes -= converted_bytes;
-		state->len1 = converted_chars;
+		state->buf_endpos = 0;
 	}
 
 	/*
@@ -1280,241 +1279,297 @@ text_position_setup(text *t1, text *t2, TextPositionState *state)
 static int
 text_position_next(int start_pos, TextPositionState *state)
 {
-	int			needle_len = state->len2;
-	int			result;
+	if (state->len2 <= 0)
+		return start_pos;		/* result for empty pattern */
 
-	result = text_position_next_internal(start_pos - state->shifted_chars, state);
-
-	/*---
-	 * In multibyte mode, try to load more data if there are no more matches in
-	 * the buffer.
-	 *
-	 * To minimize changes against upstream, which doesn't use a sliding window
-	 * but converts the whole input in one go, the sliding window is implemented
-	 * here, and the text_position_next_internal() function is kept unchanged
-	 * from upstream. We manage the buffer here, and call the upstream
-	 * text_position_next_internal() function to do the searching within the
-	 * buffer.
-	 *
-	 * We use a sliding window through the haystack input. For example, input:
-	 *
-	 * Haystack: ABCDEFGHIJKLMNOPQRSTUVXYZ
-	 * Needle:   MNO
-	 *
-	 * The allocated size of the buffer is TEXT_POS_CHUNK_SIZE + length of the
-	 * needle (in logical characters). If TEXT_POS_CHUNK_SIZE was 5, the initial
-	 * batch would be:
-	 *
-	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
-	 * ^^^^^^^^
-	 *
-	 * In the next iteration, we "shift off" characters from the beginning of the
-	 * buffer. We must keep 'needle_len' characters, because even if there was no
-	 * match in the buffer, those characters might form the beginning of the next
-	 * match:
-	 *
-	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
-	 *      ^^^^^^^^
-	 *
-	 * Still no match within the buffer. Shift off the next 5 characters, and load
-	 * next chunk of input:
-	 *
-	 * ABCDEFGHIJKLMNOPQRSTUVXYZ
-	 *           ^^^^^^^^
-	 *
-	 * A-ha, now we find a match.
-	 * ---
-	 */
-	while (state->use_wchar && result == 0 && state->remaining_bytes > 0)
+	if (!state->use_wchar)
 	{
-		/* No more hits in this chunk. Load more data. */
-		int			keep_chars;
+		if (state->len2 == 1)
+			return text_position_next_onebyte_needle(start_pos, state);
+		else
+			return text_position_next_nowchar(start_pos, state);
+	}
+	else
+	{
+		if (state->len2 == 1)
+			return text_position_next_onechar_needle(start_pos, state);
+		else
+			return text_position_next_multibyte(start_pos, state);
+	}
+}
+
+static int
+text_position_next_onebyte_needle(int start_pos, TextPositionState *state)
+{
+	/* simple case - single byte encoding */
+	const char *haystack = state->str1;
+	const char *needle = state->str2;
+	const char *haystack_end = &haystack[state->len1];
+	const char *hptr;
+
+	/* No point in using B-M-H for a one-character needle */
+	char		nchar = *needle;
+
+	hptr = &haystack[start_pos];
+	while (hptr < haystack_end)
+	{
+		if (*hptr == nchar)
+			return hptr - haystack + 1;
+		hptr++;
+	}
+	return 0;
+}
+
+static int
+text_position_next_nowchar(int start_pos, TextPositionState *state)
+{
+	/* simple case - single byte encoding */
+	const char *haystack = state->str1;
+	const char *needle = state->str2;
+	int			haystack_len = state->len1;
+	int			needle_len = state->len2;
+	const char *haystack_end = &haystack[haystack_len];
+	const char *hptr;
+	const char *needle_last = &needle[needle_len - 1];
+	int			skiptablemask = state->skiptablemask;
+
+	/* Start at startpos plus the length of the needle */
+	hptr = &haystack[start_pos + needle_len - 1];
+	while (hptr < haystack_end)
+	{
+		/* Match the needle scanning *backward* */
+		const char *nptr;
+		const char *p;
+
+		nptr = needle_last;
+		p = hptr;
+		while (*nptr == *p)
+		{
+			/* Matched it all?	If so, return 1-based position */
+			if (nptr == needle)
+				return p - haystack + 1;
+			nptr--, p--;
+		}
+
+		/*
+		 * No match, so use the haystack char at hptr to decide how
+		 * far to advance.  If the needle had any occurrence of that
+		 * character (or more precisely, one sharing the same
+		 * skiptable entry) before its last character, then we advance
+		 * far enough to align the last such needle character with
+		 * that haystack position.  Otherwise we can advance by the
+		 * whole needle length.
+		 */
+		hptr += state->skiptable[(unsigned char) *hptr & skiptablemask];
+	}
+
+	return 0;
+}
+
+static int
+text_position_next_onechar_needle(int start_pos, TextPositionState *state)
+{
+	/* The multibyte char version. This works exactly the same way. */
+	const pg_wchar *needle = state->wstr2;
+	const pg_wchar *hbuf_endptr = state->haystack_buf + state->buf_size;
+	const pg_wchar *hbufptr;
+
+	/* No point in using B-M-H for a one-character needle */
+	pg_wchar	nchar = *needle;
+
+	int			hpos;
+
+	Assert(start_pos > 0);		/* else caller error */
+
+	start_pos--;				/* adjust for zero based arrays */
+
+	/* Start at startpos */
+	hpos = start_pos;
+	hbufptr = &state->haystack_buf[hpos % state->buf_size];
+
+	for (;;)
+	{
+		while (hpos >= state->buf_endpos)
+		{
+			/* load more */
+			if (state->remaining_bytes == 0)
+				return 0;					/* not found */
+			text_position_fill_buffer(hpos, state);
+		}
+
+		/* Matched it all?	If so, return 1-based position */
+		if (*hbufptr == nchar)
+			return hpos + 1;
+
+		/*
+		 * No match, so use the haystack char at hptr to decide how
+		 * far to advance.  If the needle had any occurrence of that
+		 * character (or more precisely, one sharing the same
+		 * skiptable entry) before its last character, then we advance
+		 * far enough to align the last such needle character with
+		 * that haystack position.  Otherwise we can advance by the
+		 * whole needle length.
+		 */
+		hpos++;
+		hbufptr++;
+		if (hbufptr == hbuf_endptr)
+			hbufptr = state->haystack_buf;
+	}
+
+	return 0; 	/* not reachable */
+}
+
+
+#if 0
+static char *
+dump_buf(TextPositionState *state)
+{
+	StringInfoData buf;
+	int			i;
+
+	initStringInfo(&buf);
+
+	appendStringInfo(&buf, "haystack_buf: ");
+
+	for (i = 0; i < state->buf_size && i < state->buf_endpos; i++)
+	{
+		if (state->haystack_buf[i] == 0)
+			appendStringInfo(&buf, "_");
+		else
+			appendStringInfo(&buf, "%lc", state->haystack_buf[i]);
+	}
+
+	return buf.data;
+}
+#endif
+
+static int
+text_position_next_multibyte(int start_pos, TextPositionState *state)
+{
+	int			needle_len = state->len2;
+	int			skiptablemask = state->skiptablemask;
+	/* The multibyte char version. This works exactly the same way. */
+	const pg_wchar *needle = state->wstr2;
+	const pg_wchar *needle_last = &needle[needle_len - 1];
+	const pg_wchar *hbufptr;
+	const pg_wchar *hbuf_endptr = state->haystack_buf + state->buf_size;
+	int			hpos;
+
+	Assert(start_pos > 0);		/* else caller error */
+
+	start_pos--;				/* adjust for zero based arrays */
+
+	/* Start at startpos plus the length of the needle */
+	hpos = start_pos + needle_len - 1;
+	hbufptr = &state->haystack_buf[hpos % state->buf_size];
+	for (;;)
+	{
+		/* Match the needle scanning *backward* */
+		const pg_wchar *nptr;
+		const pg_wchar *p;
+		int			skip;
+
+		while (hpos >= state->buf_endpos)
+		{
+			/* load more */
+			if (state->remaining_bytes == 0)
+				return 0;					/* not found */
+			text_position_fill_buffer(hpos, state);
+		}
+
+		nptr = needle_last;
+		p = hbufptr;
+		while(*nptr == *p)
+		{
+			/* Matched it all?	If so, return 1-based position */
+			if (nptr == needle)
+				return hpos - (needle_len - 1) + 1;
+
+			nptr--;
+			if (p == state->haystack_buf)
+				p = &state->haystack_buf[state->buf_size];
+			p--;
+		}
+
+		/*
+		 * No match, so use the haystack char at hptr to decide how
+		 * far to advance.  If the needle had any occurrence of that
+		 * character (or more precisely, one sharing the same
+		 * skiptable entry) before its last character, then we advance
+		 * far enough to align the last such needle character with
+		 * that haystack position.  Otherwise we can advance by the
+		 * whole needle length.
+		 */
+		skip = state->skiptable[*hbufptr & skiptablemask];
+		hpos += skip;
+		hbufptr += skip;
+		if (hbufptr >= hbuf_endptr)
+			hbufptr = &state->haystack_buf[hpos % state->buf_size];
+	}
+
+	return 0; 	/* not reachable */
+}
+
+static void
+text_position_fill_buffer(int lastpos, TextPositionState *state)
+{
+	int			needle_len = state->len2;
+
+	hbufptr = &state->haystack_buf[hpos % state->buf_size];
+
+	while (lastpos >= state->buf_endpos)
+	{
+		/* load more */
+		int			new_bufstartpos;
 		int			max_convert_chars;
+		int			buf_size = state->buf_size;
+		pg_wchar   *haystack_buf = state->haystack_buf;
 		int			converted_bytes;
 		int			converted_chars;
-		int			start_bufpos;
+		int			max_endpos;
+
+		if (state->remaining_bytes == 0)
+			return;
 
 		/*
-		 * First compute the desired starting position as an offset from
-		 * the beginning of the current buffer. We take into account
-		 * the starting position requested by the caller. And we know that
-		 * just scanned the the buffer, and found no more matches, so we
-		 * can skip over to the last (needle_len - 1) characters
+		 * Fill the rest of the buffer.
+		 *
+		 * Mustn't catch our tail.
 		 */
-		start_bufpos = Max((start_pos - 1) - state->shifted_chars,
-						   state->len1 - (needle_len - 1));
+		new_bufstartpos = lastpos - (needle_len - 1);
+		max_endpos = new_bufstartpos + (buf_size - 1);
+		max_convert_chars = max_endpos - state->buf_endpos;
 
 		/*
-		 * Move the tail part of the buffer that we still need, to the
-		 * beginning of the buffer. (We must use memmove() rather than
-		 * memcpy(), in case the needle takes up more than half of the
-		 * buffer.)
+		 * Mustn't overrun the buffer. (We'll loop and continue at the
+		 * beginning of the physical buffer, if this doesn't cover all we need.)
 		 */
-		keep_chars = state->len1 - start_bufpos;
-		memmove(state->wstr1,
-				&state->wstr1[start_bufpos],
-				keep_chars * sizeof(pg_wchar));
-		state->shifted_chars += start_bufpos;
+		if (max_convert_chars > haystack_buf + buf_size - state->haystack_endptr)
+			max_convert_chars = haystack_buf + buf_size - state->haystack_endptr;
 
-		/*
-		 * Convert and append next batch of input into the buffer, right
-		 * after the part we kept from previous iteration.
-		 */
-		max_convert_chars = state->buffer_size - keep_chars;
 		converted_bytes = pg_mbcharcliplen(state->remaining,
 										   state->remaining_bytes,
 										   max_convert_chars);
 		converted_chars = pg_mb2wchar_with_len(state->remaining,
-											   &state->wstr1[keep_chars],
+											   state->haystack_endptr,
 											   converted_bytes);
 		state->remaining += converted_bytes;
 		state->remaining_bytes -= converted_bytes;
-		state->len1 = keep_chars + converted_chars;
+		state->haystack_endptr += converted_chars;
+		if (state->haystack_endptr == state->haystack_buf + buf_size)
+			state->haystack_endptr = state->haystack_buf;
 
-		/*
-		 * Finally, restart the search with the new buffer.
-		 */
-		result = text_position_next_internal(1, state);
-	}
+		state->buf_endpos += converted_chars;
 
-	if (result == 0)
-		return 0;
-	else
-		return result + state->shifted_chars;
-}
-
-static int
-text_position_next_internal(int start_pos, TextPositionState *state)
-{
-	int			haystack_len = state->len1;
-	int			needle_len = state->len2;
-	int			skiptablemask = state->skiptablemask;
-
-	Assert(start_pos > 0);		/* else caller error */
-
-	if (needle_len <= 0)
-		return start_pos;		/* result for empty pattern */
-
-	start_pos--;				/* adjust for zero based arrays */
-
-	/* Done if the needle can't possibly fit */
-	if (haystack_len < start_pos + needle_len)
-		return 0;
-
-	if (!state->use_wchar)
-	{
-		/* simple case - single byte encoding */
-		const char *haystack = state->str1;
-		const char *needle = state->str2;
-		const char *haystack_end = &haystack[haystack_len];
-		const char *hptr;
-
-		if (needle_len == 1)
+		if (converted_bytes == 0)
 		{
-			/* No point in using B-M-H for a one-character needle */
-			char		nchar = *needle;
-
-			hptr = &haystack[start_pos];
-			while (hptr < haystack_end)
-			{
-				if (*hptr == nchar)
-					return hptr - haystack + 1;
-				hptr++;
-			}
-		}
-		else
-		{
-			const char *needle_last = &needle[needle_len - 1];
-
-			/* Start at startpos plus the length of the needle */
-			hptr = &haystack[start_pos + needle_len - 1];
-			while (hptr < haystack_end)
-			{
-				/* Match the needle scanning *backward* */
-				const char *nptr;
-				const char *p;
-
-				nptr = needle_last;
-				p = hptr;
-				while (*nptr == *p)
-				{
-					/* Matched it all?	If so, return 1-based position */
-					if (nptr == needle)
-						return p - haystack + 1;
-					nptr--, p--;
-				}
-
-				/*
-				 * No match, so use the haystack char at hptr to decide how
-				 * far to advance.  If the needle had any occurrence of that
-				 * character (or more precisely, one sharing the same
-				 * skiptable entry) before its last character, then we advance
-				 * far enough to align the last such needle character with
-				 * that haystack position.  Otherwise we can advance by the
-				 * whole needle length.
-				 */
-				hptr += state->skiptable[(unsigned char) *hptr & skiptablemask];
-			}
+			/*
+			 * Could not make progress, because of invalidly encoded
+			 * input. Stop trying.
+			 */
+			state->remaining_bytes = 0;
 		}
 	}
-	else
-	{
-		/* The multibyte char version. This works exactly the same way. */
-		const pg_wchar *haystack = state->wstr1;
-		const pg_wchar *needle = state->wstr2;
-		const pg_wchar *haystack_end = &haystack[haystack_len];
-		const pg_wchar *hptr;
-
-		if (needle_len == 1)
-		{
-			/* No point in using B-M-H for a one-character needle */
-			pg_wchar	nchar = *needle;
-
-			hptr = &haystack[start_pos];
-			while (hptr < haystack_end)
-			{
-				if (*hptr == nchar)
-					return hptr - haystack + 1;
-				hptr++;
-			}
-		}
-		else
-		{
-			const pg_wchar *needle_last = &needle[needle_len - 1];
-
-			/* Start at startpos plus the length of the needle */
-			hptr = &haystack[start_pos + needle_len - 1];
-			while (hptr < haystack_end)
-			{
-				/* Match the needle scanning *backward* */
-				const pg_wchar *nptr;
-				const pg_wchar *p;
-
-				nptr = needle_last;
-				p = hptr;
-				while (*nptr == *p)
-				{
-					/* Matched it all?	If so, return 1-based position */
-					if (nptr == needle)
-						return p - haystack + 1;
-					nptr--, p--;
-				}
-
-				/*
-				 * No match, so use the haystack char at hptr to decide how
-				 * far to advance.  If the needle had any occurrence of that
-				 * character (or more precisely, one sharing the same
-				 * skiptable entry) before its last character, then we advance
-				 * far enough to align the last such needle character with
-				 * that haystack position.  Otherwise we can advance by the
-				 * whole needle length.
-				 */
-				hptr += state->skiptable[*hptr & skiptablemask];
-			}
-		}
-	}
-
-	return 0;					/* not found */
 }
 
 static void
@@ -1522,7 +1577,7 @@ text_position_cleanup(TextPositionState *state)
 {
 	if (state->use_wchar)
 	{
-		pfree(state->wstr1);
+		pfree(state->haystack_buf);
 		pfree(state->wstr2);
 	}
 }
