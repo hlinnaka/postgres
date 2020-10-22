@@ -367,6 +367,7 @@ struct Tuplesortstate
 	 * Afterwards, it is the number of initial runs we made.
 	 */
 	int			currentRun;
+	int			mergepasses;
 
 	/*
 	 * Logical tapes, for merging.
@@ -1447,6 +1448,8 @@ tuplesort_free(Tuplesortstate *state)
 void
 tuplesort_end(Tuplesortstate *state)
 {
+	//elog(NOTICE, "sort with %d runs and %d passes ended", state->currentRun, state->mergepasses);
+	
 	tuplesort_free(state);
 
 	/*
@@ -2907,6 +2910,8 @@ mergeruns(Tuplesortstate *state)
 		if (state->nInputRuns == 0 && !WORKER(state))
 		{
 			int64		input_buffer_size;
+
+			state->mergepasses++;
 
 			/* Close the old, emptied, input tapes */
 			if (state->nInputTapes > 0)

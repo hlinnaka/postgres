@@ -1060,3 +1060,12 @@ test_opclass_options_func(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_NULL();
 }
+
+PG_FUNCTION_INFO_V1(test_merge_order);
+Datum
+test_merge_order(PG_FUNCTION_ARGS)
+{
+	int			n = PG_GETARG_INT32(0);
+
+	PG_RETURN_INT32(tuplesort_merge_order(n));
+}
