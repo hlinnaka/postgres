@@ -1,0 +1,179 @@
+\i sql/copytest.sql
+create temp table if not exists copytest (line text) on commit delete rows;
+--
+-- Test COPY FROM, with 'content' as the input file.
+--
+create or replace function copytest(copyoptions text, content bytea)
+returns setof text language plpgsql as
+$func$
+declare
+  copycmd text;
+begin
+
+  -- COPY FROM a one-line perl script that prints out the 'content'. To pass
+  -- the content down to the perl script, so that it can regurgitate it, we
+  -- encode it as hex. The perl script unpacks the bytes from the hex
+  -- representation.
+  copycmd = format(
+    $$copy copytest from program $prog$ perl -e 'printf "%%s", pack ("H*", "%s")' $prog$ %s$$,
+    encode(content, 'hex'), copyoptions);
+
+  execute copycmd;
+
+  return query (select * from copytest);
+end;
+$func$;
+-- Valid input.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b6');
+ copytest 
+----------
+ åäö
+(1 row)
+
+select copytest('encoding ''utf8''', '\xe8b1a1');
+ copytest 
+----------
+ 象
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3
+CONTEXT:  COPY copytest, line 1: "åä"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "c3a5c3a4c3")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- incomplete multibyte char, followed by newline (0A)
+select copytest('encoding ''utf8''', '\xc3a5c3a4c30A');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3 0x0a
+CONTEXT:  COPY copytest, line 1: "åä"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "c3a5c3a4c30a")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''utf8''', '\x00c3a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "00c3a5c3a4c3b6")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''utf8''', '\xc300a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "c300a5c3a4c3b6")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''utf8''', '\xc3a500c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+CONTEXT:  COPY copytest, line 1: "å"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "c3a500c3a4c3b6")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b600');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+CONTEXT:  COPY copytest, line 1: "åäö"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "c3a5c3a4c3b600")' $prog$ encoding 'utf8'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- Valid input
+select copytest('encoding ''latin1''', '\xe5e4f6');
+ copytest 
+----------
+ åäö
+(1 row)
+
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''latin1''', '\x00e5e4f6');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "00e5e4f6")' $prog$ encoding 'latin1'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''latin1''', '\xe5e400f6');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+CONTEXT:  COPY copytest, line 1: "åä"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "e5e400f6")' $prog$ encoding 'latin1'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''latin1''', '\xe5e4f600');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+CONTEXT:  COPY copytest, line 1: "åäö"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "e5e4f600")' $prog$ encoding 'latin1'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+--
+-- SJIS_2004 -> UTF-8
+--
+select copytest('encoding ''shiftjis2004''', '\x8fdb');
+ copytest 
+----------
+ 象
+(1 row)
+
+-- combined char
+select copytest('encoding ''shiftjis2004''', '\x82f5');
+ copytest 
+----------
+ か゚
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''shiftjis2004''', '\x8f');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "8f")' $prog$ encoding 'shiftjis2004'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- incomplete multibyte char, followed by newline (0A)
+select copytest('encoding ''shiftjis2004''', '\x8f0A');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f 0x0a
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "8f0a")' $prog$ encoding 'shiftjis2004'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- invalid sequence: embedded nul-bytes
+select copytest('encoding ''shiftjis2004''', '\x008fdb');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "008fdb")' $prog$ encoding 'shiftjis2004'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''shiftjis2004''', '\x8f00');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "8f00")' $prog$ encoding 'shiftjis2004'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- untranslatable character
+select copytest('encoding ''shiftjis2004''', '\x81c0');
+ copytest 
+----------
+ ⊄
+(1 row)
+
+--
+-- GB18030 -> UTF-8
+--
+select copytest('encoding ''gb18030''', '\xcff3');
+ copytest 
+----------
+ 象
+(1 row)
+
+-- this range is converted by mapping function
+select copytest('encoding ''gb18030''', '\x84309C38');
+ copytest 
+----------
+ 飯
+(1 row)
+
+-- incomplete char
+select copytest('encoding ''gb18030''', '\x84309C');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x84 0x30 0x9c
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "84309c")' $prog$ encoding 'gb18030'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- embedded NUL
+select copytest('encoding ''gb18030''', '\x84309C3800');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x00
+CONTEXT:  COPY copytest, line 1: "飯"
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "84309c3800")' $prog$ encoding 'gb18030'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+select copytest('encoding ''gb18030''', '\x84309C00');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x84 0x30 0x9c 0x00
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "84309c00")' $prog$ encoding 'gb18030'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
+-- untranslatable char
+select copytest('encoding ''gb18030''', '\x8431a530');
+ERROR:  character with byte sequence 0x84 0x31 0xa5 0x30 in encoding "GB18030" has no equivalent in encoding "UTF8"
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from program $prog$ perl -e 'printf "%s", pack ("H*", "8431a530")' $prog$ encoding 'gb18030'"
+PL/pgSQL function copytest(text,bytea) line 14 at EXECUTE
