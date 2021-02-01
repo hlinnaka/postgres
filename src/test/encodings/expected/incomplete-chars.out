@@ -1,0 +1,338 @@
+-- The test string we use are three letters: Ã¥Ã¤Ã¶
+-- (The above comment is in UTF-8 encoding, but otherwise this test is not dependent on
+-- client_encoding)
+-- we print a lot of errors coming from the copytest() function, make them more terse.
+\set SHOW_CONTEXT never
+--
+-- Test COPY FROM, with 'content' as the input file.
+--
+create or replace function copytest(copyoptions text, content bytea)
+returns setof text language plpgsql as
+$func$
+declare
+  copycmd text;
+begin
+
+  -- COPY FROM a one-line perl script that prints out the 'content'. To pass
+  -- the content down to the perl script, so that it can regurgitate it, we
+  -- encode it as hex. The perl script unpacks the bytes from the hex
+  -- representation.
+  copycmd = format(
+    $$copy copytest from program $prog$ perl -e 'printf "%%s", pack ("H*", "%s")' $prog$ %s$$,
+    encode(content, 'hex'), copyoptions);
+
+  execute copycmd;
+
+  return query (select * from copytest);
+end;
+$func$;
+-- Remember the function in a psql variable so that we can easily create
+-- it in the other test databases later.
+select pg_get_functiondef('copytest'::regproc) as funcdef
+\gset
+-- Create UTF-8 test database
+-- First perform tests with UTF-8 as the server encoding.
+drop database if exists utf8test;
+create database utf8test template=template0 encoding 'utf8' lc_ctype='C' lc_collate='C';
+\c utf8test
+create temp table if not exists copytest (line text) on commit delete rows;
+select :'funcdef'
+\gexec
+CREATE OR REPLACE FUNCTION public.copytest(copyoptions text, content bytea)
+ RETURNS SETOF text
+ LANGUAGE plpgsql
+AS $function$
+declare
+  copycmd text;
+begin
+
+  -- COPY FROM a one-line perl script that prints out the 'content'. To pass
+  -- the content down to the perl script, so that it can regurgitate it, we
+  -- encode it as hex. The perl script unpacks the bytes from the hex
+  -- representation.
+  copycmd = format(
+    $$copy copytest from program $prog$ perl -e 'printf "%%s", pack ("H*", "%s")' $prog$ %s$$,
+    encode(content, 'hex'), copyoptions);
+
+  execute copycmd;
+
+  return query (select * from copytest);
+end;
+$function$
+
+-- Valid input.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b6');
+ copytest 
+----------
+ Ã¥Ã¤Ã¶
+(1 row)
+
+select copytest('encoding ''utf8''', '\xe8b1a1');
+ copytest 
+----------
+ è±¡
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3
+-- incomplete multibyte char, followed by newline (0A)
+select copytest('encoding ''utf8''', '\xc3a5c3a4c30A');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''utf8''', '\x00c3a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+select copytest('encoding ''utf8''', '\xc300a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3 0x00
+select copytest('encoding ''utf8''', '\xc3a500c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b600');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+-- Valid input
+select copytest('encoding ''latin1''', '\xe5e4f6');
+ copytest 
+----------
+ Ã¥Ã¤Ã¶
+(1 row)
+
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''latin1''', '\x00e5e4f6');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+select copytest('encoding ''latin1''', '\xe5e400f6');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+select copytest('encoding ''latin1''', '\xe5e4f600');
+ERROR:  invalid byte sequence for encoding "LATIN1": 0x00
+--
+-- SJIS_2004 -> UTF-8
+--
+select copytest('encoding ''shiftjis2004''', '\x8fdb');
+ copytest 
+----------
+ è±¡
+(1 row)
+
+-- combined char
+select copytest('encoding ''shiftjis2004''', '\x82f5');
+ copytest 
+----------
+ ã‹ã‚š
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''shiftjis2004''', '\x8f');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f
+-- incomplete multibyte char, followed by newline (0A)
+select copytest('encoding ''shiftjis2004''', '\x8f0A');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f 0x0a
+-- invalid sequence: embedded nul-bytes
+select copytest('encoding ''shiftjis2004''', '\x008fdb');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x00
+select copytest('encoding ''shiftjis2004''', '\x8f00');
+ERROR:  invalid byte sequence for encoding "SHIFT_JIS_2004": 0x8f 0x00
+-- untranslatable character
+select copytest('encoding ''shiftjis2004''', '\x81c0');
+ copytest 
+----------
+ âŠ„
+(1 row)
+
+--
+-- GB18030 -> UTF-8
+--
+select copytest('encoding ''gb18030''', '\xcff3');
+ copytest 
+----------
+ è±¡
+(1 row)
+
+-- this range is converted by mapping function
+select copytest('encoding ''gb18030''', '\x84309C38');
+ copytest 
+----------
+ ï¨ª
+(1 row)
+
+-- incomplete char
+select copytest('encoding ''gb18030''', '\x84309C');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x84 0x30 0x9c
+-- embedded NUL
+select copytest('encoding ''gb18030''', '\x84309C3800');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x00
+select copytest('encoding ''gb18030''', '\x84309C00');
+ERROR:  invalid byte sequence for encoding "GB18030": 0x84 0x30 0x9c 0x00
+-- untranslatable char
+select copytest('encoding ''gb18030''', '\x8431a530');
+ERROR:  character with byte sequence 0x84 0x31 0xa5 0x30 in encoding "GB18030" has no equivalent in encoding "UTF8"
+-- Repeat the tests in a LATIN1 test database
+drop database if exists latin1test;
+create database latin1test template=template0 encoding 'latin1' lc_ctype='C' lc_collate='C';
+\c latin1test
+create temp table if not exists copytest (line text) on commit delete rows;
+select :'funcdef'
+\gexec
+CREATE OR REPLACE FUNCTION public.copytest(copyoptions text, content bytea)
+ RETURNS SETOF text
+ LANGUAGE plpgsql
+AS $function$
+declare
+  copycmd text;
+begin
+
+  -- COPY FROM a one-line perl script that prints out the 'content'. To pass
+  -- the content down to the perl script, so that it can regurgitate it, we
+  -- encode it as hex. The perl script unpacks the bytes from the hex
+  -- representation.
+  copycmd = format(
+    $$copy copytest from program $prog$ perl -e 'printf "%%s", pack ("H*", "%s")' $prog$ %s$$,
+    encode(content, 'hex'), copyoptions);
+
+  execute copycmd;
+
+  return query (select * from copytest);
+end;
+$function$
+
+-- Valid input.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b6');
+ copytest 
+----------
+ åäö
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3
+-- invalid sequences: embedded nul-bytes
+--
+-- NOTE: These are accepted by existing PostgreSQL versions. The string is
+-- truncated at the NULL.
+--
+select copytest('encoding ''utf8''', '\x00c3a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+select copytest('encoding ''utf8''', '\xc300a5c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xc3 0x00
+select copytest('encoding ''utf8''', '\xc3a500c3a4c3b6');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+select copytest('encoding ''utf8''', '\xc3a5c3a4c3b600');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+-- untranslatable char (three-byte UTF-8 character with no mapping to LATIN1)
+select copytest('encoding ''utf8''', '\xe8b1a1');
+ERROR:  character with byte sequence 0xe8 0xb1 0xa1 in encoding "UTF8" has no equivalent in encoding "LATIN1"
+-- Valid input
+select copytest('encoding ''latin1''', '\xe5e4f6');
+ copytest 
+----------
+ åäö
+(1 row)
+
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''latin1''', '\x00e5e4f6');
+ copytest 
+----------
+ 
+(1 row)
+
+select copytest('encoding ''latin1''', '\xe5e400f6');
+ copytest 
+----------
+ åä
+(1 row)
+
+select copytest('encoding ''latin1''', '\xe5e4f600');
+ copytest 
+----------
+ åäö
+(1 row)
+
+--
+-- Test MULE_INTERNAL -> LATIN1 conversions
+--
+-- same LATIN1 chars in MULE_INTERNAL encoding
+select copytest('encoding ''mule_internal''', '\x81e581e481f6');
+ copytest 
+----------
+ åäö
+(1 row)
+
+-- incomplete char
+select copytest('encoding ''mule_internal''', '\x81e581e481');
+ERROR:  invalid byte sequence for encoding "MULE_INTERNAL": 0x81
+-- incomplete character, followed by newline (0A).
+select copytest('encoding ''mule_internal''', '\x81e581e4810A');
+ERROR:  invalid byte sequence for encoding "MULE_INTERNAL": 0x81
+-- invalid sequences: embedded nul-bytes
+select copytest('encoding ''mule_internal''', '\x0081e581e481f6');
+ERROR:  invalid byte sequence for encoding "MULE_INTERNAL": 0x00
+select copytest('encoding ''mule_internal''', '\x8100e581e481f6');
+ERROR:  character with byte sequence 0x81 0x00 in encoding "MULE_INTERNAL" has no equivalent in encoding "LATIN1"
+select copytest('encoding ''mule_internal''', '\x81e50081e481f6');
+ERROR:  invalid byte sequence for encoding "MULE_INTERNAL": 0x00
+select copytest('encoding ''mule_internal''', '\x81e581e481f600');
+ERROR:  invalid byte sequence for encoding "MULE_INTERNAL": 0x00
+--
+-- Test with EUC_JIS_2004 as server encoding
+--
+drop database if exists euc_jis_2004_test;
+create database euc_jis_2004_test template=template0 encoding 'euc_jis_2004' lc_ctype='C' lc_collate='C';
+\c euc_jis_2004_test
+create temp table if not exists copytest (line text) on commit delete rows;
+select :'funcdef'
+\gexec
+CREATE OR REPLACE FUNCTION public.copytest(copyoptions text, content bytea)
+ RETURNS SETOF text
+ LANGUAGE plpgsql
+AS $function$
+declare
+  copycmd text;
+begin
+
+  -- COPY FROM a one-line perl script that prints out the 'content'. To pass
+  -- the content down to the perl script, so that it can regurgitate it, we
+  -- encode it as hex. The perl script unpacks the bytes from the hex
+  -- representation.
+  copycmd = format(
+    $$copy copytest from program $prog$ perl -e 'printf "%%s", pack ("H*", "%s")' $prog$ %s$$,
+    encode(content, 'hex'), copyoptions);
+
+  execute copycmd;
+
+  return query (select * from copytest);
+end;
+$function$
+
+-- Valid input.
+select copytest('encoding ''euc_jis_2004''', '\xbedd');
+ copytest 
+----------
+ ¾Ý
+(1 row)
+
+select copytest('encoding ''utf8''', '\xe8b1a1');
+ copytest 
+----------
+ ¾Ý
+(1 row)
+
+-- combined char
+select copytest('encoding ''utf8''', '\xe382abe3829a');
+ copytest 
+----------
+ ¥÷
+(1 row)
+
+-- incomplete multibyte char.
+select copytest('encoding ''utf8''', '\xe8b1');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xe8 0xb1
+select copytest('encoding ''euc_jis_2004''', '\xbeddbe');
+ERROR:  invalid byte sequence for encoding "EUC_JIS_2004": 0xbe
+-- embedded NUL bytes
+select copytest('encoding ''utf8''', '\x00');
+ERROR:  invalid byte sequence for encoding "UTF8": 0x00
+select copytest('encoding ''utf8''', '\xe8b100e8b1a1');
+ERROR:  invalid byte sequence for encoding "UTF8": 0xe8 0xb1 0x00
+select copytest('encoding ''euc_jis_2004''', '\x00bedd');
+ERROR:  invalid byte sequence for encoding "EUC_JIS_2004": 0x00
+select copytest('encoding ''euc_jis_2004''', '\xbe00dd');
+ERROR:  invalid byte sequence for encoding "EUC_JIS_2004": 0xbe 0x00
+select copytest('encoding ''euc_jis_2004''', '\xbedd00');
+ERROR:  invalid byte sequence for encoding "EUC_JIS_2004": 0x00
