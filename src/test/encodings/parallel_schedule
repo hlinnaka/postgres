@@ -1,0 +1,3 @@
+test: init
+
+test: big5 euc_jis_2004 euc_kr gb18030 shift_jis_2004 uhc euc_cn euc_jp euc_tw gbk johab sjis
