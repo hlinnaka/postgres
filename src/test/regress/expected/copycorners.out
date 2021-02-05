@@ -1,0 +1,202 @@
+create temp table copytest (
+  a text,
+  b text,
+  c text);
+create extension plperlu;
+create function write_test_file(content text) returns void language plperlu as
+$$
+use strict;
+use warnings;
+
+open(FH, '>', '/tmp/copycorners.data') or die $!;
+print FH $_[0];
+close(FH);
+
+$$;
+create function copytest(copyoptions text, content text) returns setof copytest language plpgsql as
+$$
+begin
+   truncate copytest;
+   perform write_test_file($2);
+
+   execute 'copy copytest from ''/tmp/copycorners.data''' || copyoptions;
+   return query select * from copytest;
+end;
+$$;
+-- Basic tests. Not very interesting but see that write_test_file() works.
+select * from copytest('',
+$$a	b	c$$
+);
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+select * from copytest('',
+$$a	b	c
+$$
+);
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+--
+-- Test EOL detection
+--
+select * from copytest('', E'a	b	c\nd	e	f\n'); -- ok
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+select * from copytest('', E'a	b	c\rd	e	f\r'); -- ok
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+select * from copytest('', E'a	b	c\r\nd	e	f\r\n'); -- ok
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+select * from copytest('', E'a	b	c\nd	e	f\r'); -- mismatch
+ERROR:  literal carriage return found in data
+HINT:  Use "\r" to represent carriage return.
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\rd	e	f\n'); -- mismatch
+ERROR:  literal newline found in data
+HINT:  Use "\n" to represent newline.
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\r\nd	e	f\n'); -- mismatch
+ERROR:  literal newline found in data
+HINT:  Use "\n" to represent newline.
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\r\nd	e	f\r'); -- mismatch
+ERROR:  literal carriage return found in data
+HINT:  Use "\r" to represent carriage return.
+CONTEXT:  COPY copytest, line 2: "d	e	f"
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+--
+-- Test end-of-copy markers at different locations.
+--
+select * from copytest('', E'a	b	c\\.');
+ERROR:  end-of-copy marker corrupt
+CONTEXT:  COPY copytest, line 1: "a	b	c"
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\\.\n');
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+select * from copytest('', E'a	b	c\n\n\\.');
+ERROR:  missing data for column "b"
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\n\n\\.\n');
+ERROR:  missing data for column "b"
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+-- \. on a line of its own, with garbage after it
+select * from copytest('', E'a	b	c\n\\.\ngarbage');
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+-- \. at beginning of line, with garbage after it
+select * from copytest('', E'a	b	c\n\\.garbage');
+ERROR:  end-of-copy marker corrupt
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+-- \. in the middle of file, and garbage after it.
+select * from copytest('', E'a	b\\.garbage');
+ERROR:  end-of-copy marker corrupt
+CONTEXT:  COPY copytest, line 1: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+--
+-- Test end-of-copy markers with different EOLs
+--
+select * from copytest('', E'a	b	c\nd	e	f\\.\n');
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+select * from copytest('', E'a	b	c\rd	e	f\\.\r');
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+select * from copytest('', E'a	b	c\r\nd	e	f\\.\r\n');
+ a | b | c 
+---+---+---
+ a | b | c
+ d | e | f
+(2 rows)
+
+-- mismatch between EOL style and EOL after \.
+select * from copytest('', E'a	b	c\na	b	c\\.\r');
+ERROR:  end-of-copy marker does not match previous newline style
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\ra	b	c\\.\n');
+ERROR:  end-of-copy marker does not match previous newline style
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\r\na	b	c\\.\n');
+ERROR:  end-of-copy marker does not match previous newline style
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\na	b	c\\.\r\n');
+ERROR:  end-of-copy marker does not match previous newline style
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+-- end-of-copy marker on first line, with different EOL styles
+select * from copytest('', E'a	b	c\\.');
+ERROR:  end-of-copy marker corrupt
+CONTEXT:  COPY copytest, line 1: "a	b	c"
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
+select * from copytest('', E'a	b	c\\.\n');
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+select * from copytest('', E'a	b	c\\.\r');
+ a | b | c 
+---+---+---
+ a | b | c
+(1 row)
+
+select * from copytest('', E'a	b	c\\.\r\n');
+ERROR:  missing data for column "b"
+CONTEXT:  COPY copytest, line 2: ""
+SQL statement "copy copytest from '/tmp/copycorners.data'"
+PL/pgSQL function copytest(text,text) line 6 at EXECUTE
