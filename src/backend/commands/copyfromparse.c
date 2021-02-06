@@ -274,20 +274,20 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 		case COPY_OLD_FE:
 
 			/*
-			 * We cannot read more than minread bytes (which in practice is 1)
+			 * We cannot read more than 1 byte
 			 * because old protocol doesn't have any clear way of separating
 			 * the COPY stream from following data.  This is slow, but not any
 			 * slower than the code path was originally, and we don't care
 			 * much anymore about the performance of old protocol.
 			 */
-			if (pq_getbytes((char *) databuf, minread))
+			if (pq_getbytes((char *) databuf, 1))
 			{
 				/* Only a \. terminator is legal EOF in old protocol */
 				ereport(ERROR,
 						(errcode(ERRCODE_CONNECTION_FAILURE),
 						 errmsg("unexpected EOF on client connection with an open transaction")));
 			}
-			bytesread = minread;
+			bytesread = 1;
 			break;
 		case COPY_NEW_FE:
 			while (maxread > 0 && bytesread < minread && !cstate->raw_reached_eof)
@@ -603,6 +603,8 @@ static void
 CopyLoadRawBuf(CopyFromState cstate)
 {
 	int			nbytes;
+	int			minread;
+	int			maxread;
 	int			inbytes;
 
 	/*
@@ -636,9 +638,17 @@ CopyLoadRawBuf(CopyFromState cstate)
 		cstate->input_buf_index = 0;
 	}
 
-	/* Load more data */
+	/*
+	 * Load more data.
+	 *
+	 * For efficiency, try to read at least 1/4 of the buffer size in one
+	 * go.
+	 */
+	maxread = RAW_BUF_SIZE - cstate->raw_buf_len;
+	minread = Min(RAW_BUF_SIZE / 4, maxread);
 	inbytes = CopyGetData(cstate, cstate->raw_buf + cstate->raw_buf_len,
-						  1, RAW_BUF_SIZE - cstate->raw_buf_len);
+						  minread, maxread);
+	elog(LOG, "CopyLoadRawBuf received %d bytes (%d residual)", inbytes, cstate->raw_buf_len);
 	nbytes += inbytes;
 	cstate->raw_buf[nbytes] = '\0';
 	cstate->raw_buf_len = nbytes;
