@@ -117,8 +117,9 @@ conv_proc(
     integer,  -- destination encoding ID
     cstring,  -- source string (null terminated C string)
     internal, -- destination (fill with a null terminated C string)
-    integer   -- source string length
-) RETURNS void;
+    integer,  -- source string length
+    boolean   -- if true, don't throw an error if conversion fails
+) RETURNS integer;
 </programlisting></para>
      </listitem>
     </varlistentry>

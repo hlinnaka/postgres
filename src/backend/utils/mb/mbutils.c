@@ -406,12 +406,13 @@ pg_do_encoding_conversion(unsigned char *src, int len,
 		MemoryContextAllocHuge(CurrentMemoryContext,
 							   (Size) len * MAX_CONVERSION_GROWTH + 1);
 
-	OidFunctionCall5(proc,
-					 Int32GetDatum(src_encoding),
-					 Int32GetDatum(dest_encoding),
-					 CStringGetDatum(src),
-					 CStringGetDatum(result),
-					 Int32GetDatum(len));
+	(void) OidFunctionCall6(proc,
+							Int32GetDatum(src_encoding),
+							Int32GetDatum(dest_encoding),
+							CStringGetDatum(src),
+							CStringGetDatum(result),
+							Int32GetDatum(len),
+							BoolGetDatum(false));
 
 	/*
 	 * If the result is large, it's worth repalloc'ing to release any extra
@@ -433,6 +434,59 @@ pg_do_encoding_conversion(unsigned char *src, int len,
 	}
 
 	return result;
+}
+
+/*
+ * Convert src string to another encoding.
+ *
+ * This function has a different API than the other conversion functions.
+ * The caller should've looked up the conversion function using
+ * FindDefaultConversionProc(). Unlike the other functions, the converted
+ * result is not palloc'd. It is written to a caller-supplied buffer instead.
+ *
+ * src_encoding   - encoding to convert from
+ * dest_encoding  - encoding to convert to
+ * src, srclen    - input buffer and its length in bytes
+ * dest, destlen  - destination buffer and its size in bytes
+ *
+ * The output is null-terminated.
+ *
+ * If destlen < srclen * MAX_CONVERSION_LENGTH + 1, the converted output
+ * wouldn't necessarily fit in the output buffer, and the function will not
+ * convert the whole input.
+ *
+ * TODO: It would be nice to also return the number of bytes written to the
+ * caller, to avoid a call to strlen().
+ */
+int
+pg_do_encoding_conversion_buf(Oid proc,
+							  int src_encoding,
+							  int dest_encoding,
+							  unsigned char *src, int srclen,
+							  unsigned char *dest, int destlen,
+							  bool noError)
+{
+	Datum		result;
+
+	/*
+	 * If the destination buffer is not large enough to hold the result in the
+	 * worst case, limit the input size passed to the conversion function.
+	 *
+	 * TODO: It would perhaps be more efficient to pass the destination buffer
+	 * size to the conversion function, so that if the conversion expands less
+	 * than the worst case, it could continue to fill up the whole buffer.
+	 */
+	if ((Size) srclen >= ((destlen - 1) / (Size) MAX_CONVERSION_GROWTH))
+		srclen = ((destlen - 1) / (Size) MAX_CONVERSION_GROWTH);
+
+	result = OidFunctionCall6(proc,
+							  Int32GetDatum(src_encoding),
+							  Int32GetDatum(dest_encoding),
+							  CStringGetDatum(src),
+							  CStringGetDatum(dest),
+							  Int32GetDatum(srclen),
+							  BoolGetDatum(noError));
+	return DatumGetInt32(result);
 }
 
 /*
@@ -762,12 +816,13 @@ perform_default_encoding_conversion(const char *src, int len,
 		MemoryContextAllocHuge(CurrentMemoryContext,
 							   (Size) len * MAX_CONVERSION_GROWTH + 1);
 
-	FunctionCall5(flinfo,
+	FunctionCall6(flinfo,
 				  Int32GetDatum(src_encoding),
 				  Int32GetDatum(dest_encoding),
 				  CStringGetDatum(src),
 				  CStringGetDatum(result),
-				  Int32GetDatum(len));
+				  Int32GetDatum(len),
+				  BoolGetDatum(false));
 
 	/*
 	 * Release extra space if there might be a lot --- see comments in
@@ -849,12 +904,13 @@ pg_unicode_to_server(pg_wchar c, unsigned char *s)
 	c_as_utf8[c_as_utf8_len] = '\0';
 
 	/* Convert, or throw error if we can't */
-	FunctionCall5(Utf8ToServerConvProc,
+	FunctionCall6(Utf8ToServerConvProc,
 				  Int32GetDatum(PG_UTF8),
 				  Int32GetDatum(server_encoding),
 				  CStringGetDatum(c_as_utf8),
 				  CStringGetDatum(s),
-				  Int32GetDatum(c_as_utf8_len));
+				  Int32GetDatum(c_as_utf8_len),
+				  BoolGetDatum(false));
 }
 
 
