@@ -1156,7 +1156,7 @@ add_local_string_reloption(local_relopts *relopts, const char *name,
  */
 Datum
 transformRelOptions(Datum oldOptions, List *defList, const char *namspace,
-					char *validnsps[], bool acceptOidsOff, bool isReset)
+					const char *validnsps[], bool acceptOidsOff, bool isReset)
 {
 	Datum		result;
 	ArrayBuildState *astate;
