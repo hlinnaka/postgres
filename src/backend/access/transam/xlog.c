@@ -4085,6 +4085,7 @@ ReadControlFile(void)
 {
 	pg_crc32c	crc;
 	int			fd;
+#define wal_segsz_str BLESSED_wal_segsz_str
 	static char wal_segsz_str[20];
 	int			r;
 
