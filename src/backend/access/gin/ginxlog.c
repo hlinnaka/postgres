@@ -19,6 +19,7 @@
 #include "access/xlogutils.h"
 #include "utils/memutils.h"
 
+// FIXME: have one global recovery context
 static MemoryContext opCtx;		/* working memory for operations */
 
 static void

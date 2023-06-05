@@ -109,32 +109,6 @@ char	   *Unix_socket_group;
 /* Where the Unix socket files are (list of palloc'd strings) */
 static List *sock_paths = NIL;
 
-/*
- * Buffers for low-level I/O.
- *
- * The receive buffer is fixed size. Send buffer is usually 8k, but can be
- * enlarged by pq_putmessage_noblock() if the message doesn't fit otherwise.
- */
-
-#define PQ_SEND_BUFFER_SIZE 8192
-#define PQ_RECV_BUFFER_SIZE 8192
-
-static char *PqSendBuffer;
-static int	PqSendBufferSize;	/* Size send buffer */
-static int	PqSendPointer;		/* Next index to store a byte in PqSendBuffer */
-static int	PqSendStart;		/* Next index to send a byte in PqSendBuffer */
-
-static char PqRecvBuffer[PQ_RECV_BUFFER_SIZE];
-static int	PqRecvPointer;		/* Next index to read a byte from PqRecvBuffer */
-static int	PqRecvLength;		/* End of data available in PqRecvBuffer */
-
-/*
- * Message status
- */
-static bool PqCommBusy;			/* busy sending data to the client */
-static bool PqCommReadingMsg;	/* in the middle of reading a message */
-
-
 /* Internal functions */
 static void socket_comm_reset(void);
 static void socket_close(int code, Datum arg);
@@ -175,11 +149,11 @@ pq_init(void)
 	int			latch_pos PG_USED_FOR_ASSERTS_ONLY;
 
 	/* initialize state variables */
-	PqSendBufferSize = PQ_SEND_BUFFER_SIZE;
-	PqSendBuffer = MemoryContextAlloc(TopMemoryContext, PqSendBufferSize);
-	PqSendPointer = PqSendStart = PqRecvPointer = PqRecvLength = 0;
-	PqCommBusy = false;
-	PqCommReadingMsg = false;
+	MyProcPort->PqSendBufferSize = PQ_SEND_BUFFER_SIZE;
+	MyProcPort->PqSendBuffer = MemoryContextAlloc(TopMemoryContext, PQ_SEND_BUFFER_SIZE);
+	MyProcPort->PqSendPointer = MyProcPort->PqSendStart = MyProcPort->PqRecvPointer = MyProcPort->PqRecvLength = 0;
+	MyProcPort->PqCommBusy = false;
+	MyProcPort->PqCommReadingMsg = false;
 
 	/* set up process-exit hook to close the socket */
 	on_proc_exit(socket_close, 0);
@@ -235,7 +209,7 @@ static void
 socket_comm_reset(void)
 {
 	/* Do not throw away pending data, but do reset the busy flag */
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 }
 
 /* --------------------------------
@@ -914,18 +888,18 @@ socket_set_nonblocking(bool nonblocking)
 static int
 pq_recvbuf(void)
 {
-	if (PqRecvPointer > 0)
+	if (MyProcPort->PqRecvPointer > 0)
 	{
-		if (PqRecvLength > PqRecvPointer)
+		if (MyProcPort->PqRecvLength > MyProcPort->PqRecvPointer)
 		{
 			/* still some unread data, left-justify it in the buffer */
-			memmove(PqRecvBuffer, PqRecvBuffer + PqRecvPointer,
-					PqRecvLength - PqRecvPointer);
-			PqRecvLength -= PqRecvPointer;
-			PqRecvPointer = 0;
+			memmove(MyProcPort->PqRecvBuffer, MyProcPort->PqRecvBuffer + MyProcPort->PqRecvPointer,
+					MyProcPort->PqRecvLength - MyProcPort->PqRecvPointer);
+			MyProcPort->PqRecvLength -= MyProcPort->PqRecvPointer;
+			MyProcPort->PqRecvPointer = 0;
 		}
 		else
-			PqRecvLength = PqRecvPointer = 0;
+			MyProcPort->PqRecvLength = MyProcPort->PqRecvPointer = 0;
 	}
 
 	/* Ensure that we're in blocking mode */
@@ -938,8 +912,8 @@ pq_recvbuf(void)
 
 		errno = 0;
 
-		r = secure_read(MyProcPort, PqRecvBuffer + PqRecvLength,
-						PQ_RECV_BUFFER_SIZE - PqRecvLength);
+		r = secure_read(MyProcPort, MyProcPort->PqRecvBuffer + MyProcPort->PqRecvLength,
+						PQ_RECV_BUFFER_SIZE - MyProcPort->PqRecvLength);
 
 		if (r < 0)
 		{
@@ -968,7 +942,7 @@ pq_recvbuf(void)
 			return EOF;
 		}
 		/* r contains number of bytes read, so just incr length */
-		PqRecvLength += r;
+		MyProcPort->PqRecvLength += r;
 		return 0;
 	}
 }
@@ -980,14 +954,14 @@ pq_recvbuf(void)
 int
 pq_getbyte(void)
 {
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
-	while (PqRecvPointer >= PqRecvLength)
+	while (MyProcPort->PqRecvPointer >= MyProcPort->PqRecvLength)
 	{
 		if (pq_recvbuf())		/* If nothing in buffer, then recv some */
 			return EOF;			/* Failed to recv data */
 	}
-	return (unsigned char) PqRecvBuffer[PqRecvPointer++];
+	return (unsigned char) MyProcPort->PqRecvBuffer[MyProcPort->PqRecvPointer++];
 }
 
 /* --------------------------------
@@ -999,14 +973,14 @@ pq_getbyte(void)
 int
 pq_peekbyte(void)
 {
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
-	while (PqRecvPointer >= PqRecvLength)
+	while (MyProcPort->PqRecvPointer >= MyProcPort->PqRecvLength)
 	{
 		if (pq_recvbuf())		/* If nothing in buffer, then recv some */
 			return EOF;			/* Failed to recv data */
 	}
-	return (unsigned char) PqRecvBuffer[PqRecvPointer];
+	return (unsigned char) MyProcPort->PqRecvBuffer[MyProcPort->PqRecvPointer];
 }
 
 /* --------------------------------
@@ -1022,11 +996,11 @@ pq_getbyte_if_available(unsigned char *c)
 {
 	int			r;
 
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
-	if (PqRecvPointer < PqRecvLength)
+	if (MyProcPort->PqRecvPointer < MyProcPort->PqRecvLength)
 	{
-		*c = PqRecvBuffer[PqRecvPointer++];
+		*c = MyProcPort->PqRecvBuffer[MyProcPort->PqRecvPointer++];
 		return 1;
 	}
 
@@ -1081,20 +1055,20 @@ pq_getbytes(char *s, size_t len)
 {
 	size_t		amount;
 
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
 	while (len > 0)
 	{
-		while (PqRecvPointer >= PqRecvLength)
+		while (MyProcPort->PqRecvPointer >= MyProcPort->PqRecvLength)
 		{
 			if (pq_recvbuf())	/* If nothing in buffer, then recv some */
 				return EOF;		/* Failed to recv data */
 		}
-		amount = PqRecvLength - PqRecvPointer;
+		amount = MyProcPort->PqRecvLength - MyProcPort->PqRecvPointer;
 		if (amount > len)
 			amount = len;
-		memcpy(s, PqRecvBuffer + PqRecvPointer, amount);
-		PqRecvPointer += amount;
+		memcpy(s, MyProcPort->PqRecvBuffer + MyProcPort->PqRecvPointer, amount);
+		MyProcPort->PqRecvPointer += amount;
 		s += amount;
 		len -= amount;
 	}
@@ -1115,19 +1089,19 @@ pq_discardbytes(size_t len)
 {
 	size_t		amount;
 
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
 	while (len > 0)
 	{
-		while (PqRecvPointer >= PqRecvLength)
+		while (MyProcPort->PqRecvPointer >= MyProcPort->PqRecvLength)
 		{
 			if (pq_recvbuf())	/* If nothing in buffer, then recv some */
 				return EOF;		/* Failed to recv data */
 		}
-		amount = PqRecvLength - PqRecvPointer;
+		amount = MyProcPort->PqRecvLength - MyProcPort->PqRecvPointer;
 		if (amount > len)
 			amount = len;
-		PqRecvPointer += amount;
+		MyProcPort->PqRecvPointer += amount;
 		len -= amount;
 	}
 	return 0;
@@ -1142,7 +1116,7 @@ pq_discardbytes(size_t len)
 bool
 pq_buffer_has_data(void)
 {
-	return (PqRecvPointer < PqRecvLength);
+	return (MyProcPort->PqRecvPointer < MyProcPort->PqRecvLength);
 }
 
 
@@ -1159,12 +1133,12 @@ pq_startmsgread(void)
 	 * There shouldn't be a read active already, but let's check just to be
 	 * sure.
 	 */
-	if (PqCommReadingMsg)
+	if (MyProcPort->PqCommReadingMsg)
 		ereport(FATAL,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("terminating connection because protocol synchronization was lost")));
 
-	PqCommReadingMsg = true;
+	MyProcPort->PqCommReadingMsg = true;
 }
 
 
@@ -1179,9 +1153,9 @@ pq_startmsgread(void)
 void
 pq_endmsgread(void)
 {
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
-	PqCommReadingMsg = false;
+	MyProcPort->PqCommReadingMsg = false;
 }
 
 /* --------------------------------
@@ -1195,7 +1169,7 @@ pq_endmsgread(void)
 bool
 pq_is_reading_msg(void)
 {
-	return PqCommReadingMsg;
+	return MyProcPort->PqCommReadingMsg;
 }
 
 /* --------------------------------
@@ -1219,7 +1193,7 @@ pq_getmessage(StringInfo s, int maxlen)
 {
 	int32		len;
 
-	Assert(PqCommReadingMsg);
+	Assert(MyProcPort->PqCommReadingMsg);
 
 	resetStringInfo(s);
 
@@ -1263,7 +1237,7 @@ pq_getmessage(StringInfo s, int maxlen)
 						 errmsg("incomplete message from client")));
 
 			/* we discarded the rest of the message so we're back in sync. */
-			PqCommReadingMsg = false;
+			MyProcPort->PqCommReadingMsg = false;
 			PG_RE_THROW();
 		}
 		PG_END_TRY();
@@ -1282,7 +1256,7 @@ pq_getmessage(StringInfo s, int maxlen)
 	}
 
 	/* finished reading the message. */
-	PqCommReadingMsg = false;
+	MyProcPort->PqCommReadingMsg = false;
 
 	return 0;
 }
@@ -1296,17 +1270,17 @@ internal_putbytes(const char *s, size_t len)
 	while (len > 0)
 	{
 		/* If buffer is full, then flush it out */
-		if (PqSendPointer >= PqSendBufferSize)
+		if (MyProcPort->PqSendPointer >= MyProcPort->PqSendBufferSize)
 		{
 			socket_set_nonblocking(false);
 			if (internal_flush())
 				return EOF;
 		}
-		amount = PqSendBufferSize - PqSendPointer;
+		amount = MyProcPort->PqSendBufferSize - MyProcPort->PqSendPointer;
 		if (amount > len)
 			amount = len;
-		memcpy(PqSendBuffer + PqSendPointer, s, amount);
-		PqSendPointer += amount;
+		memcpy(MyProcPort->PqSendBuffer + MyProcPort->PqSendPointer, s, amount);
+		MyProcPort->PqSendPointer += amount;
 		s += amount;
 		len -= amount;
 	}
@@ -1325,12 +1299,12 @@ socket_flush(void)
 	int			res;
 
 	/* No-op if reentrant call */
-	if (PqCommBusy)
+	if (MyProcPort->PqCommBusy)
 		return 0;
-	PqCommBusy = true;
+	MyProcPort->PqCommBusy = true;
 	socket_set_nonblocking(false);
 	res = internal_flush();
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return res;
 }
 
@@ -1346,8 +1320,8 @@ internal_flush(void)
 {
 	static int	last_reported_send_errno = 0;
 
-	char	   *bufptr = PqSendBuffer + PqSendStart;
-	char	   *bufend = PqSendBuffer + PqSendPointer;
+	char	   *bufptr = MyProcPort->PqSendBuffer + MyProcPort->PqSendStart;
+	char	   *bufend = MyProcPort->PqSendBuffer + MyProcPort->PqSendPointer;
 
 	while (bufptr < bufend)
 	{
@@ -1393,7 +1367,7 @@ internal_flush(void)
 			 * flag that'll cause the next CHECK_FOR_INTERRUPTS to terminate
 			 * the connection.
 			 */
-			PqSendStart = PqSendPointer = 0;
+			MyProcPort->PqSendStart = MyProcPort->PqSendPointer = 0;
 			ClientConnectionLost = 1;
 			InterruptPending = 1;
 			return EOF;
@@ -1401,10 +1375,10 @@ internal_flush(void)
 
 		last_reported_send_errno = 0;	/* reset after any successful send */
 		bufptr += r;
-		PqSendStart += r;
+		MyProcPort->PqSendStart += r;
 	}
 
-	PqSendStart = PqSendPointer = 0;
+	MyProcPort->PqSendStart = MyProcPort->PqSendPointer = 0;
 	return 0;
 }
 
@@ -1420,19 +1394,19 @@ socket_flush_if_writable(void)
 	int			res;
 
 	/* Quick exit if nothing to do */
-	if (PqSendPointer == PqSendStart)
+	if (MyProcPort->PqSendPointer == MyProcPort->PqSendStart)
 		return 0;
 
 	/* No-op if reentrant call */
-	if (PqCommBusy)
+	if (MyProcPort->PqCommBusy)
 		return 0;
 
 	/* Temporarily put the socket into non-blocking mode */
 	socket_set_nonblocking(true);
 
-	PqCommBusy = true;
+	MyProcPort->PqCommBusy = true;
 	res = internal_flush();
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return res;
 }
 
@@ -1443,7 +1417,7 @@ socket_flush_if_writable(void)
 static bool
 socket_is_send_pending(void)
 {
-	return (PqSendStart < PqSendPointer);
+	return (MyProcPort->PqSendStart < MyProcPort->PqSendPointer);
 }
 
 /* --------------------------------
@@ -1477,9 +1451,9 @@ socket_putmessage(char msgtype, const char *s, size_t len)
 
 	Assert(msgtype != 0);
 
-	if (PqCommBusy)
+	if (MyProcPort->PqCommBusy)
 		return 0;
-	PqCommBusy = true;
+	MyProcPort->PqCommBusy = true;
 	if (internal_putbytes(&msgtype, 1))
 		goto fail;
 
@@ -1489,11 +1463,11 @@ socket_putmessage(char msgtype, const char *s, size_t len)
 
 	if (internal_putbytes(s, len))
 		goto fail;
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return 0;
 
 fail:
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return EOF;
 }
 
@@ -1513,11 +1487,11 @@ socket_putmessage_noblock(char msgtype, const char *s, size_t len)
 	 * Ensure we have enough space in the output buffer for the message header
 	 * as well as the message itself.
 	 */
-	required = PqSendPointer + 1 + 4 + len;
-	if (required > PqSendBufferSize)
+	required = MyProcPort->PqSendPointer + 1 + 4 + len;
+	if (required > MyProcPort->PqSendBufferSize)
 	{
-		PqSendBuffer = repalloc(PqSendBuffer, required);
-		PqSendBufferSize = required;
+		MyProcPort->PqSendBuffer = repalloc(MyProcPort->PqSendBuffer, required);
+		MyProcPort->PqSendBufferSize = required;
 	}
 	res = pq_putmessage(msgtype, s, len);
 	Assert(res == 0);			/* should not fail when the message fits in
@@ -1545,19 +1519,19 @@ pq_putmessage_v2(char msgtype, const char *s, size_t len)
 {
 	Assert(msgtype != 0);
 
-	if (PqCommBusy)
+	if (MyProcPort->PqCommBusy)
 		return 0;
-	PqCommBusy = true;
+	MyProcPort->PqCommBusy = true;
 	if (internal_putbytes(&msgtype, 1))
 		goto fail;
 
 	if (internal_putbytes(s, len))
 		goto fail;
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return 0;
 
 fail:
-	PqCommBusy = false;
+	MyProcPort->PqCommBusy = false;
 	return EOF;
 }
 
