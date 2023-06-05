@@ -773,6 +773,8 @@
 # VERSION AND PLATFORM COMPATIBILITY
 #------------------------------------------------------------------------------
 
+#multithreaded = false
+
 # - Previous PostgreSQL Versions -
 
 #array_nulls = on

@@ -810,6 +810,15 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 struct config_bool ConfigureNamesBool[] =
 {
 	{
+		{"multithreaded", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Multi-threaded server."),
+			NULL,
+		},
+		&IsMultiThreaded,
+		false,
+		NULL, NULL, NULL
+	},
+	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),
 			NULL,
