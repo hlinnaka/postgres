@@ -43,7 +43,7 @@ extern PGDLLIMPORT session_local double autovacuum_vac_cost_delay;
 extern PGDLLIMPORT session_local int autovacuum_vac_cost_limit;
 
 /* autovacuum launcher PID, only valid when worker is shutting down */
-extern PGDLLIMPORT int AutovacuumLauncherPid;
+extern PGDLLIMPORT session_local int AutovacuumLauncherPid;
 
 extern PGDLLIMPORT session_local int Log_autovacuum_min_duration;
 

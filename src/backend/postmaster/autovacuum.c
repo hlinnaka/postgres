@@ -307,14 +307,14 @@ static AutoVacuumShmemStruct *AutoVacuumShmem;
  * the database list (of avl_dbase elements) in the launcher, and the context
  * that contains it
  */
-static dlist_head DatabaseList = DLIST_STATIC_INIT(DatabaseList);
-static MemoryContext DatabaseListCxt = NULL;
+static /* FIXME: session_local */ dlist_head DatabaseList = DLIST_STATIC_INIT(DatabaseList);
+static session_local MemoryContext DatabaseListCxt = NULL;
 
 /* Pointer to my own WorkerInfo, valid on each worker */
-static WorkerInfo MyWorkerInfo = NULL;
+static session_local WorkerInfo MyWorkerInfo = NULL;
 
 /* PID of launcher, valid only in worker while shutting down */
-int			AutovacuumLauncherPid = 0;
+session_local int			AutovacuumLauncherPid = 0;
 
 #ifdef EXEC_BACKEND
 static pid_t avlauncher_forkexec(void);

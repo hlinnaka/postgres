@@ -123,11 +123,11 @@
 #include "utils/syscache.h"
 #include "utils/usercontext.h"
 
-static bool table_states_valid = false;
-static List *table_states_not_ready = NIL;
+static session_local bool table_states_valid = false;
+static session_local List *table_states_not_ready = NIL;
 static bool FetchTableStates(bool *started_tx);
 
-static StringInfo copybuf = NULL;
+static session_local StringInfo copybuf = NULL;
 
 /*
  * Exit routine for synchronization worker.
@@ -415,7 +415,7 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 		Oid			relid;
 		TimestampTz last_start_time;
 	};
-	static HTAB *last_start_times = NULL;
+	static session_local HTAB *last_start_times = NULL;
 	ListCell   *lc;
 	bool		started_tx = false;
 	bool		should_exit = false;
@@ -1563,7 +1563,7 @@ copy_table_done:
 static bool
 FetchTableStates(bool *started_tx)
 {
-	static bool has_subrels = false;
+	static session_local bool has_subrels = false;
 
 	*started_tx = false;
 

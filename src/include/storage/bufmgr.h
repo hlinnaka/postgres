@@ -142,9 +142,9 @@ extern PGDLLIMPORT int bgwriter_flush_after;
 extern PGDLLIMPORT char *BufferBlocks;
 
 /* in localbuf.c */
-extern PGDLLIMPORT int NLocBuffer;
-extern PGDLLIMPORT Block *LocalBufferBlockPointers;
-extern PGDLLIMPORT int32 *LocalRefCount;
+extern PGDLLIMPORT session_local int NLocBuffer;
+extern PGDLLIMPORT session_local Block *LocalBufferBlockPointers;
+extern PGDLLIMPORT session_local int32 *LocalRefCount;
 
 /* upper limit for effective_io_concurrency */
 #define MAX_IO_CONCURRENCY 1000

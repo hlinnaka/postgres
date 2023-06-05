@@ -58,7 +58,7 @@ int			max_logical_replication_workers = 4;
 int			max_sync_workers_per_subscription = 2;
 int			max_parallel_apply_workers_per_subscription = 2;
 
-LogicalRepWorker *MyLogicalRepWorker = NULL;
+session_local LogicalRepWorker *MyLogicalRepWorker = NULL;
 
 typedef struct LogicalRepCtxStruct
 {

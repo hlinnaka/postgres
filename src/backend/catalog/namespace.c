@@ -133,26 +133,26 @@
 
 /* These variables define the actually active state: */
 
-static List *activeSearchPath = NIL;
+static session_local List *activeSearchPath = NIL;
 
 /* default place to create stuff; if InvalidOid, no default */
-static Oid	activeCreationNamespace = InvalidOid;
+static session_local Oid	activeCreationNamespace = InvalidOid;
 
 /* if true, activeCreationNamespace is wrong, it should be temp namespace */
-static bool activeTempCreationPending = false;
+static session_local bool activeTempCreationPending = false;
 
 /* current generation counter; make sure this is never zero */
-static uint64 activePathGeneration = 1;
+static session_local uint64 activePathGeneration = 1;
 
 /* These variables are the values last derived from namespace_search_path: */
 
-static List *baseSearchPath = NIL;
+static session_local List *baseSearchPath = NIL;
 
-static Oid	baseCreationNamespace = InvalidOid;
+static session_local Oid	baseCreationNamespace = InvalidOid;
 
-static bool baseTempCreationPending = false;
+static session_local bool baseTempCreationPending = false;
 
-static Oid	namespaceUser = InvalidOid;
+static session_local Oid	namespaceUser = InvalidOid;
 
 /* The above four values are valid only if baseSearchPathValid */
 static bool baseSearchPathValid = true;
@@ -193,11 +193,11 @@ typedef struct SearchPathCacheEntry
  * we either haven't made the TEMP namespace yet, or have successfully
  * committed its creation, depending on whether myTempNamespace is valid.
  */
-static Oid	myTempNamespace = InvalidOid;
+static session_local Oid	myTempNamespace = InvalidOid;
 
-static Oid	myTempToastNamespace = InvalidOid;
+static session_local Oid	myTempToastNamespace = InvalidOid;
 
-static SubTransactionId myTempNamespaceSubID = InvalidSubTransactionId;
+static session_local SubTransactionId myTempNamespaceSubID = InvalidSubTransactionId;
 
 /*
  * This is the user's textual search path specification --- it's the value

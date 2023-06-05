@@ -153,7 +153,7 @@ static session_local XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
  * How far have we sent WAL already? This is also advertised in
  * MyWalSnd->sentPtr.  (Actually, this is the next WAL location to send.)
  */
-static XLogRecPtr sentPtr = InvalidXLogRecPtr;
+static session_local XLogRecPtr sentPtr = InvalidXLogRecPtr;
 
 /* Buffers for constructing outgoing messages and processing reply messages. */
 static session_local StringInfoData output_message;
@@ -186,7 +186,7 @@ static session_local bool WalSndCaughtUp = false;
 
 /* Flags set by signal handlers for later service in main loop */
 static volatile sig_atomic_t got_SIGUSR2 = false;
-static volatile sig_atomic_t got_STOPPING = false;
+static session_local volatile sig_atomic_t got_STOPPING = false;
 
 /*
  * This is set while we are streaming. When not set
@@ -194,9 +194,9 @@ static volatile sig_atomic_t got_STOPPING = false;
  * the main loop is responsible for checking got_STOPPING and terminating when
  * it's set (after streaming any remaining WAL).
  */
-static volatile sig_atomic_t replication_active = false;
+static session_local volatile sig_atomic_t replication_active = false;
 
-static LogicalDecodingContext *logical_decoding_ctx = NULL;
+static session_local LogicalDecodingContext *logical_decoding_ctx = NULL;
 
 /* A sample associating a WAL location with the time it was written. */
 typedef struct
@@ -1471,7 +1471,7 @@ static void
 WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid,
 					 bool skipped_xact)
 {
-	static TimestampTz sendTime = 0;
+	static session_local TimestampTz sendTime = 0;
 	TimestampTz now = GetCurrentTimestamp();
 	bool		pending_writes = false;
 	bool		end_xact = ctx->end_xact;
@@ -1539,7 +1539,7 @@ static XLogRecPtr
 WalSndWaitForWal(XLogRecPtr loc)
 {
 	int			wakeEvents;
-	static XLogRecPtr RecentFlushPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr RecentFlushPtr = InvalidXLogRecPtr;
 
 	/*
 	 * Fast path to avoid acquiring the spinlock in case we already know we
@@ -2077,7 +2077,7 @@ ProcessStandbyReplyMessage(void)
 	TimestampTz now;
 	TimestampTz replyTime;
 
-	static bool fullyAppliedLastTime = false;
+	static session_local bool fullyAppliedLastTime = false;
 
 	/* the caller already consumed the msgtype byte */
 	writePtr = pq_getmsgint64(&reply_message);
@@ -3054,7 +3054,7 @@ XLogSendLogical(void)
 	 * helpful because GetFlushRecPtr() needs to acquire a heavily-contended
 	 * spinlock.
 	 */
-	static XLogRecPtr flushPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr flushPtr = InvalidXLogRecPtr;
 
 	/*
 	 * Don't know whether we've caught up yet. We'll set WalSndCaughtUp to

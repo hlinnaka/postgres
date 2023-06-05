@@ -14,7 +14,7 @@
 
 #include <signal.h>
 
-extern PGDLLIMPORT volatile sig_atomic_t ParallelApplyMessagePending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ParallelApplyMessagePending;
 
 extern void ApplyWorkerMain(Datum main_arg);
 extern void ParallelApplyWorkerMain(Datum main_arg);

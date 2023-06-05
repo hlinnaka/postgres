@@ -308,6 +308,7 @@ static AsyncQueueControl *asyncQueueControl;
 /*
  * The SLRU buffer area through which we access the notification queue
  */
+#define NotifyCtlData SHMEM_NotifyCtlData
 static SlruCtlData NotifyCtlData;
 
 #define NotifyCtl					(&NotifyCtlData)
@@ -320,7 +321,7 @@ static SlruCtlData NotifyCtlData;
  * (ie, have committed a LISTEN on).  It is a simple list of channel names,
  * allocated in TopMemoryContext.
  */
-static List *listenChannels = NIL;	/* list of C strings */
+static session_local List *listenChannels = NIL;	/* list of C strings */
 
 /*
  * State for pending LISTEN/UNLISTEN actions consists of an ordered list of
@@ -416,13 +417,13 @@ static session_local NotificationList *pendingNotifies = NULL;
 volatile session_local sig_atomic_t notifyInterruptPending = false;
 
 /* True if we've registered an on_shmem_exit cleanup */
-static bool unlistenExitRegistered = false;
+static session_local bool unlistenExitRegistered = false;
 
 /* True if we're currently registered as a listener in asyncQueueControl */
-static bool amRegisteredListener = false;
+static session_local bool amRegisteredListener = false;
 
 /* have we advanced to a page that's a multiple of QUEUE_CLEANUP_DELAY? */
-static bool tryAdvanceTail = false;
+static session_local bool tryAdvanceTail = false;
 
 /* GUC parameters */
 bool		Trace_notify = false;

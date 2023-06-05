@@ -303,37 +303,37 @@ static ApplyErrorCallbackArg apply_error_callback_arg =
 	.origin_name = NULL,
 };
 
-ErrorContextCallback *apply_error_context_stack = NULL;
+session_local ErrorContextCallback *apply_error_context_stack = NULL;
 
-MemoryContext ApplyMessageContext = NULL;
-MemoryContext ApplyContext = NULL;
+session_local MemoryContext ApplyMessageContext = NULL;
+session_local MemoryContext ApplyContext = NULL;
 
 /* per stream context for streaming transactions */
-static MemoryContext LogicalStreamingContext = NULL;
+static session_local MemoryContext LogicalStreamingContext = NULL;
 
-WalReceiverConn *LogRepWorkerWalRcvConn = NULL;
+session_local WalReceiverConn *LogRepWorkerWalRcvConn = NULL;
 
-Subscription *MySubscription = NULL;
-static bool MySubscriptionValid = false;
+session_local Subscription *MySubscription = NULL;
+static session_local bool MySubscriptionValid = false;
 
-static List *on_commit_wakeup_workers_subids = NIL;
+static session_local List *on_commit_wakeup_workers_subids = NIL;
 
-bool		in_remote_transaction = false;
-static XLogRecPtr remote_final_lsn = InvalidXLogRecPtr;
+session_local bool		in_remote_transaction = false;
+static session_local XLogRecPtr remote_final_lsn = InvalidXLogRecPtr;
 
 /* fields valid only when processing streamed transaction */
-static bool in_streamed_transaction = false;
+static session_local bool in_streamed_transaction = false;
 
-static TransactionId stream_xid = InvalidTransactionId;
+static session_local TransactionId stream_xid = InvalidTransactionId;
 
 /*
  * The number of changes applied by parallel apply worker during one streaming
  * block.
  */
-static uint32 parallel_stream_nchanges = 0;
+static session_local uint32 parallel_stream_nchanges = 0;
 
 /* Are we initializing a apply worker? */
-bool		InitializingApplyWorker = false;
+session_local bool		InitializingApplyWorker = false;
 
 /*
  * We enable skipping all data modification changes (INSERT, UPDATE, etc.) for
@@ -350,11 +350,11 @@ bool		InitializingApplyWorker = false;
  * the changes. So, we don't start parallel apply worker when finish LSN is set
  * by the user.
  */
-static XLogRecPtr skip_xact_finish_lsn = InvalidXLogRecPtr;
+static session_local XLogRecPtr skip_xact_finish_lsn = InvalidXLogRecPtr;
 #define is_skipping_changes() (unlikely(!XLogRecPtrIsInvalid(skip_xact_finish_lsn)))
 
 /* BufFile handle of the current streaming file */
-static BufFile *stream_fd = NULL;
+static session_local BufFile *stream_fd = NULL;
 
 typedef struct SubXactInfo
 {
@@ -372,7 +372,7 @@ typedef struct ApplySubXactData
 	SubXactInfo *subxacts;		/* sub-xact offset in changes file */
 } ApplySubXactData;
 
-static ApplySubXactData subxact_data = {0, 0, InvalidTransactionId, NULL};
+static session_local ApplySubXactData subxact_data = {0, 0, InvalidTransactionId, NULL};
 
 static inline void subxact_filename(char *path, Oid subid, TransactionId xid);
 static inline void changes_filename(char *path, Oid subid, TransactionId xid);
@@ -3759,12 +3759,12 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 static void
 send_feedback(XLogRecPtr recvpos, bool force, bool requestReply)
 {
-	static StringInfo reply_message = NULL;
-	static TimestampTz send_time = 0;
+	static session_local StringInfo reply_message = NULL;
+	static session_local TimestampTz send_time = 0;
 
-	static XLogRecPtr last_recvpos = InvalidXLogRecPtr;
-	static XLogRecPtr last_writepos = InvalidXLogRecPtr;
-	static XLogRecPtr last_flushpos = InvalidXLogRecPtr;
+	static session_local XLogRecPtr last_recvpos = InvalidXLogRecPtr;
+	static session_local XLogRecPtr last_writepos = InvalidXLogRecPtr;
+	static session_local XLogRecPtr last_flushpos = InvalidXLogRecPtr;
 
 	XLogRecPtr	writepos;
 	XLogRecPtr	flushpos;
