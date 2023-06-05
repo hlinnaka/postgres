@@ -18,8 +18,8 @@
 #include "utils/timestamp.h"
 
 /* GUC variables */
-extern PGDLLIMPORT int logical_decoding_work_mem;
-extern PGDLLIMPORT int debug_logical_replication_streaming;
+extern PGDLLIMPORT session_guc int logical_decoding_work_mem;
+extern PGDLLIMPORT session_guc int debug_logical_replication_streaming;
 
 /* possible values for debug_logical_replication_streaming */
 typedef enum

@@ -276,7 +276,7 @@ static PGPROC *allProcs;
 /*
  * Cache to reduce overhead of repeated calls to TransactionIdIsInProgress()
  */
-static TransactionId cachedXidIsNotInProgress = InvalidTransactionId;
+static session_local TransactionId cachedXidIsNotInProgress = InvalidTransactionId;
 
 /*
  * Bookkeeping for tracking emulated transactions in recovery
@@ -588,7 +588,9 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	myoff = proc->pgxactoff;
 
 	Assert(myoff >= 0 && myoff < arrayP->numProcs);
+#undef allProcs
 	Assert(ProcGlobal->allProcs[arrayP->pgprocnos[myoff]].pgxactoff == myoff);
+#define allProcs SHMEM_allProcs
 
 	if (TransactionIdIsValid(latestXid))
 	{

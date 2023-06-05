@@ -42,12 +42,12 @@
  * GUC parameters
  * ----------
  */
-bool		pgstat_track_activities = false;
-int			pgstat_track_activity_query_size = 1024;
+session_guc bool		pgstat_track_activities = false;
+postmaster_guc int			pgstat_track_activity_query_size = 1024;
 
 
 /* exposed so that backend_progress.c can access it */
-PgBackendStatus *MyBEEntry = NULL;
+session_local PgBackendStatus *MyBEEntry = NULL;
 
 
 #define BackendStatusArray SHMEM_BackendStatusArray
@@ -70,12 +70,12 @@ static PgBackendGSSStatus *BackendGssStatusBuffer = NULL;
 
 
 /* Status for backends including auxiliary */
-static LocalPgBackendStatus *localBackendStatusTable = NULL;
+static session_local LocalPgBackendStatus *localBackendStatusTable = NULL;
 
 /* Total number of backends including auxiliary */
-static int	localNumBackends = 0;
+static session_local int	localNumBackends = 0;
 
-static MemoryContext backendStatusSnapContext;
+static session_local MemoryContext backendStatusSnapContext;
 
 
 static void pgstat_beshutdown_hook(int code, Datum arg);

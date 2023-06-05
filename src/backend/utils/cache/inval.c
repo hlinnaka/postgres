@@ -169,7 +169,7 @@ typedef struct InvalMessageArray
 	int			maxmsgs;		/* current allocated size of array */
 } InvalMessageArray;
 
-static InvalMessageArray InvalMessageArrays[2];
+static session_local InvalMessageArray InvalMessageArrays[2];
 
 /* Control information for one logical group of messages */
 typedef struct InvalidationMsgsGroup
@@ -235,10 +235,10 @@ typedef struct TransInvalidationInfo
 	bool		RelcacheInitFileInval;
 } TransInvalidationInfo;
 
-static TransInvalidationInfo *transInvalInfo = NULL;
+static session_local TransInvalidationInfo *transInvalInfo = NULL;
 
 /* GUC storage */
-int			debug_discard_caches = 0;
+session_guc int			debug_discard_caches = 0;
 
 /*
  * Dynamically-registered callback functions.  Current implementation

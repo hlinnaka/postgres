@@ -69,9 +69,9 @@
 #include "utils/syscache.h"
 
 /* GUC parameters */
-double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
-int			debug_parallel_query = DEBUG_PARALLEL_OFF;
-bool		parallel_leader_participation = true;
+session_guc double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
+session_guc int			debug_parallel_query = DEBUG_PARALLEL_OFF;
+session_guc bool		parallel_leader_participation = true;
 
 /* Hook for plugins to get control in planner() */
 planner_hook_type planner_hook = NULL;

@@ -50,6 +50,7 @@
 #include "storage/pg_shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
+#include "utils/elog_gucs.h"
 #include "utils/ps_status.h"
 #include "utils/timestamp.h"
 

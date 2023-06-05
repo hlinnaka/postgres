@@ -22,9 +22,9 @@
 /*
  * GUC variables
  */
-extern PGDLLIMPORT int max_predicate_locks_per_xact;
-extern PGDLLIMPORT int max_predicate_locks_per_relation;
-extern PGDLLIMPORT int max_predicate_locks_per_page;
+extern PGDLLIMPORT postmaster_guc int max_predicate_locks_per_xact;
+extern PGDLLIMPORT sighup_guc int max_predicate_locks_per_relation;
+extern PGDLLIMPORT sighup_guc int max_predicate_locks_per_page;
 
 
 /* Number of SLRU buffers to use for Serial SLRU */

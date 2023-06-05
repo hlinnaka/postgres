@@ -120,16 +120,16 @@ bool		IsMultiThreaded = false; /* GUC */
 
 bool		ExitOnAnyError = false;
 
-int			DateStyle = USE_ISO_DATES;
-int			DateOrder = DATEORDER_MDY;
-int			IntervalStyle = INTSTYLE_POSTGRES;
+session_local int			DateStyle = USE_ISO_DATES;
+session_local int			DateOrder = DATEORDER_MDY;
+session_guc int			IntervalStyle = INTSTYLE_POSTGRES;
 
-bool		enableFsync = true;
-bool		allowSystemTableMods = false;
-int			work_mem = 4096;
-double		hash_mem_multiplier = 2.0;
-int			maintenance_work_mem = 65536;
-int			max_parallel_maintenance_workers = 2;
+sighup_guc bool		enableFsync = true;
+session_guc bool		allowSystemTableMods = false;
+session_guc int			work_mem = 4096;
+session_guc double		hash_mem_multiplier = 2.0;
+session_guc int			maintenance_work_mem = 65536;
+session_guc int			max_parallel_maintenance_workers = 2;
 
 /*
  * Primary determinants of sizes of shared-memory structures.
@@ -137,24 +137,24 @@ int			max_parallel_maintenance_workers = 2;
  * MaxBackends is computed by PostmasterMain after modules have had a chance to
  * register background workers.
  */
-int			NBuffers = 16384;
-int			MaxConnections = 100;
-int			max_worker_processes = 8;
-int			max_parallel_workers = 8;
+postmaster_guc int			NBuffers = 16384;
+postmaster_guc int			MaxConnections = 100;
+postmaster_guc int			max_worker_processes = 8;
+session_guc int			max_parallel_workers = 8;
 int			MaxBackends = 0;
 
 /* GUC parameters for vacuum */
-int			VacuumBufferUsageLimit = 256;
+session_guc int			VacuumBufferUsageLimit = 256;
 
-int			VacuumCostPageHit = 1;
-int			VacuumCostPageMiss = 2;
-int			VacuumCostPageDirty = 20;
-int			VacuumCostLimit = 200;
-double		VacuumCostDelay = 0;
+session_guc int			VacuumCostPageHit = 1;
+session_guc int			VacuumCostPageMiss = 2;
+session_guc int			VacuumCostPageDirty = 20;
+session_guc int			VacuumCostLimit = 200;
+session_guc double		VacuumCostDelay = 0;
 
-int64		VacuumPageHit = 0;
-int64		VacuumPageMiss = 0;
-int64		VacuumPageDirty = 0;
+session_local int64		VacuumPageHit = 0;
+session_local int64		VacuumPageMiss = 0;
+session_local int64		VacuumPageDirty = 0;
 
-int			VacuumCostBalance = 0;	/* working state for vacuum */
-bool		VacuumCostActive = false;
+session_local int			VacuumCostBalance = 0;	/* working state for vacuum */
+session_local bool		VacuumCostActive = false;

@@ -1867,7 +1867,7 @@ executeDateTimeMethod(JsonPathExecContext *cxt, JsonPathItem *jsp,
 		};
 
 		/* cache for format texts */
-		static text *fmt_txt[lengthof(fmt_str)] = {0};
+		static session_local text *fmt_txt[lengthof(fmt_str)] = {0};
 		int			i;
 
 		/* loop until datetime format fits */

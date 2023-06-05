@@ -52,7 +52,7 @@ typedef struct
 	Oid			reloid;
 } SelfJoinCandidate;
 
-bool		enable_self_join_removal;
+session_guc bool		enable_self_join_removal;
 
 /* local functions */
 static bool join_is_removable(PlannerInfo *root, SpecialJoinInfo *sjinfo);

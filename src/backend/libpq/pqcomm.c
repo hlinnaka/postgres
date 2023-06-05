@@ -107,6 +107,7 @@ postmaster_guc int			Unix_socket_permissions;
 postmaster_guc char	   *Unix_socket_group;
 
 /* Where the Unix socket files are (list of palloc'd strings) */
+#define sock_paths BLESSED_sock_paths
 static List *sock_paths = NIL;
 
 /* Internal functions */

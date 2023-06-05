@@ -317,6 +317,7 @@
 /*
  * The SLRU buffer area through which we access the old xids.
  */
+#define SerialSlruCtlData SHMEM_SerialSlruCtlData
 static SlruCtlData SerialSlruCtlData;
 
 #define SerialSlruCtl			(&SerialSlruCtlData)
@@ -365,9 +366,9 @@ static SERIALIZABLEXACT *OldCommittedSxact;
  * attempt to degrade performance (mostly as false positive serialization
  * failure) gracefully in the face of memory pressure.
  */
-int			max_predicate_locks_per_xact;	/* in guc_tables.c */
-int			max_predicate_locks_per_relation;	/* in guc_tables.c */
-int			max_predicate_locks_per_page;	/* in guc_tables.c */
+postmaster_guc int			max_predicate_locks_per_xact;	/* in guc_tables.c */
+sighup_guc int			max_predicate_locks_per_relation;	/* in guc_tables.c */
+sighup_guc int			max_predicate_locks_per_page;	/* in guc_tables.c */
 
 /*
  * This provides a list of objects in order to track transactions
@@ -385,6 +386,7 @@ static PredXactList PredXact;
  * This provides a pool of RWConflict data elements to use in conflict lists
  * between transactions.
  */
+#define RWConflictPool SHMEM_RWConflictPool
 static RWConflictPoolHeader RWConflictPool;
 
 /*
@@ -405,23 +407,25 @@ static dlist_head *FinishedSerializableTransactions;
  * this entry, you can ensure that there's enough scratch space available for
  * inserting one entry in the hash table. This is an otherwise-invalid tag.
  */
-static const PREDICATELOCKTARGETTAG ScratchTargetTag = {0, 0, 0, 0};
-static uint32 ScratchTargetTagHash;
+static session_local const PREDICATELOCKTARGETTAG ScratchTargetTag = {0, 0, 0, 0};
+#define ScratchTargetTagHash BLESSED_ScratchTargetTagHash
+static session_local uint32 ScratchTargetTagHash;
+#define ScratchPartitionLock BLESSED_ScratchPartitionLock
 static LWLock *ScratchPartitionLock;
 
 /*
  * The local hash table used to determine when to combine multiple fine-
  * grained locks into a single courser-grained lock.
  */
-static HTAB *LocalPredicateLockHash = NULL;
+static session_local HTAB *LocalPredicateLockHash = NULL;
 
 /*
  * Keep a pointer to the currently-running serializable transaction (if any)
  * for quick reference. Also, remember if we have written anything that could
  * cause a rw-conflict.
  */
-static SERIALIZABLEXACT *MySerializableXact = InvalidSerializableXact;
-static bool MyXactDidWrite = false;
+static session_local SERIALIZABLEXACT *MySerializableXact = InvalidSerializableXact;
+static session_local bool MyXactDidWrite = false;
 
 /*
  * The SXACT_FLAG_RO_UNSAFE optimization might lead us to release
@@ -430,7 +434,7 @@ static bool MyXactDidWrite = false;
  * transaction, because the workers still have a reference to it.  In that
  * case, the leader stores it here.
  */
-static SERIALIZABLEXACT *SavedSerializableXact = InvalidSerializableXact;
+static session_local SERIALIZABLEXACT *SavedSerializableXact = InvalidSerializableXact;
 
 /* local functions */
 

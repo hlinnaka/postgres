@@ -161,6 +161,7 @@ do { \
 /*
  * from utils/init/globals.c
  */
+#ifndef FRONTEND
 extern PGDLLIMPORT pid_t PostmasterPid;
 extern PGDLLIMPORT bool IsPostmasterEnvironment;
 extern PGDLLIMPORT bool IsUnderPostmaster;
@@ -174,11 +175,11 @@ extern PGDLLIMPORT bool ExitOnAnyError;
 extern PGDLLIMPORT session_local char *DataDir;
 extern PGDLLIMPORT session_local int data_directory_mode;
 
-extern PGDLLIMPORT int NBuffers;
+extern PGDLLIMPORT postmaster_guc int NBuffers;
 extern PGDLLIMPORT int MaxBackends;
-extern PGDLLIMPORT int MaxConnections;
-extern PGDLLIMPORT int max_worker_processes;
-extern PGDLLIMPORT int max_parallel_workers;
+extern PGDLLIMPORT postmaster_guc int MaxConnections;
+extern PGDLLIMPORT postmaster_guc int max_worker_processes;
+extern PGDLLIMPORT session_guc int max_parallel_workers;
 
 extern PGDLLIMPORT session_local int MyProcPid;
 extern PGDLLIMPORT session_local pg_time_t MyStartTime;
@@ -195,6 +196,8 @@ extern PGDLLIMPORT char pkglib_path[];
 #ifdef EXEC_BACKEND
 extern PGDLLIMPORT char postgres_exec_path[];
 #endif
+
+#endif		/* FRONTEND */
 
 /*
  * done in storage/backendid.h for now.
@@ -241,8 +244,8 @@ extern PGDLLIMPORT bool MyDatabaseHasLoginEventTriggers;
 #define DATEORDER_DMY			1
 #define DATEORDER_MDY			2
 
-extern PGDLLIMPORT int DateStyle;
-extern PGDLLIMPORT int DateOrder;
+extern PGDLLIMPORT session_local int DateStyle;
+extern PGDLLIMPORT session_local int DateOrder;
 
 /*
  * IntervalStyles
@@ -256,16 +259,21 @@ extern PGDLLIMPORT int DateOrder;
 #define INTSTYLE_SQL_STANDARD		2
 #define INTSTYLE_ISO_8601			3
 
-extern PGDLLIMPORT int IntervalStyle;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int IntervalStyle;
+#endif
 
 #define MAXTZLEN		10		/* max TZ name len, not counting tr. null */
 
-extern PGDLLIMPORT bool enableFsync;
-extern PGDLLIMPORT bool allowSystemTableMods;
-extern PGDLLIMPORT int work_mem;
-extern PGDLLIMPORT double hash_mem_multiplier;
-extern PGDLLIMPORT int maintenance_work_mem;
-extern PGDLLIMPORT int max_parallel_maintenance_workers;
+#ifndef FRONTEND
+extern PGDLLIMPORT sighup_guc bool enableFsync;
+extern PGDLLIMPORT session_guc bool allowSystemTableMods;
+extern PGDLLIMPORT session_guc int work_mem;
+extern PGDLLIMPORT session_guc double hash_mem_multiplier;
+extern PGDLLIMPORT session_guc int maintenance_work_mem;
+extern PGDLLIMPORT session_guc int max_parallel_maintenance_workers;
+
+#endif		/* FRONTEND */
 
 /*
  * Upper and lower hard limits for the buffer access strategy ring size
@@ -275,20 +283,22 @@ extern PGDLLIMPORT int max_parallel_maintenance_workers;
 #define MIN_BAS_VAC_RING_SIZE_KB 128
 #define MAX_BAS_VAC_RING_SIZE_KB (16 * 1024 * 1024)
 
-extern PGDLLIMPORT int VacuumBufferUsageLimit;
-extern PGDLLIMPORT int VacuumCostPageHit;
-extern PGDLLIMPORT int VacuumCostPageMiss;
-extern PGDLLIMPORT int VacuumCostPageDirty;
-extern PGDLLIMPORT int VacuumCostLimit;
-extern PGDLLIMPORT double VacuumCostDelay;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int VacuumBufferUsageLimit;
+extern PGDLLIMPORT session_guc int VacuumCostPageHit;
+extern PGDLLIMPORT session_guc int VacuumCostPageMiss;
+extern PGDLLIMPORT session_guc int VacuumCostPageDirty;
+extern PGDLLIMPORT session_guc int VacuumCostLimit;
+extern PGDLLIMPORT session_guc double VacuumCostDelay;
 
-extern PGDLLIMPORT int64 VacuumPageHit;
-extern PGDLLIMPORT int64 VacuumPageMiss;
-extern PGDLLIMPORT int64 VacuumPageDirty;
+extern PGDLLIMPORT session_local int64 VacuumPageHit;
+extern PGDLLIMPORT session_local int64 VacuumPageMiss;
+extern PGDLLIMPORT session_local int64 VacuumPageDirty;
 
-extern PGDLLIMPORT int VacuumCostBalance;
-extern PGDLLIMPORT bool VacuumCostActive;
+extern PGDLLIMPORT session_local int VacuumCostBalance;
+extern PGDLLIMPORT session_local bool VacuumCostActive;
 
+#endif		/* FRONTEND */
 
 /* in tcop/postgres.c */
 
@@ -343,7 +353,7 @@ typedef enum BackendType
 
 #define BACKEND_NUM_TYPES (B_WAL_WRITER + 1)
 
-extern PGDLLIMPORT BackendType MyBackendType;
+extern PGDLLIMPORT session_local BackendType MyBackendType;
 
 extern const char *GetBackendTypeDesc(BackendType backendType);
 

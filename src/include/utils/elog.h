@@ -311,7 +311,7 @@ typedef struct ErrorContextCallback
 	void	   *arg;
 } ErrorContextCallback;
 
-extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
+extern PGDLLIMPORT session_local ErrorContextCallback *error_context_stack;
 
 
 /*----------
@@ -494,20 +494,6 @@ typedef enum
 	PGERROR_DEFAULT,			/* recommended style */
 	PGERROR_VERBOSE,			/* all the facts, ma'am */
 }			PGErrorVerbosity;
-
-extern PGDLLIMPORT int Log_error_verbosity;
-extern PGDLLIMPORT char *Log_line_prefix;
-extern PGDLLIMPORT int Log_destination;
-extern PGDLLIMPORT char *Log_destination_string;
-extern PGDLLIMPORT bool syslog_sequence_numbers;
-extern PGDLLIMPORT bool syslog_split_messages;
-
-/* Log destination bitmap */
-#define LOG_DESTINATION_STDERR	 1
-#define LOG_DESTINATION_SYSLOG	 2
-#define LOG_DESTINATION_EVENTLOG 4
-#define LOG_DESTINATION_CSVLOG	 8
-#define LOG_DESTINATION_JSONLOG	16
 
 /* Other exported functions */
 extern void log_status_format(StringInfo buf, const char *format,

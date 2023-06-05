@@ -42,9 +42,9 @@ typedef struct PGShmemHeader	/* standard header for all Postgres shmem */
 } PGShmemHeader;
 
 /* GUC variables */
-extern PGDLLIMPORT int shared_memory_type;
-extern PGDLLIMPORT int huge_pages;
-extern PGDLLIMPORT int huge_page_size;
+extern PGDLLIMPORT postmaster_guc int shared_memory_type;
+extern PGDLLIMPORT postmaster_guc int huge_pages;
+extern PGDLLIMPORT postmaster_guc int huge_page_size;
 
 /* Possible values for huge_pages and huge_pages_status */
 typedef enum

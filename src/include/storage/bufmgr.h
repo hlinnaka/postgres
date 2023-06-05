@@ -114,13 +114,13 @@ struct WritebackContext;
 struct SMgrRelationData;
 
 /* in globals.c ... this duplicates miscadmin.h */
-extern PGDLLIMPORT int NBuffers;
+extern PGDLLIMPORT postmaster_guc int NBuffers;
 
 /* in bufmgr.c */
-extern PGDLLIMPORT bool zero_damaged_pages;
-extern PGDLLIMPORT int bgwriter_lru_maxpages;
-extern PGDLLIMPORT double bgwriter_lru_multiplier;
-extern PGDLLIMPORT bool track_io_timing;
+extern PGDLLIMPORT session_guc bool zero_damaged_pages;
+extern PGDLLIMPORT sighup_guc int bgwriter_lru_maxpages;
+extern PGDLLIMPORT sighup_guc double bgwriter_lru_multiplier;
+extern PGDLLIMPORT session_guc bool track_io_timing;
 
 /* only applicable when prefetching is available */
 #ifdef USE_PREFETCH
@@ -130,12 +130,12 @@ extern PGDLLIMPORT bool track_io_timing;
 #define DEFAULT_EFFECTIVE_IO_CONCURRENCY 0
 #define DEFAULT_MAINTENANCE_IO_CONCURRENCY 0
 #endif
-extern PGDLLIMPORT int effective_io_concurrency;
-extern PGDLLIMPORT int maintenance_io_concurrency;
+extern PGDLLIMPORT session_guc int effective_io_concurrency;
+extern PGDLLIMPORT session_guc int maintenance_io_concurrency;
 
-extern PGDLLIMPORT int checkpoint_flush_after;
-extern PGDLLIMPORT int backend_flush_after;
-extern PGDLLIMPORT int bgwriter_flush_after;
+extern PGDLLIMPORT session_guc int checkpoint_flush_after;
+extern PGDLLIMPORT session_guc int backend_flush_after;
+extern PGDLLIMPORT sighup_guc int bgwriter_flush_after;
 
 /* in buf_init.c */
 #define BufferBlocks SHMEM_BufferBlocks

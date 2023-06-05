@@ -82,7 +82,7 @@ static int	ssl_protocol_version_to_openssl(int v);
 static const char *ssl_protocol_version_to_string(int v);
 
 /* for passing data back from verify_cb() */
-static const char *cert_errdetail;
+static session_local const char *cert_errdetail;
 
 /* ------------------------------------------------------------ */
 /*						 Public interface						*/

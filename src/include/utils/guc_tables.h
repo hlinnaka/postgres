@@ -198,7 +198,7 @@ struct config_bool
 {
 	struct config_generic gen;
 	/* constant fields, must be set correctly in initial value: */
-	bool	   *variable;
+	GucBoolAddressHook variable_addr;
 	bool		boot_val;
 	GucBoolCheckHook check_hook;
 	GucBoolAssignHook assign_hook;
@@ -212,7 +212,7 @@ struct config_int
 {
 	struct config_generic gen;
 	/* constant fields, must be set correctly in initial value: */
-	int		   *variable;
+	GucIntAddressHook variable_addr;
 	int			boot_val;
 	int			min;
 	int			max;
@@ -228,7 +228,7 @@ struct config_real
 {
 	struct config_generic gen;
 	/* constant fields, must be set correctly in initial value: */
-	double	   *variable;
+	GucRealAddressHook variable_addr;
 	double		boot_val;
 	double		min;
 	double		max;
@@ -254,7 +254,7 @@ struct config_string
 {
 	struct config_generic gen;
 	/* constant fields, must be set correctly in initial value: */
-	char	  **variable;
+	GucStringAddressHook variable_addr;
 	const char *boot_val;
 	GucStringCheckHook check_hook;
 	GucStringAssignHook assign_hook;
@@ -268,7 +268,7 @@ struct config_enum
 {
 	struct config_generic gen;
 	/* constant fields, must be set correctly in initial value: */
-	int		   *variable;
+	GucEnumAddressHook variable_addr;
 	int			boot_val;
 	const struct config_enum_entry *options;
 	GucEnumCheckHook check_hook;
@@ -286,11 +286,16 @@ extern PGDLLIMPORT const char *const GucContext_Names[];
 extern PGDLLIMPORT const char *const GucSource_Names[];
 
 /* data arrays defining all the built-in GUC variables */
-extern struct config_bool *get_configure_names_bool(void);
-extern struct config_int *get_configure_names_int(void);
-extern struct config_real *get_configure_names_real(void);
-extern struct config_string *get_configure_names_string(void);
-extern struct config_enum *get_configure_names_enum(void);
+#define ConfigureNamesBool BLESSED_ConfigureNamesBool
+extern PGDLLIMPORT struct config_bool ConfigureNamesBool[];
+#define ConfigureNamesInt BLESSED_ConfigureNamesInt
+extern PGDLLIMPORT struct config_int ConfigureNamesInt[];
+#define ConfigureNamesReal BLESSED_ConfigureNamesReal
+extern PGDLLIMPORT struct config_real ConfigureNamesReal[];
+#define ConfigureNamesString BLESSED_ConfigureNamesString
+extern PGDLLIMPORT struct config_string ConfigureNamesString[];
+#define ConfigureNamesEnum BLESSED_ConfigureNamesEnum
+extern PGDLLIMPORT struct config_enum ConfigureNamesEnum[];
 
 /* lookup GUC variables, returning config_generic pointers */
 extern struct config_generic *find_option(const char *name,

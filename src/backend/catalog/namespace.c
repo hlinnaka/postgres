@@ -203,7 +203,7 @@ static session_local SubTransactionId myTempNamespaceSubID = InvalidSubTransacti
  * This is the user's textual search path specification --- it's the value
  * of the GUC variable 'search_path'.
  */
-char	   *namespace_search_path = NULL;
+session_guc char	   *namespace_search_path = NULL;
 
 
 /* Local functions */

@@ -80,7 +80,7 @@ typedef struct AnlIndexData
 
 
 /* Default statistics target (GUC parameter) */
-int			default_statistics_target = 100;
+session_guc int			default_statistics_target = 100;
 
 /* A few variables that don't seem worth passing around as parameters */
 static session_local MemoryContext anl_context = NULL;

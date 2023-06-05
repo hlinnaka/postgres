@@ -188,6 +188,12 @@ typedef void (*GucRealAssignHook) (double newval, void *extra);
 typedef void (*GucStringAssignHook) (const char *newval, void *extra);
 typedef void (*GucEnumAssignHook) (int newval, void *extra);
 
+typedef bool *(*GucBoolAddressHook) (void);
+typedef int *(*GucIntAddressHook) (void);
+typedef double *(*GucRealAddressHook) (void);
+typedef char **(*GucStringAddressHook) (void);
+typedef int *(*GucEnumAddressHook) (void);
+
 typedef const char *(*GucShowHook) (void);
 
 /*
@@ -240,52 +246,52 @@ typedef enum
 
 
 /* GUC vars that are actually defined in guc_tables.c, rather than elsewhere */
-extern PGDLLIMPORT bool Debug_print_plan;
-extern PGDLLIMPORT bool Debug_print_parse;
-extern PGDLLIMPORT bool Debug_print_rewritten;
-extern PGDLLIMPORT bool Debug_pretty_print;
+extern PGDLLIMPORT session_guc bool Debug_print_plan;
+extern PGDLLIMPORT session_guc bool Debug_print_parse;
+extern PGDLLIMPORT session_guc bool Debug_print_rewritten;
+extern PGDLLIMPORT session_guc bool Debug_pretty_print;
 
-extern PGDLLIMPORT bool log_parser_stats;
-extern PGDLLIMPORT bool log_planner_stats;
-extern PGDLLIMPORT bool log_executor_stats;
-extern PGDLLIMPORT bool log_statement_stats;
-extern PGDLLIMPORT bool log_btree_build_stats;
+extern PGDLLIMPORT session_guc bool log_parser_stats;
+extern PGDLLIMPORT session_guc bool log_planner_stats;
+extern PGDLLIMPORT session_guc bool log_executor_stats;
+extern PGDLLIMPORT session_guc bool log_statement_stats;
+extern PGDLLIMPORT session_guc bool log_btree_build_stats;
 
-extern PGDLLIMPORT bool check_function_bodies;
-extern PGDLLIMPORT bool current_role_is_superuser;
+extern PGDLLIMPORT session_guc bool check_function_bodies;
+extern PGDLLIMPORT session_guc bool current_role_is_superuser;
 
-extern PGDLLIMPORT bool log_duration;
-extern PGDLLIMPORT int log_parameter_max_length;
-extern PGDLLIMPORT int log_parameter_max_length_on_error;
-extern PGDLLIMPORT int log_min_error_statement;
-extern PGDLLIMPORT int log_min_messages;
-extern PGDLLIMPORT int client_min_messages;
-extern PGDLLIMPORT int log_min_duration_sample;
-extern PGDLLIMPORT int log_min_duration_statement;
-extern PGDLLIMPORT int log_temp_files;
-extern PGDLLIMPORT double log_statement_sample_rate;
-extern PGDLLIMPORT double log_xact_sample_rate;
-extern PGDLLIMPORT char *backtrace_functions;
+extern PGDLLIMPORT session_guc bool log_duration;
+extern PGDLLIMPORT session_guc int log_parameter_max_length;
+extern PGDLLIMPORT session_guc int log_parameter_max_length_on_error;
+extern PGDLLIMPORT session_guc int log_min_error_statement;
+extern PGDLLIMPORT session_guc int log_min_messages;
+extern PGDLLIMPORT session_guc int client_min_messages;
+extern PGDLLIMPORT session_guc int log_min_duration_sample;
+extern PGDLLIMPORT session_guc int log_min_duration_statement;
+extern PGDLLIMPORT session_guc int log_temp_files;
+extern PGDLLIMPORT session_guc double log_statement_sample_rate;
+extern PGDLLIMPORT session_guc double log_xact_sample_rate;
+extern PGDLLIMPORT session_guc char *backtrace_functions;
 
-extern PGDLLIMPORT int temp_file_limit;
+extern PGDLLIMPORT session_guc int temp_file_limit;
 
-extern PGDLLIMPORT int num_temp_buffers;
+extern PGDLLIMPORT session_guc int num_temp_buffers;
 
-extern PGDLLIMPORT char *cluster_name;
-extern PGDLLIMPORT char *ConfigFileName;
-extern PGDLLIMPORT char *HbaFileName;
-extern PGDLLIMPORT char *IdentFileName;
-extern PGDLLIMPORT char *external_pid_file;
+extern PGDLLIMPORT postmaster_guc char *cluster_name;
+extern PGDLLIMPORT postmaster_guc char *ConfigFileName;
+extern PGDLLIMPORT postmaster_guc char *HbaFileName;
+extern PGDLLIMPORT postmaster_guc char *IdentFileName;
+extern PGDLLIMPORT postmaster_guc char *external_pid_file;
 
-extern PGDLLIMPORT char *application_name;
+extern PGDLLIMPORT session_guc char *application_name;
 
-extern PGDLLIMPORT int tcp_keepalives_idle;
-extern PGDLLIMPORT int tcp_keepalives_interval;
-extern PGDLLIMPORT int tcp_keepalives_count;
-extern PGDLLIMPORT int tcp_user_timeout;
+extern PGDLLIMPORT session_guc int tcp_keepalives_idle;
+extern PGDLLIMPORT session_guc int tcp_keepalives_interval;
+extern PGDLLIMPORT session_guc int tcp_keepalives_count;
+extern PGDLLIMPORT session_guc int tcp_user_timeout;
 
 #ifdef TRACE_SORT
-extern PGDLLIMPORT bool trace_sort;
+extern PGDLLIMPORT session_guc bool trace_sort;
 #endif
 
 /*
@@ -297,7 +303,7 @@ extern void SetConfigOption(const char *name, const char *value,
 extern void DefineCustomBoolVariable(const char *name,
 									 const char *short_desc,
 									 const char *long_desc,
-									 bool *valueAddr,
+									 GucBoolAddressHook addr_hook,
 									 bool bootValue,
 									 GucContext context,
 									 int flags,
@@ -308,7 +314,7 @@ extern void DefineCustomBoolVariable(const char *name,
 extern void DefineCustomIntVariable(const char *name,
 									const char *short_desc,
 									const char *long_desc,
-									int *valueAddr,
+									GucIntAddressHook addr_hook,
 									int bootValue,
 									int minValue,
 									int maxValue,
@@ -321,7 +327,7 @@ extern void DefineCustomIntVariable(const char *name,
 extern void DefineCustomRealVariable(const char *name,
 									 const char *short_desc,
 									 const char *long_desc,
-									 double *valueAddr,
+									 GucRealAddressHook addr_hook,
 									 double bootValue,
 									 double minValue,
 									 double maxValue,
@@ -334,7 +340,7 @@ extern void DefineCustomRealVariable(const char *name,
 extern void DefineCustomStringVariable(const char *name,
 									   const char *short_desc,
 									   const char *long_desc,
-									   char **valueAddr,
+									   GucStringAddressHook addr_hook,
 									   const char *bootValue,
 									   GucContext context,
 									   int flags,
@@ -345,7 +351,7 @@ extern void DefineCustomStringVariable(const char *name,
 extern void DefineCustomEnumVariable(const char *name,
 									 const char *short_desc,
 									 const char *long_desc,
-									 int *valueAddr,
+									 GucEnumAddressHook addr_hook,
 									 int bootValue,
 									 const struct config_enum_entry *options,
 									 GucContext context,
@@ -432,9 +438,9 @@ extern TupleDesc GetPGVariableResultDesc(const char *name);
 
 /* Support for messages reported from GUC check hooks */
 
-extern PGDLLIMPORT char *GUC_check_errmsg_string;
-extern PGDLLIMPORT char *GUC_check_errdetail_string;
-extern PGDLLIMPORT char *GUC_check_errhint_string;
+extern PGDLLIMPORT session_local char *GUC_check_errmsg_string;
+extern PGDLLIMPORT session_local char *GUC_check_errdetail_string;
+extern PGDLLIMPORT session_local char *GUC_check_errhint_string;
 
 extern void GUC_check_errcode(int sqlerrcode);
 

@@ -75,16 +75,16 @@
 /*
  *	User-tweakable parameters
  */
-int			DefaultXactIsoLevel = XACT_READ_COMMITTED;
-int			XactIsoLevel = XACT_READ_COMMITTED;
+session_guc int			DefaultXactIsoLevel = XACT_READ_COMMITTED;
+session_guc int			XactIsoLevel = XACT_READ_COMMITTED;
 
-bool		DefaultXactReadOnly = false;
-bool		XactReadOnly;
+session_guc bool		DefaultXactReadOnly = false;
+session_guc bool		XactReadOnly;
 
-bool		DefaultXactDeferrable = false;
-bool		XactDeferrable;
+session_guc bool		DefaultXactDeferrable = false;
+session_guc bool		XactDeferrable;
 
-int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
+session_guc int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
 
 /*
  * CheckXidAlive is a xid value pointing to a possibly ongoing (sub)
@@ -96,8 +96,8 @@ int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
  * directly access the tableam or heap APIs because we are checking for the
  * concurrent aborts only in systable_* APIs.
  */
-TransactionId CheckXidAlive = InvalidTransactionId;
-bool		bsysscan = false;
+session_local TransactionId CheckXidAlive = InvalidTransactionId;
+session_local bool		bsysscan = false;
 
 /*
  * When running as a parallel worker, we place only a single
@@ -122,9 +122,9 @@ bool		bsysscan = false;
  * The XIDs are stored sorted in numerical order (not logical order) to make
  * lookups as fast as possible.
  */
-static FullTransactionId XactTopFullTransactionId = {InvalidTransactionId};
-static int	nParallelCurrentXids = 0;
-static TransactionId *ParallelCurrentXids;
+static session_local FullTransactionId XactTopFullTransactionId = {InvalidTransactionId};
+static session_local int	nParallelCurrentXids = 0;
+static session_local TransactionId *ParallelCurrentXids;
 
 /*
  * Miscellaneous flag bits to record events which occur on the top level
@@ -133,7 +133,7 @@ static TransactionId *ParallelCurrentXids;
  * globally accessible, so can be set from anywhere in the code that requires
  * recording flags.
  */
-int			MyXactFlags;
+session_local int			MyXactFlags;
 
 /*
  *	transaction states - transaction state from server perspective

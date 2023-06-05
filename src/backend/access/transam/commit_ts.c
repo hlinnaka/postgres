@@ -110,7 +110,7 @@ static CommitTimestampShared *commitTsShared;
 
 
 /* GUC variable */
-bool		track_commit_timestamp;
+postmaster_guc bool		track_commit_timestamp;
 
 static void SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 								 TransactionId *subxids, TimestampTz ts,

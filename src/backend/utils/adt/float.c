@@ -40,7 +40,7 @@
  * get round-trip-accurate results. If 0 or less, then use the old, slow,
  * decimal rounding method.
  */
-int			extra_float_digits = 1;
+session_guc int			extra_float_digits = 1;
 
 /* Cached constants for degree-based trig functions */
 static bool degree_consts_set = false;

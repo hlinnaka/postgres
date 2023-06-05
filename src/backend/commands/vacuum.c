@@ -66,12 +66,12 @@
 /*
  * GUC parameters
  */
-int			vacuum_freeze_min_age;
-int			vacuum_freeze_table_age;
-int			vacuum_multixact_freeze_min_age;
-int			vacuum_multixact_freeze_table_age;
-int			vacuum_failsafe_age;
-int			vacuum_multixact_failsafe_age;
+session_guc int			vacuum_freeze_min_age;
+session_guc int			vacuum_freeze_table_age;
+session_guc int			vacuum_multixact_freeze_min_age;
+session_guc int			vacuum_multixact_freeze_table_age;
+session_guc int			vacuum_failsafe_age;
+session_guc int			vacuum_multixact_failsafe_age;
 
 /*
  * Variables for cost-based vacuum delay. The defaults differ between
@@ -79,8 +79,8 @@ int			vacuum_multixact_failsafe_age;
  * vacuum code. They are initialized here to the defaults for client backends
  * executing VACUUM or ANALYZE.
  */
-double		vacuum_cost_delay = 0;
-int			vacuum_cost_limit = 200;
+session_guc double		vacuum_cost_delay = 0;
+session_guc int			vacuum_cost_limit = 200;
 
 /*
  * VacuumFailsafeActive is a defined as a global so that we can determine
@@ -478,7 +478,7 @@ void
 vacuum(List *relations, VacuumParams *params, BufferAccessStrategy bstrategy,
 	   MemoryContext vac_context, bool isTopLevel)
 {
-	static bool in_vacuum = false;
+	static session_local bool in_vacuum = false;
 
 	const char *stmttype;
 	volatile bool in_outer_xact,

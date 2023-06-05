@@ -398,11 +398,11 @@ GetCurrentTimeUsec(struct pg_tm *tm, fsec_t *fsec, int *tzp)
 	 * however, it might need another look if we ever allow entries in that
 	 * hash to be recycled.
 	 */
-	static TimestampTz cache_ts = 0;
-	static pg_tz *cache_timezone = NULL;
-	static struct pg_tm cache_tm;
-	static fsec_t cache_fsec;
-	static int	cache_tz;
+	static session_local TimestampTz cache_ts = 0;
+	static session_local pg_tz *cache_timezone = NULL;
+	static session_local struct pg_tm cache_tm;
+	static session_local fsec_t cache_fsec;
+	static session_local int	cache_tz;
 
 	if (cur_ts != cache_ts || session_timezone != cache_timezone)
 	{

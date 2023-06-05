@@ -310,10 +310,10 @@ GetSQLCurrentDate(void)
 {
 	struct pg_tm tm;
 
-	static int	cache_year = 0;
-	static int	cache_mon = 0;
-	static int	cache_mday = 0;
-	static DateADT cache_date;
+	static session_local int	cache_year = 0;
+	static session_local int	cache_mon = 0;
+	static session_local int	cache_mday = 0;
+	static session_local DateADT cache_date;
 
 	GetCurrentDateTime(&tm);
 
