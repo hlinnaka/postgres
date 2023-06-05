@@ -22,9 +22,6 @@
 #include "utils/memutils.h"
 
 
-static MemoryContext opCtx;		/* working memory for operations */
-
-
 /*
  * Prepare a dummy SpGistState, with just the minimum info needed for replay.
  *
@@ -935,9 +932,7 @@ void
 spg_redo(XLogReaderState *record)
 {
 	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-	MemoryContext oldCxt;
 
-	oldCxt = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
 		case XLOG_SPGIST_ADD_LEAF:
@@ -967,24 +962,6 @@ spg_redo(XLogReaderState *record)
 		default:
 			elog(PANIC, "spg_redo: unknown op code %u", info);
 	}
-
-	MemoryContextSwitchTo(oldCxt);
-	MemoryContextReset(opCtx);
-}
-
-void
-spg_xlog_startup(void)
-{
-	opCtx = AllocSetContextCreate(CurrentMemoryContext,
-								  "SP-GiST temporary context",
-								  ALLOCSET_DEFAULT_SIZES);
-}
-
-void
-spg_xlog_cleanup(void)
-{
-	MemoryContextDelete(opCtx);
-	opCtx = NULL;
 }
 
 /*
