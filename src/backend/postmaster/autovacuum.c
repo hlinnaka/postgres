@@ -113,31 +113,31 @@
 /*
  * GUC parameters
  */
-bool		autovacuum_start_daemon = false;
-int			autovacuum_max_workers;
-int			autovacuum_work_mem = -1;
-int			autovacuum_naptime;
-int			autovacuum_vac_thresh;
-double		autovacuum_vac_scale;
-int			autovacuum_vac_ins_thresh;
-double		autovacuum_vac_ins_scale;
-int			autovacuum_anl_thresh;
-double		autovacuum_anl_scale;
-int			autovacuum_freeze_max_age;
-int			autovacuum_multixact_freeze_max_age;
+session_local bool		autovacuum_start_daemon = false;
+session_local int			autovacuum_max_workers;
+session_local int			autovacuum_work_mem = -1;
+session_local int			autovacuum_naptime;
+session_local int			autovacuum_vac_thresh;
+session_local double		autovacuum_vac_scale;
+session_local int			autovacuum_vac_ins_thresh;
+session_local double		autovacuum_vac_ins_scale;
+session_local int			autovacuum_anl_thresh;
+session_local double		autovacuum_anl_scale;
+session_local int			autovacuum_freeze_max_age;
+session_local int			autovacuum_multixact_freeze_max_age;
 
-double		autovacuum_vac_cost_delay;
-int			autovacuum_vac_cost_limit;
+session_local double		autovacuum_vac_cost_delay;
+session_local int			autovacuum_vac_cost_limit;
 
-int			Log_autovacuum_min_duration = 600000;
+session_local int			Log_autovacuum_min_duration = 600000;
 
 /* the minimum allowed time between two awakenings of the launcher */
 #define MIN_AUTOVAC_SLEEPTIME 100.0 /* milliseconds */
 #define MAX_AUTOVAC_SLEEPTIME 300	/* seconds */
 
 /* Flags to tell if we are in an autovacuum process */
-static bool am_autovacuum_launcher = false;
-static bool am_autovacuum_worker = false;
+static session_local bool am_autovacuum_launcher = false;
+static session_local bool am_autovacuum_worker = false;
 
 /*
  * Variables to save the cost-related storage parameters for the current
@@ -148,24 +148,24 @@ static bool am_autovacuum_worker = false;
  * parameters were specified and will be set in do_autovacuum() after checking
  * the storage parameters in table_recheck_autovac().
  */
-static double av_storage_param_cost_delay = -1;
-static int	av_storage_param_cost_limit = -1;
+static session_local double av_storage_param_cost_delay = -1;
+static session_local int	av_storage_param_cost_limit = -1;
 
 /* Flags set by signal handlers */
 static volatile sig_atomic_t got_SIGUSR2 = false;
 
 /* Comparison points for determining whether freeze_max_age is exceeded */
-static TransactionId recentXid;
-static MultiXactId recentMulti;
+static session_local TransactionId recentXid;
+static session_local MultiXactId recentMulti;
 
 /* Default freeze ages to use for autovacuum (varies by database) */
-static int	default_freeze_min_age;
-static int	default_freeze_table_age;
-static int	default_multixact_freeze_min_age;
-static int	default_multixact_freeze_table_age;
+static session_local int	default_freeze_min_age;
+static session_local int	default_freeze_table_age;
+static session_local int	default_multixact_freeze_min_age;
+static session_local int	default_multixact_freeze_table_age;
 
 /* Memory context for long-lived data */
-static MemoryContext AutovacMemCxt;
+static session_local MemoryContext AutovacMemCxt;
 
 /* struct to keep track of databases in launcher */
 typedef struct avl_dbase
