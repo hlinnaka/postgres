@@ -63,7 +63,7 @@ int			IdleSessionTimeout = 0;
 bool		log_lock_waits = false;
 
 /* Pointer to this process's PGPROC struct, if any */
-PGPROC	   *MyProc = NULL;
+session_local PGPROC	   *MyProc = NULL;
 
 /*
  * This spinlock protects the freelist of recycled PGPROC structures.
