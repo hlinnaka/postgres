@@ -822,8 +822,8 @@ TwoPhaseGetGXact(TransactionId xid, bool lock_held)
 	GlobalTransaction result = NULL;
 	int			i;
 
-	static TransactionId cached_xid = InvalidTransactionId;
-	static GlobalTransaction cached_gxact = NULL;
+	static session_local TransactionId cached_xid = InvalidTransactionId;
+	static session_local GlobalTransaction cached_gxact = NULL;
 
 	Assert(!lock_held || LWLockHeldByMe(TwoPhaseStateLock));
 

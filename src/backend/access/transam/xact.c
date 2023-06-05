@@ -251,15 +251,15 @@ static TransactionStateData TopTransactionStateData = {
 static session_local int	nUnreportedXids;
 static session_local TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
 
-static TransactionState CurrentTransactionState = &TopTransactionStateData;
+static session_local TransactionState CurrentTransactionState = &TopTransactionStateData;
 
 /*
  * The subtransaction ID and command ID assignment counters are global
  * to a whole transaction, so we do not keep them in the state stack.
  */
-static SubTransactionId currentSubTransactionId;
-static CommandId currentCommandId;
-static bool currentCommandIdUsed;
+static session_local SubTransactionId currentSubTransactionId;
+static session_local CommandId currentCommandId;
+static session_local bool currentCommandIdUsed;
 
 /*
  * xactStartTimestamp is the value of transaction_timestamp().

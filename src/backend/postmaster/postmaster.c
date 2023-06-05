@@ -195,13 +195,13 @@ BackgroundWorker *MyBgworkerEntry = NULL;
 
 
 /* The socket number we are listening for connections on */
-int			PostPortNumber = DEF_PGPORT;
+postmaster_guc int			PostPortNumber = DEF_PGPORT;
 
 /* The directory names for Unix socket(s) */
-char	   *Unix_socket_directories;
+postmaster_guc char	   *Unix_socket_directories;
 
 /* The TCP listen address(es) */
-char	   *ListenAddresses;
+postmaster_guc char	   *ListenAddresses;
 
 /*
  * SuperuserReservedConnections is the number of backends reserved for
@@ -221,8 +221,8 @@ char	   *ListenAddresses;
  * connections.  Note that pre-existing superuser and
  * pg_use_reserved_connections connections don't count against the limits.
  */
-int			SuperuserReservedConnections;
-int			ReservedConnections;
+postmaster_guc int			SuperuserReservedConnections;
+postmaster_guc int			ReservedConnections;
 
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
@@ -230,17 +230,17 @@ static int	NumListenSockets = 0;
 static pgsocket *ListenSockets = NULL;
 
 /* still more option variables */
-bool		EnableSSL = false;
+sighup_guc bool		EnableSSL = false;
 
-int			PreAuthDelay = 0;
-int			AuthenticationTimeout = 60;
+sighup_guc int			PreAuthDelay = 0;
+sighup_guc int			AuthenticationTimeout = 60;
 
 sighup_guc bool		log_hostname;		/* for ps display and logging */
 session_guc bool		Log_connections = false;
 
 postmaster_guc bool		enable_bonjour = false;
 postmaster_guc char	   *bonjour_name;
-postmaster_guc bool		restart_after_crash = true;
+sighup_guc bool		restart_after_crash = true;
 sighup_guc bool		remove_temp_files_after_crash = true;
 sighup_guc bool		send_abort_for_crash = false;
 sighup_guc bool		send_abort_for_kill = false;
@@ -353,7 +353,7 @@ static time_t AbortStartTime = 0;
 
 static bool ReachedNormalRunning = false;	/* T if we've reached PM_RUN */
 
-bool		ClientAuthInProgress = false;	/* T during new-client
+session_local bool		ClientAuthInProgress = false;	/* T during new-client
 											 * authentication */
 
 bool		redirection_done = false;	/* stderr redirected for syslogger? */
