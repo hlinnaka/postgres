@@ -111,13 +111,13 @@
 WalSndCtlData *WalSndCtl = NULL;
 
 /* My slot in the shared memory array */
-WalSnd	   *MyWalSnd = NULL;
+session_local WalSnd	   *MyWalSnd = NULL;
 
 /* Global state */
-bool		am_walsender = false;	/* Am I a walsender process? */
-bool		am_cascading_walsender = false; /* Am I cascading WAL to another
+session_local bool		am_walsender = false;	/* Am I a walsender process? */
+session_local bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
-bool		am_db_walsender = false;	/* Connected to a database? */
+session_local bool		am_db_walsender = false;	/* Connected to a database? */
 
 /* GUC variables */
 int			max_wal_senders = 10;	/* the maximum number of concurrent
@@ -129,14 +129,14 @@ bool		log_replication_commands = false;
 /*
  * State for WalSndWakeupRequest
  */
-bool		wake_wal_senders = false;
+session_local bool		wake_wal_senders = false;
 
 /*
  * xlogreader used for replication.  Note that a WAL sender doing physical
  * replication does not need xlogreader to read WAL, but it needs one to
  * keep a state of its work.
  */
-static XLogReaderState *xlogreader = NULL;
+static session_local XLogReaderState *xlogreader = NULL;
 
 /*
  * These variables keep track of the state of the timeline we're currently
@@ -144,10 +144,10 @@ static XLogReaderState *xlogreader = NULL;
  * the timeline is not the latest timeline on this server, and the server's
  * history forked off from that timeline at sendTimeLineValidUpto.
  */
-static TimeLineID sendTimeLine = 0;
-static TimeLineID sendTimeLineNextTLI = 0;
-static bool sendTimeLineIsHistoric = false;
-static XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
+static session_local TimeLineID sendTimeLine = 0;
+static session_local TimeLineID sendTimeLineNextTLI = 0;
+static session_local bool sendTimeLineIsHistoric = false;
+static session_local XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
 
 /*
  * How far have we sent WAL already? This is also advertised in
@@ -156,21 +156,21 @@ static XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
 static XLogRecPtr sentPtr = InvalidXLogRecPtr;
 
 /* Buffers for constructing outgoing messages and processing reply messages. */
-static StringInfoData output_message;
-static StringInfoData reply_message;
-static StringInfoData tmpbuf;
+static session_local StringInfoData output_message;
+static session_local StringInfoData reply_message;
+static session_local StringInfoData tmpbuf;
 
 /* Timestamp of last ProcessRepliesIfAny(). */
-static TimestampTz last_processing = 0;
+static session_local TimestampTz last_processing = 0;
 
 /*
  * Timestamp of last ProcessRepliesIfAny() that saw a reply from the
  * standby. Set to 0 if wal_sender_timeout doesn't need to be active.
  */
-static TimestampTz last_reply_timestamp = 0;
+static session_local TimestampTz last_reply_timestamp = 0;
 
 /* Have we sent a heartbeat message asking for reply, since last reply? */
-static bool waiting_for_ping_response = false;
+static session_local bool waiting_for_ping_response = false;
 
 /*
  * While streaming WAL in Copy mode, streamingDoneSending is set to true
@@ -178,11 +178,11 @@ static bool waiting_for_ping_response = false;
  * after that. streamingDoneReceiving is set to true when we receive CopyDone
  * from the other end. When both become true, it's time to exit Copy mode.
  */
-static bool streamingDoneSending;
-static bool streamingDoneReceiving;
+static session_local bool streamingDoneSending;
+static session_local bool streamingDoneReceiving;
 
 /* Are we there yet? */
-static bool WalSndCaughtUp = false;
+static session_local bool WalSndCaughtUp = false;
 
 /* Flags set by signal handlers for later service in main loop */
 static volatile sig_atomic_t got_SIGUSR2 = false;
@@ -218,7 +218,7 @@ typedef struct
 	WalTimeSample last_read[NUM_SYNC_REP_WAIT_MODE];
 } LagTracker;
 
-static LagTracker *lag_tracker;
+static session_local LagTracker *lag_tracker;
 
 /* Signal handlers */
 static void WalSndLastCycleHandler(SIGNAL_ARGS);

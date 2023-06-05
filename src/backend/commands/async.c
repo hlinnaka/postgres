@@ -404,7 +404,7 @@ typedef struct NotificationHash
 	Notification *event;		/* => the actual Notification struct */
 } NotificationHash;
 
-static NotificationList *pendingNotifies = NULL;
+static session_local NotificationList *pendingNotifies = NULL;
 
 /*
  * Inbound notifications are initially processed by HandleNotifyInterrupt(),
@@ -413,7 +413,7 @@ static NotificationList *pendingNotifies = NULL;
  * latch. ProcessNotifyInterrupt() will then be called whenever it's safe to
  * actually deal with the interrupt.
  */
-volatile sig_atomic_t notifyInterruptPending = false;
+volatile session_local sig_atomic_t notifyInterruptPending = false;
 
 /* True if we've registered an on_shmem_exit cleanup */
 static bool unlistenExitRegistered = false;

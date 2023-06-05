@@ -27,26 +27,26 @@
 
 ProtocolVersion FrontendProtocol;
 
-volatile sig_atomic_t InterruptPending = false;
-volatile sig_atomic_t QueryCancelPending = false;
-volatile sig_atomic_t ProcDiePending = false;
-volatile sig_atomic_t CheckClientConnectionPending = false;
-volatile sig_atomic_t ClientConnectionLost = false;
-volatile sig_atomic_t IdleInTransactionSessionTimeoutPending = false;
-volatile sig_atomic_t IdleSessionTimeoutPending = false;
-volatile sig_atomic_t ProcSignalBarrierPending = false;
-volatile sig_atomic_t LogMemoryContextPending = false;
-volatile sig_atomic_t IdleStatsUpdateTimeoutPending = false;
-volatile uint32 InterruptHoldoffCount = 0;
-volatile uint32 QueryCancelHoldoffCount = 0;
-volatile uint32 CritSectionCount = 0;
+session_local volatile sig_atomic_t InterruptPending = false;
+session_local volatile sig_atomic_t QueryCancelPending = false;
+session_local volatile sig_atomic_t ProcDiePending = false;
+session_local volatile sig_atomic_t CheckClientConnectionPending = false;
+session_local volatile sig_atomic_t ClientConnectionLost = false;
+session_local volatile sig_atomic_t IdleInTransactionSessionTimeoutPending = false;
+session_local volatile sig_atomic_t IdleSessionTimeoutPending = false;
+session_local volatile sig_atomic_t ProcSignalBarrierPending = false;
+session_local volatile sig_atomic_t LogMemoryContextPending = false;
+session_local volatile sig_atomic_t IdleStatsUpdateTimeoutPending = false;
+session_local volatile uint32 InterruptHoldoffCount = 0;
+session_local volatile uint32 QueryCancelHoldoffCount = 0;
+session_local volatile uint32 CritSectionCount = 0;
 
-int			MyProcPid;
-pg_time_t	MyStartTime;
-TimestampTz MyStartTimestamp;
-struct Port *MyProcPort;
-int32		MyCancelKey;
-int			MyPMChildSlot;
+session_local int			MyProcPid;
+session_local pg_time_t	MyStartTime;
+session_local TimestampTz MyStartTimestamp;
+session_local struct Port *MyProcPort;
+session_local int32		MyCancelKey;
+session_local int			MyPMChildSlot;
 
 /*
  * MyLatch points to the latch that should be used for signal handling by the
@@ -55,7 +55,7 @@ int			MyPMChildSlot;
  * PGPROC->procLatch if it has. Thus it can always be used in signal handlers,
  * without checking for its existence.
  */
-struct Latch *MyLatch;
+session_local struct Latch *MyLatch;
 
 /*
  * DataDir is the absolute path to the top level of the PGDATA directory tree.
@@ -63,13 +63,13 @@ struct Latch *MyLatch;
  * most code therefore can simply use relative paths and not reference DataDir
  * explicitly.
  */
-char	   *DataDir = NULL;
+session_local char	   *DataDir = NULL;
 
 /*
  * Mode of the data directory.  The default is 0700 but it may be changed in
  * checkDataDir() to 0750 if the data directory actually has that mode.
  */
-int			data_directory_mode = PG_DIR_MODE_OWNER;
+session_local int			data_directory_mode = PG_DIR_MODE_OWNER;
 
 char		OutputFileName[MAXPGPATH];	/* debugging output file */
 
@@ -82,13 +82,13 @@ char		postgres_exec_path[MAXPGPATH];	/* full path to backend */
 /* note: currently this is not valid in backend processes */
 #endif
 
-BackendId	MyBackendId = InvalidBackendId;
+session_local BackendId	MyBackendId = InvalidBackendId;
 
-BackendId	ParallelLeaderBackendId = InvalidBackendId;
+session_local BackendId	ParallelLeaderBackendId = InvalidBackendId;
 
-Oid			MyDatabaseId = InvalidOid;
+session_local Oid			MyDatabaseId = InvalidOid;
 
-Oid			MyDatabaseTableSpace = InvalidOid;
+session_local Oid			MyDatabaseTableSpace = InvalidOid;
 
 bool		MyDatabaseHasLoginEventTriggers = false;
 
@@ -96,7 +96,7 @@ bool		MyDatabaseHasLoginEventTriggers = false;
  * DatabasePath is the path (relative to DataDir) of my database's
  * primary directory, ie, its directory in the default tablespace.
  */
-char	   *DatabasePath = NULL;
+session_local char	   *DatabasePath = NULL;
 
 pid_t		PostmasterPid = 0;
 
@@ -114,7 +114,7 @@ pid_t		PostmasterPid = 0;
 bool		IsPostmasterEnvironment = false;
 bool		IsUnderPostmaster = false;
 bool		IsBinaryUpgrade = false;
-bool		IsBackgroundWorker = false;
+session_local bool		IsBackgroundWorker = false;
 
 bool		IsMultiThreaded = false; /* GUC */
 

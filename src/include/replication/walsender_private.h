@@ -85,7 +85,7 @@ typedef struct WalSnd
 	ReplicationKind kind;
 } WalSnd;
 
-extern PGDLLIMPORT WalSnd *MyWalSnd;
+extern PGDLLIMPORT session_local WalSnd *MyWalSnd;
 
 /* There is one WalSndCtl struct for the whole database cluster */
 typedef struct

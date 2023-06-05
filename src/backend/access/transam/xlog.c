@@ -209,7 +209,7 @@ const struct config_enum_entry archive_mode_options[] = {
  * Because only the checkpointer or a stand-alone backend can perform
  * checkpoints, this will be unused in normal backends.
  */
-CheckpointStatsData CheckpointStats;
+session_local CheckpointStatsData CheckpointStats;
 
 /*
  * During recovery, lastFullPageWrites keeps track of full_page_writes that
@@ -217,14 +217,14 @@ CheckpointStatsData CheckpointStats;
  * that the recovery starting checkpoint record indicates, and then updated
  * each time XLOG_FPW_CHANGE record is replayed.
  */
-static bool lastFullPageWrites;
+static session_local bool lastFullPageWrites;
 
 /*
  * Local copy of the state tracked by SharedRecoveryState in shared memory,
  * It is false if SharedRecoveryState is RECOVERY_STATE_DONE.  True actually
  * means "not known, need to check the shared state".
  */
-static bool LocalRecoveryInProgress = true;
+static session_local bool LocalRecoveryInProgress = true;
 
 /*
  * Local state for XLogInsertAllowed():
@@ -236,7 +236,7 @@ static bool LocalRecoveryInProgress = true;
  * The coding in XLogInsertAllowed() depends on the first two of these states
  * being numerically the same as bool true and false.
  */
-static int	LocalXLogInsertAllowed = -1;
+static session_local int	LocalXLogInsertAllowed = -1;
 
 /*
  * ProcLastRecPtr points to the start of the last XLOG record inserted by the
@@ -253,9 +253,9 @@ static int	LocalXLogInsertAllowed = -1;
  * stored here.  The parallel leader advances its own copy, when necessary,
  * in WaitForParallelWorkersToFinish.
  */
-XLogRecPtr	ProcLastRecPtr = InvalidXLogRecPtr;
-XLogRecPtr	XactLastRecEnd = InvalidXLogRecPtr;
-XLogRecPtr	XactLastCommitEnd = InvalidXLogRecPtr;
+session_local XLogRecPtr	ProcLastRecPtr = InvalidXLogRecPtr;
+session_local XLogRecPtr	XactLastRecEnd = InvalidXLogRecPtr;
+session_local XLogRecPtr	XactLastCommitEnd = InvalidXLogRecPtr;
 
 /*
  * RedoRecPtr is this backend's local copy of the REDO record pointer
@@ -273,7 +273,7 @@ XLogRecPtr	XactLastCommitEnd = InvalidXLogRecPtr;
  * which meant that most code that might use it could assume that it had a
  * real if perhaps stale value. That's no longer the case.
  */
-static XLogRecPtr RedoRecPtr;
+static session_local XLogRecPtr RedoRecPtr;
 
 /*
  * doPageWrites is this backend's local copy of (fullPageWrites ||
@@ -615,7 +615,7 @@ static int	UsableBytesInSegment;
  * Private, possibly out-of-date copy of shared LogwrtResult.
  * See discussion above.
  */
-static XLogwrtResult LogwrtResult = {0, 0};
+static session_local XLogwrtResult LogwrtResult = {0, 0};
 
 /*
  * openLogFile is -1 or a kernel FD for an open log file segment.
@@ -625,9 +625,9 @@ static XLogwrtResult LogwrtResult = {0, 0};
  *
  * Note: call Reserve/ReleaseExternalFD to track consumption of this FD.
  */
-static int	openLogFile = -1;
-static XLogSegNo openLogSegNo = 0;
-static TimeLineID openLogTLI = 0;
+static session_local int	openLogFile = -1;
+static session_local XLogSegNo openLogSegNo = 0;
+static session_local TimeLineID openLogTLI = 0;
 
 /*
  * Local copies of equivalent fields in the control file.  When running
@@ -636,16 +636,16 @@ static TimeLineID openLogTLI = 0;
  * switched to false to prevent any updates while replaying records.
  * Those values are kept consistent as long as crash recovery runs.
  */
-static XLogRecPtr LocalMinRecoveryPoint;
-static TimeLineID LocalMinRecoveryPointTLI;
-static bool updateMinRecoveryPoint = true;
+static session_local XLogRecPtr LocalMinRecoveryPoint;
+static session_local TimeLineID LocalMinRecoveryPointTLI;
+static session_local bool updateMinRecoveryPoint = true;
 
 /* For WALInsertLockAcquire/Release functions */
-static int	MyLockNo = 0;
-static bool holdingAllLocks = false;
+static session_local int	MyLockNo = 0;
+static session_local bool holdingAllLocks = false;
 
 #ifdef WAL_DEBUG
-static MemoryContext walDebugCxt = NULL;
+static session_local MemoryContext walDebugCxt = NULL;
 #endif
 
 static void CleanupAfterArchiveRecovery(TimeLineID EndOfLogTLI,
@@ -1375,7 +1375,7 @@ WALInsertLockAcquire(void)
 	 * (semi-)randomly.  This allows the locks to be used evenly if you have a
 	 * lot of very short connections.
 	 */
-	static int	lockToTry = -1;
+	static session_local int	lockToTry = -1;
 
 	if (lockToTry == -1)
 		lockToTry = MyProc->pgprocno % NUM_XLOGINSERT_LOCKS;

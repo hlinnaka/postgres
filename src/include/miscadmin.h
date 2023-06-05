@@ -87,22 +87,22 @@
 
 /* in globals.c */
 /* these are marked volatile because they are set by signal handlers: */
-extern PGDLLIMPORT volatile sig_atomic_t InterruptPending;
-extern PGDLLIMPORT volatile sig_atomic_t QueryCancelPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcDiePending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcSignalBarrierPending;
-extern PGDLLIMPORT volatile sig_atomic_t LogMemoryContextPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t InterruptPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t QueryCancelPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ProcDiePending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleSessionTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ProcSignalBarrierPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t LogMemoryContextPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
 
-extern PGDLLIMPORT volatile sig_atomic_t CheckClientConnectionPending;
-extern PGDLLIMPORT volatile sig_atomic_t ClientConnectionLost;
+extern PGDLLIMPORT session_local volatile sig_atomic_t CheckClientConnectionPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ClientConnectionLost;
 
 /* these are marked volatile because they are examined by signal handlers: */
-extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
-extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
-extern PGDLLIMPORT volatile uint32 CritSectionCount;
+extern PGDLLIMPORT session_local volatile uint32 InterruptHoldoffCount;
+extern PGDLLIMPORT session_local volatile uint32 QueryCancelHoldoffCount;
+extern PGDLLIMPORT session_local volatile uint32 CritSectionCount;
 
 /* in tcop/postgres.c */
 extern void ProcessInterrupts(void);
@@ -164,15 +164,15 @@ do { \
 extern PGDLLIMPORT pid_t PostmasterPid;
 extern PGDLLIMPORT bool IsPostmasterEnvironment;
 extern PGDLLIMPORT bool IsUnderPostmaster;
-extern PGDLLIMPORT bool IsBackgroundWorker;
+extern PGDLLIMPORT session_local bool IsBackgroundWorker;
 extern PGDLLIMPORT bool IsBinaryUpgrade;
 
 extern PGDLLIMPORT bool IsMultiThreaded;
 
 extern PGDLLIMPORT bool ExitOnAnyError;
 
-extern PGDLLIMPORT char *DataDir;
-extern PGDLLIMPORT int data_directory_mode;
+extern PGDLLIMPORT session_local char *DataDir;
+extern PGDLLIMPORT session_local int data_directory_mode;
 
 extern PGDLLIMPORT int NBuffers;
 extern PGDLLIMPORT int MaxBackends;
@@ -180,13 +180,13 @@ extern PGDLLIMPORT int MaxConnections;
 extern PGDLLIMPORT int max_worker_processes;
 extern PGDLLIMPORT int max_parallel_workers;
 
-extern PGDLLIMPORT int MyProcPid;
-extern PGDLLIMPORT pg_time_t MyStartTime;
-extern PGDLLIMPORT TimestampTz MyStartTimestamp;
-extern PGDLLIMPORT struct Port *MyProcPort;
-extern PGDLLIMPORT struct Latch *MyLatch;
-extern PGDLLIMPORT int32 MyCancelKey;
-extern PGDLLIMPORT int MyPMChildSlot;
+extern PGDLLIMPORT session_local int MyProcPid;
+extern PGDLLIMPORT session_local pg_time_t MyStartTime;
+extern PGDLLIMPORT session_local TimestampTz MyStartTimestamp;
+extern PGDLLIMPORT session_local struct Port *MyProcPort;
+extern PGDLLIMPORT session_local struct Latch *MyLatch;
+extern PGDLLIMPORT session_local int32 MyCancelKey;
+extern PGDLLIMPORT session_local int MyPMChildSlot;
 
 extern PGDLLIMPORT char OutputFileName[];
 extern PGDLLIMPORT char my_exec_path[];
@@ -201,9 +201,9 @@ extern PGDLLIMPORT char postgres_exec_path[];
  *
  * extern BackendId    MyBackendId;
  */
-extern PGDLLIMPORT Oid MyDatabaseId;
+extern PGDLLIMPORT session_local Oid MyDatabaseId;
 
-extern PGDLLIMPORT Oid MyDatabaseTableSpace;
+extern PGDLLIMPORT session_local Oid MyDatabaseTableSpace;
 
 extern PGDLLIMPORT bool MyDatabaseHasLoginEventTriggers;
 
@@ -314,7 +314,7 @@ extern void PreventCommandDuringRecovery(const char *cmdname);
 #define SECURITY_RESTRICTED_OPERATION	0x0002
 #define SECURITY_NOFORCE_RLS			0x0004
 
-extern PGDLLIMPORT char *DatabasePath;
+extern PGDLLIMPORT session_local char *DatabasePath;
 
 /* now in utils/init/miscinit.c */
 extern void InitPostmasterChild(void);
