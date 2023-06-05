@@ -132,6 +132,33 @@ typedef struct ClientConnectionInfo
 typedef struct Port
 {
 	pgsocket	sock;			/* File descriptor */
+
+	/*
+	 * Buffers for low-level I/O.
+	 *
+	 * The receive buffer is fixed size. Send buffer is usually 8k, but can be
+	 * enlarged by pq_putmessage_noblock() if the message doesn't fit otherwise.
+	 */
+#define PQ_SEND_BUFFER_SIZE 8192
+#define PQ_RECV_BUFFER_SIZE 8192
+
+	char *PqSendBuffer;
+	size_t PqSendBufferSize;	/* Size send buffer */
+	size_t PqSendPointer;		/* Next index to store a byte in PqSendBuffer */
+	size_t PqSendStart;		/* Next index to send a byte in PqSendBuffer */
+
+	char PqRecvBuffer[PQ_RECV_BUFFER_SIZE];
+	size_t PqRecvPointer;		/* Next index to read a byte from PqRecvBuffer */
+	size_t PqRecvLength;		/* End of data available in PqRecvBuffer */
+
+	/*
+	 * Message status
+	 */
+	bool PqCommBusy;			/* busy sending data to the client */
+	bool PqCommReadingMsg;	/* in the middle of reading a message */
+
+
+
 	bool		noblock;		/* is the socket in non-blocking mode? */
 	ProtocolVersion proto;		/* FE/BE protocol version */
 	SockAddr	laddr;			/* local addr (postmaster) */
