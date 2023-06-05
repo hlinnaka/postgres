@@ -103,8 +103,8 @@
 /*
  * Configuration options
  */
-int			Unix_socket_permissions;
-char	   *Unix_socket_group;
+postmaster_guc int			Unix_socket_permissions;
+postmaster_guc char	   *Unix_socket_group;
 
 /* Where the Unix socket files are (list of palloc'd strings) */
 static List *sock_paths = NIL;
