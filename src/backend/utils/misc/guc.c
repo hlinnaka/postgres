@@ -903,6 +903,11 @@ build_guc_variables(void)
 	GUCHashEntry *hentry;
 	bool		found;
 	int			i;
+	struct config_bool *ConfigureNamesBool = get_configure_names_bool();
+	struct config_int *ConfigureNamesInt = get_configure_names_int();
+	struct config_real *ConfigureNamesReal = get_configure_names_real();
+	struct config_string *ConfigureNamesString = get_configure_names_string();
+	struct config_enum *ConfigureNamesEnum = get_configure_names_enum();
 
 	/*
 	 * Create the memory context that will hold all GUC-related data.
@@ -1032,6 +1037,8 @@ build_guc_variables(void)
 	}
 
 	Assert(num_vars == hash_get_num_entries(guc_hashtab));
+
+	pfree(ConfigureNamesBool);
 }
 
 /*

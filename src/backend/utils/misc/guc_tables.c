@@ -779,7 +779,6 @@ const char *const config_type_names[] =
 StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 				 "array length mismatch");
 
-
 /*
  * Contents of GUC tables
  *
@@ -807,7 +806,20 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
  *	  variable_is_guc_list_quote() in src/bin/pg_dump/dumputils.c.
  */
 
-struct config_bool ConfigureNamesBool[] =
+#define GUC_TABLE_BEGIN(type) \
+struct config_##type *get_configure_names_##type(void) \
+{ \
+	struct config_##type *table_copy; \
+	struct config_##type table[] \
+
+#define GUC_TABLE_END \
+\
+	table_copy = palloc(sizeof(table)); \
+	memcpy(table_copy, table, sizeof(table)); \
+	return table_copy; \
+}
+
+GUC_TABLE_BEGIN(bool) =
 {
 	{
 		{"multithreaded", PGC_POSTMASTER, DEVELOPER_OPTIONS,
@@ -2034,9 +2046,10 @@ struct config_bool ConfigureNamesBool[] =
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
 	}
 };
+GUC_TABLE_END
 
 
-struct config_int ConfigureNamesInt[] =
+GUC_TABLE_BEGIN(int) =
 {
 	{
 		{"archive_timeout", PGC_SIGHUP, WAL_ARCHIVING,
@@ -3541,9 +3554,10 @@ struct config_int ConfigureNamesInt[] =
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, 0, 0, NULL, NULL, NULL
 	}
 };
+GUC_TABLE_END
 
 
-struct config_real ConfigureNamesReal[] =
+GUC_TABLE_BEGIN(real) =
 {
 	{
 		{"seq_page_cost", PGC_USERSET, QUERY_TUNING_COST,
@@ -3822,9 +3836,9 @@ struct config_real ConfigureNamesReal[] =
 		{NULL, 0, 0, NULL, NULL}, NULL, 0.0, 0.0, 0.0, NULL, NULL, NULL
 	}
 };
+GUC_TABLE_END
 
-
-struct config_string ConfigureNamesString[] =
+GUC_TABLE_BEGIN(string) =
 {
 	{
 		{"archive_command", PGC_SIGHUP, WAL_ARCHIVING,
@@ -4585,9 +4599,10 @@ struct config_string ConfigureNamesString[] =
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL, NULL
 	}
 };
+GUC_TABLE_END
 
 
-struct config_enum ConfigureNamesEnum[] =
+GUC_TABLE_BEGIN(enum) =
 {
 	{
 		{"backslash_quote", PGC_USERSET, COMPAT_OPTIONS_PREVIOUS,
@@ -4998,3 +5013,4 @@ struct config_enum ConfigureNamesEnum[] =
 		{NULL, 0, 0, NULL, NULL}, NULL, 0, NULL, NULL, NULL, NULL
 	}
 };
+GUC_TABLE_END
