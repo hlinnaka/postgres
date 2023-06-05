@@ -397,7 +397,7 @@ typedef union WALInsertLockPadded
  * Session status of running backup, used for sanity checks in SQL-callable
  * functions to start and stop backups.
  */
-static SessionBackupState sessionBackupState = SESSION_BACKUP_NONE;
+static session_local SessionBackupState sessionBackupState = SESSION_BACKUP_NONE;
 
 /*
  * Shared state data for WAL insertion.
@@ -577,6 +577,7 @@ static WALInsertLockPadded *WALInsertLocks = NULL;
 /*
  * We maintain an image of pg_control in shared memory.
  */
+#define ControlFile SHMEM_ControlFile
 static ControlFileData *ControlFile = NULL;
 
 /*
@@ -609,6 +610,7 @@ static ControlFileData *ControlFile = NULL;
 #define ConvertToXSegs(x, segsize)	XLogMBVarToSegs((x), (segsize))
 
 /* The number of bytes in a WAL segment usable for WAL data. */
+#define UsableBytesInSegment BLESSED_UsableBytesInSegment
 static int	UsableBytesInSegment;
 
 /*
