@@ -19,7 +19,6 @@
 #include "access/xlogutils.h"
 #include "utils/memutils.h"
 
-text)
 static void
 ginRedoClearIncompleteSplit(XLogReaderState *record, uint8 block_id)
 {
