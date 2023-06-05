@@ -123,7 +123,7 @@ typedef struct relopt_enum_elt_def
 typedef struct relopt_enum
 {
 	relopt_gen	gen;
-	relopt_enum_elt_def *members;
+	const relopt_enum_elt_def *members;
 	int			default_val;
 	const char *detailmsg;
 	/* null-terminated array of members */

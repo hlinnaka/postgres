@@ -93,7 +93,7 @@
  * value has no effect until the next VACUUM, so no need for stronger lock.
  */
 
-static relopt_bool boolRelOpts[] =
+static const relopt_bool boolRelOpts[] =
 {
 	{
 		{
@@ -172,7 +172,7 @@ static relopt_bool boolRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_int intRelOpts[] =
+static const relopt_int intRelOpts[] =
 {
 	{
 		{
@@ -387,7 +387,7 @@ static relopt_int intRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_real realRelOpts[] =
+static const relopt_real realRelOpts[] =
 {
 	{
 		{
@@ -475,7 +475,7 @@ static relopt_real realRelOpts[] =
 };
 
 /* values from StdRdOptIndexCleanup */
-static relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
+static const relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 {
 	{"auto", STDRD_OPTION_VACUUM_INDEX_CLEANUP_AUTO},
 	{"on", STDRD_OPTION_VACUUM_INDEX_CLEANUP_ON},
@@ -490,7 +490,7 @@ static relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 };
 
 /* values from GistOptBufferingMode */
-static relopt_enum_elt_def gistBufferingOptValues[] =
+static const relopt_enum_elt_def gistBufferingOptValues[] =
 {
 	{"auto", GIST_OPTION_BUFFERING_AUTO},
 	{"on", GIST_OPTION_BUFFERING_ON},
@@ -499,7 +499,7 @@ static relopt_enum_elt_def gistBufferingOptValues[] =
 };
 
 /* values from ViewOptCheckOption */
-static relopt_enum_elt_def viewCheckOptValues[] =
+static const relopt_enum_elt_def viewCheckOptValues[] =
 {
 	/* no value for NOT_SET */
 	{"local", VIEW_OPTION_CHECK_OPTION_LOCAL},
@@ -507,7 +507,7 @@ static relopt_enum_elt_def viewCheckOptValues[] =
 	{(const char *) NULL}		/* list terminator */
 };
 
-static relopt_enum enumRelOpts[] =
+static const relopt_enum enumRelOpts[] =
 {
 	{
 		{
@@ -546,7 +546,7 @@ static relopt_enum enumRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_string stringRelOpts[] =
+static const relopt_string stringRelOpts[] =
 {
 	/* list terminator */
 	{{NULL}}
@@ -625,7 +625,7 @@ initialize_reloptions(void)
 	j = 0;
 	for (i = 0; boolRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = &boolRelOpts[i].gen;
+		relOpts[j] = unconstify(relopt_gen *, &boolRelOpts[i].gen);
 		relOpts[j]->type = RELOPT_TYPE_BOOL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -633,7 +633,7 @@ initialize_reloptions(void)
 
 	for (i = 0; intRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = &intRelOpts[i].gen;
+		relOpts[j] = unconstify(relopt_gen *, &intRelOpts[i].gen);
 		relOpts[j]->type = RELOPT_TYPE_INT;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -641,7 +641,7 @@ initialize_reloptions(void)
 
 	for (i = 0; realRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = &realRelOpts[i].gen;
+		relOpts[j] = unconstify(relopt_gen *, &realRelOpts[i].gen);
 		relOpts[j]->type = RELOPT_TYPE_REAL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -649,7 +649,7 @@ initialize_reloptions(void)
 
 	for (i = 0; enumRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = &enumRelOpts[i].gen;
+		relOpts[j] = unconstify(relopt_gen *, &enumRelOpts[i].gen);
 		relOpts[j]->type = RELOPT_TYPE_ENUM;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -657,7 +657,7 @@ initialize_reloptions(void)
 
 	for (i = 0; stringRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = &stringRelOpts[i].gen;
+		relOpts[j] = unconstify(relopt_gen *, &stringRelOpts[i].gen);
 		relOpts[j]->type = RELOPT_TYPE_STRING;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -1642,7 +1642,7 @@ parse_one_reloption(relopt_value *option, char *text_str, int text_len,
 		case RELOPT_TYPE_ENUM:
 			{
 				relopt_enum *optenum = (relopt_enum *) option->gen;
-				relopt_enum_elt_def *elt;
+				const relopt_enum_elt_def *elt;
 
 				parsed = false;
 				for (elt = optenum->members; elt->string_val; elt++)
