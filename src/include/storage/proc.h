@@ -306,7 +306,7 @@ struct PGPROC
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
 
 
-extern PGDLLIMPORT PGPROC *MyProc;
+extern PGDLLIMPORT session_local PGPROC *MyProc;
 
 /*
  * There is one ProcGlobal struct for the whole database cluster.

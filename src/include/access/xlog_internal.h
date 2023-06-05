@@ -399,6 +399,6 @@ extern void XLogRecGetBlockRefInfo(XLogReaderState *record, bool pretty,
 extern PGDLLIMPORT bool ArchiveRecoveryRequested;
 extern PGDLLIMPORT bool InArchiveRecovery;
 extern PGDLLIMPORT bool StandbyMode;
-extern PGDLLIMPORT char *recoveryRestoreCommand;
+extern PGDLLIMPORT sighup_guc char *recoveryRestoreCommand; // FIXME: duplicated in xlogrecovery.h
 
 #endif							/* XLOG_INTERNAL_H */

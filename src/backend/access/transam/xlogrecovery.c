@@ -80,23 +80,23 @@ const struct config_enum_entry recovery_target_action_options[] = {
 };
 
 /* options formerly taken from recovery.conf for archive recovery */
-char	   *recoveryRestoreCommand = NULL;
-char	   *recoveryEndCommand = NULL;
-char	   *archiveCleanupCommand = NULL;
+sighup_guc char	   *recoveryRestoreCommand = NULL;
+sighup_guc char	   *recoveryEndCommand = NULL;
+sighup_guc char	   *archiveCleanupCommand = NULL;
 RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
-bool		recoveryTargetInclusive = true;
-int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
+postmaster_guc bool		recoveryTargetInclusive = true;
+postmaster_guc int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
 TransactionId recoveryTargetXid;
-char	   *recovery_target_time_string;
+postmaster_guc char	   *recovery_target_time_string;
 TimestampTz recoveryTargetTime;
 const char *recoveryTargetName;
 XLogRecPtr	recoveryTargetLSN;
 int			recovery_min_apply_delay = 0;
 
 /* options formerly taken from recovery.conf for XLOG streaming */
-char	   *PrimaryConnInfo = NULL;
-char	   *PrimarySlotName = NULL;
-bool		wal_receiver_create_temp_slot = false;
+sighup_guc char	   *PrimaryConnInfo = NULL;
+sighup_guc char	   *PrimarySlotName = NULL;
+sighup_guc bool		wal_receiver_create_temp_slot = false;
 
 /*
  * recoveryTargetTimeLineGoal: what the user requested, if any

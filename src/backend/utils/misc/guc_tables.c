@@ -565,14 +565,14 @@ int			huge_pages_status = HUGE_PAGES_UNKNOWN;
  * cases provide the value for SHOW to display.  The real state is elsewhere
  * and is kept in sync by assign_hooks.
  */
-static char *syslog_ident_str;
-static double phony_random_seed;
-static char *client_encoding_string;
-static char *datestyle_string;
+static sighup_guc char *syslog_ident_str;
+static session_guc double phony_random_seed;
+static session_guc char *client_encoding_string;
+static session_guc char *datestyle_string;
 static char *server_encoding_string;
 static char *server_version_string;
 static int	server_version_num;
-static char *debug_io_direct_string;
+static postmaster_guc char *debug_io_direct_string;
 
 #ifdef HAVE_SYSLOG
 #define	DEFAULT_SYSLOG_FACILITY LOG_LOCAL0
@@ -581,11 +581,11 @@ static char *debug_io_direct_string;
 #endif
 static int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
 
-static char *timezone_string;
-static char *log_timezone_string;
-static char *timezone_abbreviations_string;
+static session_guc char *timezone_string;
+static sighup_guc char *log_timezone_string;
+static session_guc char *timezone_abbreviations_string;
 static char *data_directory;
-static char *session_authorization_string;
+static session_guc char *session_authorization_string;
 static int	max_function_args;
 static int	max_index_keys;
 static int	max_identifier_length;
@@ -604,11 +604,11 @@ static bool integer_datetimes;
 #endif
 static bool assert_enabled = DEFAULT_ASSERT_ENABLED;
 
-static char *recovery_target_timeline_string;
-static char *recovery_target_string;
-static char *recovery_target_xid_string;
-static char *recovery_target_name_string;
-static char *recovery_target_lsn_string;
+static postmaster_guc char *recovery_target_timeline_string;
+static postmaster_guc char *recovery_target_string;
+static postmaster_guc char *recovery_target_xid_string;
+static postmaster_guc char *recovery_target_name_string;
+static postmaster_guc char *recovery_target_lsn_string;
 
 /* should be static, but commands/variable.c needs to get at this */
 char	   *role_string;

@@ -235,15 +235,15 @@ bool		EnableSSL = false;
 int			PreAuthDelay = 0;
 int			AuthenticationTimeout = 60;
 
-bool		log_hostname;		/* for ps display and logging */
-bool		Log_connections = false;
+sighup_guc bool		log_hostname;		/* for ps display and logging */
+session_guc bool		Log_connections = false;
 
-bool		enable_bonjour = false;
-char	   *bonjour_name;
-bool		restart_after_crash = true;
-bool		remove_temp_files_after_crash = true;
-bool		send_abort_for_crash = false;
-bool		send_abort_for_kill = false;
+postmaster_guc bool		enable_bonjour = false;
+postmaster_guc char	   *bonjour_name;
+postmaster_guc bool		restart_after_crash = true;
+sighup_guc bool		remove_temp_files_after_crash = true;
+sighup_guc bool		send_abort_for_crash = false;
+sighup_guc bool		send_abort_for_kill = false;
 
 /* PIDs of special child processes; 0 when not running */
 static pid_t StartupPID = 0,

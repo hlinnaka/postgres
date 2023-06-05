@@ -83,10 +83,10 @@
  *		global variables
  * ----------------
  */
-const char *debug_query_string; /* client-supplied query string */
+const session_local char *debug_query_string; /* client-supplied query string */
 
 /* Note: whereToSendOutput is initialized for the bootstrap/standalone case */
-CommandDest whereToSendOutput = DestDebug;
+session_local CommandDest whereToSendOutput = DestDebug;
 
 /* flag for logging end of session */
 bool		Log_disconnections = false;

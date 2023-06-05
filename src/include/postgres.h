@@ -46,6 +46,10 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
+#define session_guc __thread
+#define postmaster_guc __thread
+#define sighup_guc __thread
+
 /* ----------------------------------------------------------------
  *				Section 1:	Datum type + support functions
  * ----------------------------------------------------------------
