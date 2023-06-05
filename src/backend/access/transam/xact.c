@@ -248,8 +248,8 @@ static TransactionStateData TopTransactionStateData = {
  * unreportedXids holds XIDs of all subtransactions that have not yet been
  * reported in an XLOG_XACT_ASSIGNMENT record.
  */
-static int	nUnreportedXids;
-static TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
+static session_local int	nUnreportedXids;
+static session_local TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
 
 static TransactionState CurrentTransactionState = &TopTransactionStateData;
 
@@ -271,30 +271,30 @@ static bool currentCommandIdUsed;
  * These do not change as we enter and exit subtransactions, so we don't
  * keep them inside the TransactionState stack.
  */
-static TimestampTz xactStartTimestamp;
-static TimestampTz stmtStartTimestamp;
-static TimestampTz xactStopTimestamp;
+static session_local TimestampTz xactStartTimestamp;
+static session_local TimestampTz stmtStartTimestamp;
+static session_local TimestampTz xactStopTimestamp;
 
 /*
  * GID to be used for preparing the current transaction.  This is also
  * global to a whole transaction, so we don't keep it in the state stack.
  */
-static char *prepareGID;
+static session_local char *prepareGID;
 
 /*
  * Some commands want to force synchronous commit.
  */
-static bool forceSyncCommit = false;
+static session_local bool forceSyncCommit = false;
 
 /* Flag for logging statements in a transaction. */
-bool		xact_is_sampled = false;
+session_local bool		xact_is_sampled = false;
 
 /*
  * Private context for transaction-abort work --- we reserve space for this
  * at startup to ensure that AbortTransaction and AbortSubTransaction can work
  * when we've run out of memory.
  */
-static MemoryContext TransactionAbortContext = NULL;
+static session_local MemoryContext TransactionAbortContext = NULL;
 
 /*
  * List of add-on start- and end-of-xact callbacks
@@ -306,7 +306,7 @@ typedef struct XactCallbackItem
 	void	   *arg;
 } XactCallbackItem;
 
-static XactCallbackItem *Xact_callbacks = NULL;
+static session_local XactCallbackItem *Xact_callbacks = NULL;
 
 /*
  * List of add-on start- and end-of-subxact callbacks
@@ -318,7 +318,7 @@ typedef struct SubXactCallbackItem
 	void	   *arg;
 } SubXactCallbackItem;
 
-static SubXactCallbackItem *SubXact_callbacks = NULL;
+static session_local SubXactCallbackItem *SubXact_callbacks = NULL;
 
 
 /* local function prototypes */
