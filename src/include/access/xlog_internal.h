@@ -396,9 +396,11 @@ extern void XLogRecGetBlockRefInfo(XLogReaderState *record, bool pretty,
  * Exported for the functions in timeline.c and xlogarchive.c.  Only valid
  * in the startup process.
  */
+#ifndef FRONTEND
 extern PGDLLIMPORT bool ArchiveRecoveryRequested;
 extern PGDLLIMPORT bool InArchiveRecovery;
 extern PGDLLIMPORT bool StandbyMode;
 extern PGDLLIMPORT sighup_guc char *recoveryRestoreCommand; // FIXME: duplicated in xlogrecovery.h
+#endif
 
 #endif							/* XLOG_INTERNAL_H */

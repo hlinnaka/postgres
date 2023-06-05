@@ -83,15 +83,15 @@ const struct config_enum_entry recovery_target_action_options[] = {
 sighup_guc char	   *recoveryRestoreCommand = NULL;
 sighup_guc char	   *recoveryEndCommand = NULL;
 sighup_guc char	   *archiveCleanupCommand = NULL;
-RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
+session_local RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
 postmaster_guc bool		recoveryTargetInclusive = true;
 postmaster_guc int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
-TransactionId recoveryTargetXid;
+session_local TransactionId recoveryTargetXid;
 postmaster_guc char	   *recovery_target_time_string;
-TimestampTz recoveryTargetTime;
-const char *recoveryTargetName;
-XLogRecPtr	recoveryTargetLSN;
-int			recovery_min_apply_delay = 0;
+session_local TimestampTz recoveryTargetTime;
+session_local const char *recoveryTargetName;
+session_local XLogRecPtr	recoveryTargetLSN;
+session_local int			recovery_min_apply_delay = 0;
 
 /* options formerly taken from recovery.conf for XLOG streaming */
 sighup_guc char	   *PrimaryConnInfo = NULL;
@@ -118,11 +118,11 @@ sighup_guc bool		wal_receiver_create_temp_slot = false;
  * file was created.)  During a sequential scan we do not allow this value
  * to decrease.
  */
-RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal = RECOVERY_TARGET_TIMELINE_LATEST;
-TimeLineID	recoveryTargetTLIRequested = 0;
-TimeLineID	recoveryTargetTLI = 0;
-static List *expectedTLEs;
-static TimeLineID curFileTLI;
+session_local RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal = RECOVERY_TARGET_TIMELINE_LATEST;
+session_local TimeLineID	recoveryTargetTLIRequested = 0;
+session_local TimeLineID	recoveryTargetTLI = 0;
+static session_local List *expectedTLEs;
+static session_local TimeLineID curFileTLI;
 
 /*
  * When ArchiveRecoveryRequested is set, archive recovery was requested,
