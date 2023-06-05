@@ -98,6 +98,7 @@ char	   *XLogArchiveLibrary = "";
  * ----------
  */
 static time_t last_sigterm_time = 0;
+#define PgArch SHMEM_PgArch
 static PgArchData *PgArch = NULL;
 static const ArchiveModuleCallbacks *ArchiveCallbacks;
 static ArchiveModuleState *archive_module_state;

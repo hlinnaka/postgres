@@ -266,7 +266,9 @@ static volatile FastPathStrongRelationLockData *FastPathStrongRelationLocks;
  * The LockMethodLockHash and LockMethodProcLockHash hash tables are in
  * shared memory; LockMethodLocalHash is local to each backend.
  */
+#define LockMethodLockHash SHMEM_LockMethodLockHash
 static HTAB *LockMethodLockHash;
+#define LockMethodProcLockHash SHMEM_LockMethodProcLockHash
 static HTAB *LockMethodProcLockHash;
 static HTAB *LockMethodLocalHash;
 

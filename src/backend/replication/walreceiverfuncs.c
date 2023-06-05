@@ -31,6 +31,7 @@
 #include "storage/shmem.h"
 #include "utils/timestamp.h"
 
+#define WalRcv SHMEM_WalRcv
 WalRcvData *WalRcv = NULL;
 
 /*

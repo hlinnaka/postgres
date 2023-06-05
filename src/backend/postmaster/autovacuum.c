@@ -300,6 +300,7 @@ typedef struct
 	pg_atomic_uint32 av_nworkersForBalance;
 } AutoVacuumShmemStruct;
 
+#define AutoVacuumShmem SHMEM_AutoVacuumShmem
 static AutoVacuumShmemStruct *AutoVacuumShmem;
 
 /*

@@ -169,6 +169,7 @@ static ReplicationState *replication_states;
 /*
  * Actual shared memory block (replication_states[] is now part of this).
  */
+#define replication_states_ctl SHMEM_replication_states_ctl
 static ReplicationStateCtl *replication_states_ctl;
 
 /*

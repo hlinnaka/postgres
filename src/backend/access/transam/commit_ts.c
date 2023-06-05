@@ -82,6 +82,7 @@ TransactionIdToCTsPage(TransactionId xid)
 /*
  * Link to shared-memory data structures for CommitTs control
  */
+#define CommitTsCtlData SHMEM_CommitTsCtlData
 static SlruCtlData CommitTsCtlData;
 
 #define CommitTsCtl (&CommitTsCtlData)
@@ -104,6 +105,7 @@ typedef struct CommitTimestampShared
 	bool		commitTsActive;
 } CommitTimestampShared;
 
+#define commitTsShared SHMEM_commitTsShared
 static CommitTimestampShared *commitTsShared;
 
 

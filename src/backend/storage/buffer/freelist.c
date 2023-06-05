@@ -62,6 +62,7 @@ typedef struct
 } BufferStrategyControl;
 
 /* Pointers to shared state */
+#define StrategyControl SHMEM_StrategyControl
 static BufferStrategyControl *StrategyControl = NULL;
 
 /*

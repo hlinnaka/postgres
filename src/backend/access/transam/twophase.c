@@ -189,6 +189,7 @@ typedef struct TwoPhaseStateData
 	GlobalTransaction prepXacts[FLEXIBLE_ARRAY_MEMBER];
 } TwoPhaseStateData;
 
+#define TwoPhaseState SHMEM_TwoPhaseState
 static TwoPhaseStateData *TwoPhaseState;
 
 /*

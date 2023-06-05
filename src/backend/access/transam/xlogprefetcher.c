@@ -200,6 +200,7 @@ static inline void XLogPrefetcherCompleteFilters(XLogPrefetcher *prefetcher,
 static LsnReadQueueNextStatus XLogPrefetcherNextBlock(uintptr_t pgsr_private,
 													  XLogRecPtr *lsn);
 
+#define SharedStats SHMEM_SharedStats
 static XLogPrefetchStats *SharedStats;
 
 static inline LsnReadQueue *

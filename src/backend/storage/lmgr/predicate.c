@@ -347,6 +347,7 @@ typedef struct SerialControlData
 
 typedef struct SerialControlData *SerialControl;
 
+#define serialControl SHMEM_serialControl
 static SerialControl serialControl;
 
 /*
@@ -377,6 +378,7 @@ int			max_predicate_locks_per_page;	/* in guc_tables.c */
  * number of entries in the list, and the size allowed for each entry is
  * fixed upon creation.
  */
+#define PredXact SHMEM_PredXact
 static PredXactList PredXact;
 
 /*
@@ -389,9 +391,13 @@ static RWConflictPoolHeader RWConflictPool;
  * The predicate locking hash tables are in shared memory.
  * Each backend keeps pointers to them.
  */
+#define SerializableXidHash SHMEM_SerializableXidHash
 static HTAB *SerializableXidHash;
+#define PredicateLockTargetHash SHMEM_PredicateLockTargetHash
 static HTAB *PredicateLockTargetHash;
+#define PredicateLockHash SHMEM_PredicateLockHash
 static HTAB *PredicateLockHash;
+#define FinishedSerializableTransactions SHMEM_FinishedSerializableTransactions
 static dlist_head *FinishedSerializableTransactions;
 
 /*

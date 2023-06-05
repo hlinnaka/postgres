@@ -362,6 +362,7 @@ typedef struct XLogRecoveryCtlData
 	slock_t		info_lck;		/* locks shared variables shown above */
 } XLogRecoveryCtlData;
 
+#define XLogRecoveryCtl SHMEM_XLogRecoveryCtl
 static XLogRecoveryCtlData *XLogRecoveryCtl = NULL;
 
 /*

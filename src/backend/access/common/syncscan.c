@@ -112,6 +112,7 @@ typedef struct ss_scan_locations_t
 	(offsetof(ss_scan_locations_t, items) + (N) * sizeof(ss_lru_item_t))
 
 /* Pointer to struct in shared memory */
+#define scan_locations SHMEM_scan_locations
 static ss_scan_locations_t *scan_locations;
 
 /* prototypes for internal functions */

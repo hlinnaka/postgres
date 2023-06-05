@@ -50,15 +50,21 @@ int			pgstat_track_activity_query_size = 1024;
 PgBackendStatus *MyBEEntry = NULL;
 
 
+#define BackendStatusArray SHMEM_BackendStatusArray
 static PgBackendStatus *BackendStatusArray = NULL;
+#define BackendAppnameBuffer SHMEM_BackendAppnameBuffer
 static char *BackendAppnameBuffer = NULL;
+#define BackendClientHostnameBuffer SHMEM_BackendClientHostnameBuffer
 static char *BackendClientHostnameBuffer = NULL;
+#define BackendActivityBuffer SHMEM_BackendActivityBuffer
 static char *BackendActivityBuffer = NULL;
 static Size BackendActivityBufferSize = 0;
 #ifdef USE_SSL
+#define BackendSslStatusBuffer SHMEM_BackendSslStatusBuffer
 static PgBackendSSLStatus *BackendSslStatusBuffer = NULL;
 #endif
 #ifdef ENABLE_GSS
+#define BackendGssStatusBuffer SHMEM_BackendGssStatusBuffer
 static PgBackendGSSStatus *BackendGssStatusBuffer = NULL;
 #endif
 

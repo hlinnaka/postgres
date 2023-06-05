@@ -186,6 +186,7 @@ typedef struct bkend
 static dlist_head BackendList = DLIST_STATIC_INIT(BackendList);
 
 #ifdef EXEC_BACKEND
+#define ShmemBackendArray SHMEM_ShmemBackendArray
 static Backend *ShmemBackendArray;
 #endif
 

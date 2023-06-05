@@ -116,6 +116,7 @@ typedef struct
 	WalSnd		walsnds[FLEXIBLE_ARRAY_MEMBER];
 } WalSndCtlData;
 
+#define WalSndCtl SHMEM_WalSndCtl
 extern PGDLLIMPORT WalSndCtlData *WalSndCtl;
 
 

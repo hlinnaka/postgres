@@ -138,6 +138,7 @@ extern PGDLLIMPORT int backend_flush_after;
 extern PGDLLIMPORT int bgwriter_flush_after;
 
 /* in buf_init.c */
+#define BufferBlocks SHMEM_BufferBlocks
 extern PGDLLIMPORT char *BufferBlocks;
 
 /* in localbuf.c */

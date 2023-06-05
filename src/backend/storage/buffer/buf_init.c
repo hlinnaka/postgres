@@ -18,10 +18,14 @@
 #include "storage/bufmgr.h"
 #include "storage/proc.h"
 
+#define BufferDescriptors SHMEM_BufferDescriptors
 BufferDescPadded *BufferDescriptors;
+#define BufferBlocks SHMEM_BufferBlocks
 char	   *BufferBlocks;
+#define BufferIOCVArray SHMEM_BufferIOCVArray
 ConditionVariableMinimallyPadded *BufferIOCVArray;
 WritebackContext BackendWritebackContext;
+#define CkptBufferIds SHMEM_CkptBufferIds
 CkptSortItem *CkptBufferIds;
 
 

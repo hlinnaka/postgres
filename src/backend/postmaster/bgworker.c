@@ -107,6 +107,7 @@ struct BackgroundWorkerHandle
 	uint64		generation;
 };
 
+#define BackgroundWorkerData SHMEM_BackgroundWorkerData
 static BackgroundWorkerArray *BackgroundWorkerData;
 
 /*

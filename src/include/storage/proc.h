@@ -406,8 +406,10 @@ typedef struct PROC_HDR
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
 
+#define ProcGlobal SHMEM_ProcGlobal
 extern PGDLLIMPORT PROC_HDR *ProcGlobal;
 
+#define PreparedXactProcs SHMEM_PreparedXactProcs
 extern PGDLLIMPORT PGPROC *PreparedXactProcs;
 
 /* Accessor for PGPROC given a pgprocno. */

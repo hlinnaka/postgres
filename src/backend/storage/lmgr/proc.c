@@ -75,8 +75,11 @@ PGPROC	   *MyProc = NULL;
 NON_EXEC_STATIC slock_t *ProcStructLock = NULL;
 
 /* Pointers to shared-memory structures */
+#define ProcGlobal SHMEM_ProcGlobal
 PROC_HDR   *ProcGlobal = NULL;
+#define AuxiliaryProcs SHMEM_AuxiliaryProcs
 NON_EXEC_STATIC PGPROC *AuxiliaryProcs = NULL;
+#define PreparedXactProcs SHMEM_PreparedXactProcs
 PGPROC	   *PreparedXactProcs = NULL;
 
 /* If we are waiting for a lock, this points to the associated LOCALLOCK */

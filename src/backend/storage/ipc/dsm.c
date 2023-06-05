@@ -109,6 +109,7 @@ static inline bool is_main_region_dsm_handle(dsm_handle handle);
 static bool dsm_init_done = false;
 
 /* Preallocated DSM space in the main shared memory region. */
+#define dsm_main_space_begin SHMEM_dsm_main_space_begin
 static void *dsm_main_space_begin = NULL;
 
 /*

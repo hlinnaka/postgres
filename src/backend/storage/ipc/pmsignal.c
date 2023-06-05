@@ -80,6 +80,7 @@ struct PMSignalData
 };
 
 /* PMSignalState pointer is valid in both postmaster and child processes */
+#define PMSignalState SHMEM_PMSignalState
 NON_EXEC_STATIC volatile PMSignalData *PMSignalState = NULL;
 
 /*
