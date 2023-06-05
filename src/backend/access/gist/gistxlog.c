@@ -25,8 +25,6 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
-static MemoryContext opCtx;		/* working memory for operations */
-
 /*
  * Replay the clearing of F_FOLLOW_RIGHT flag on a child page.
  *
@@ -399,7 +397,6 @@ void
 gist_redo(XLogReaderState *record)
 {
 	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-	MemoryContext oldCxt;
 
 	/*
 	 * GiST indexes do not require any conflict processing. NB: If we ever
@@ -407,7 +404,6 @@ gist_redo(XLogReaderState *record)
 	 * tuples outside VACUUM, we'll need to handle that here.
 	 */
 
-	oldCxt = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
 		case XLOG_GIST_PAGE_UPDATE:
@@ -431,21 +427,6 @@ gist_redo(XLogReaderState *record)
 		default:
 			elog(PANIC, "gist_redo: unknown op code %u", info);
 	}
-
-	MemoryContextSwitchTo(oldCxt);
-	MemoryContextReset(opCtx);
-}
-
-void
-gist_xlog_startup(void)
-{
-	opCtx = createTempGistContext();
-}
-
-void
-gist_xlog_cleanup(void)
-{
-	MemoryContextDelete(opCtx);
 }
 
 /*

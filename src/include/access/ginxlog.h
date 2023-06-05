@@ -209,8 +209,6 @@ typedef struct ginxlogDeleteListPages
 extern void gin_redo(XLogReaderState *record);
 extern void gin_desc(StringInfo buf, XLogReaderState *record);
 extern const char *gin_identify(uint8 info);
-extern void gin_xlog_startup(void);
-extern void gin_xlog_cleanup(void);
 extern void gin_mask(char *pagedata, BlockNumber blkno);
 
 #endif							/* GINXLOG_H */
