@@ -153,7 +153,7 @@ typedef struct JsonSemAction
  * does nothing and just continues.
  */
 extern JsonParseErrorType pg_parse_json(JsonLexContext *lex,
-										JsonSemAction *sem);
+										const JsonSemAction *sem);
 
 extern JsonParseErrorType pg_parse_json_incremental(JsonLexContext *lex,
 													JsonSemAction *sem,
@@ -162,7 +162,7 @@ extern JsonParseErrorType pg_parse_json_incremental(JsonLexContext *lex,
 													bool is_last);
 
 /* the null action object used for pure validation */
-extern PGDLLIMPORT JsonSemAction nullSemAction;
+extern PGDLLIMPORT const JsonSemAction nullSemAction;
 
 /*
  * json_count_array_elements performs a fast secondary parse to determine the
