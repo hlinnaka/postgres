@@ -21,7 +21,9 @@
 #include "utils/array.h"
 #include "utils/builtins.h"
 
-static const float weights[] = {0.1f, 0.2f, 0.4f, 1.0f};
+
+#define NUM_WEIGHTS 4
+static const float default_weights[NUM_WEIGHTS] = {0.1f, 0.2f, 0.4f, 1.0f};
 
 #define wpos(wep)	( w[ WEP_GETWEIGHT(wep) ] )
 
@@ -396,22 +398,20 @@ calc_rank(const float *w, TSVector t, TSQuery q, int32 method)
 	return res;
 }
 
-static const float *
-getWeights(ArrayType *win)
+static void
+getWeights(ArrayType *win, float *ws)
 {
-	static float ws[lengthof(weights)];
 	int			i;
 	float4	   *arrdata;
 
-	if (win == NULL)
-		return weights;
+	Assert(win != NULL);
 
 	if (ARR_NDIM(win) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
 				 errmsg("array of weight must be one-dimensional")));
 
-	if (ArrayGetNItems(ARR_NDIM(win), ARR_DIMS(win)) < lengthof(weights))
+	if (ArrayGetNItems(ARR_NDIM(win), ARR_DIMS(win)) < NUM_WEIGHTS)
 		ereport(ERROR,
 				(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
 				 errmsg("array of weight is too short")));
@@ -422,16 +422,14 @@ getWeights(ArrayType *win)
 				 errmsg("array of weight must not contain nulls")));
 
 	arrdata = (float4 *) ARR_DATA_PTR(win);
-	for (i = 0; i < lengthof(weights); i++)
+	for (i = 0; i < NUM_WEIGHTS; i++)
 	{
-		ws[i] = (arrdata[i] >= 0) ? arrdata[i] : weights[i];
+		ws[i] = (arrdata[i] >= 0) ? arrdata[i] : default_weights[i];
 		if (ws[i] > 1.0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("weight out of range")));
 	}
-
-	return ws;
 }
 
 Datum
@@ -442,8 +440,10 @@ ts_rank_wttf(PG_FUNCTION_ARGS)
 	TSQuery		query = PG_GETARG_TSQUERY(2);
 	int			method = PG_GETARG_INT32(3);
 	float		res;
+	float		weights[NUM_WEIGHTS];
 
-	res = calc_rank(getWeights(win), txt, query, method);
+	getWeights(win, weights);
+	res = calc_rank(weights, txt, query, method);
 
 	PG_FREE_IF_COPY(win, 0);
 	PG_FREE_IF_COPY(txt, 1);
@@ -458,8 +458,10 @@ ts_rank_wtt(PG_FUNCTION_ARGS)
 	TSVector	txt = PG_GETARG_TSVECTOR(1);
 	TSQuery		query = PG_GETARG_TSQUERY(2);
 	float		res;
+	float		weights[NUM_WEIGHTS];
 
-	res = calc_rank(getWeights(win), txt, query, DEF_NORM_METHOD);
+	getWeights(win, weights);
+	res = calc_rank(weights, txt, query, DEF_NORM_METHOD);
 
 	PG_FREE_IF_COPY(win, 0);
 	PG_FREE_IF_COPY(txt, 1);
@@ -475,7 +477,7 @@ ts_rank_ttf(PG_FUNCTION_ARGS)
 	int			method = PG_GETARG_INT32(2);
 	float		res;
 
-	res = calc_rank(getWeights(NULL), txt, query, method);
+	res = calc_rank(default_weights, txt, query, method);
 
 	PG_FREE_IF_COPY(txt, 0);
 	PG_FREE_IF_COPY(query, 1);
@@ -489,7 +491,7 @@ ts_rank_tt(PG_FUNCTION_ARGS)
 	TSQuery		query = PG_GETARG_TSQUERY(1);
 	float		res;
 
-	res = calc_rank(getWeights(NULL), txt, query, DEF_NORM_METHOD);
+	res = calc_rank(default_weights, txt, query, DEF_NORM_METHOD);
 
 	PG_FREE_IF_COPY(txt, 0);
 	PG_FREE_IF_COPY(query, 1);
@@ -855,16 +857,16 @@ calc_rank_cd(const float4 *arrdata, TSVector txt, TSQuery query, int method)
 				doclen = 0;
 	CoverExt	ext;
 	double		Wdoc = 0.0;
-	double		invws[lengthof(weights)];
+	double		invws[NUM_WEIGHTS];
 	double		SumDist = 0.0,
 				PrevExtPos = 0.0;
 	int			NExtent = 0;
 	QueryRepresentation qr;
 
 
-	for (i = 0; i < lengthof(weights); i++)
+	for (i = 0; i < NUM_WEIGHTS; i++)
 	{
-		invws[i] = ((double) ((arrdata[i] >= 0) ? arrdata[i] : weights[i]));
+		invws[i] = ((double) ((arrdata[i] >= 0) ? arrdata[i] : default_weights[i]));
 		if (invws[i] > 1.0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -957,8 +959,10 @@ ts_rankcd_wttf(PG_FUNCTION_ARGS)
 	TSQuery		query = PG_GETARG_TSQUERY(2);
 	int			method = PG_GETARG_INT32(3);
 	float		res;
+	float		weights[NUM_WEIGHTS];
 
-	res = calc_rank_cd(getWeights(win), txt, query, method);
+	getWeights(win, weights);
+	res = calc_rank_cd(weights, txt, query, method);
 
 	PG_FREE_IF_COPY(win, 0);
 	PG_FREE_IF_COPY(txt, 1);
@@ -973,8 +977,10 @@ ts_rankcd_wtt(PG_FUNCTION_ARGS)
 	TSVector	txt = PG_GETARG_TSVECTOR(1);
 	TSQuery		query = PG_GETARG_TSQUERY(2);
 	float		res;
+	float		weights[NUM_WEIGHTS];
 
-	res = calc_rank_cd(getWeights(win), txt, query, DEF_NORM_METHOD);
+	getWeights(win, weights);
+	res = calc_rank_cd(weights, txt, query, DEF_NORM_METHOD);
 
 	PG_FREE_IF_COPY(win, 0);
 	PG_FREE_IF_COPY(txt, 1);
@@ -990,7 +996,7 @@ ts_rankcd_ttf(PG_FUNCTION_ARGS)
 	int			method = PG_GETARG_INT32(2);
 	float		res;
 
-	res = calc_rank_cd(getWeights(NULL), txt, query, method);
+	res = calc_rank_cd(default_weights, txt, query, method);
 
 	PG_FREE_IF_COPY(txt, 0);
 	PG_FREE_IF_COPY(query, 1);
@@ -1004,7 +1010,7 @@ ts_rankcd_tt(PG_FUNCTION_ARGS)
 	TSQuery		query = PG_GETARG_TSQUERY(1);
 	float		res;
 
-	res = calc_rank_cd(getWeights(NULL), txt, query, DEF_NORM_METHOD);
+	res = calc_rank_cd(default_weights, txt, query, DEF_NORM_METHOD);
 
 	PG_FREE_IF_COPY(txt, 0);
 	PG_FREE_IF_COPY(query, 1);
