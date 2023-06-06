@@ -419,10 +419,8 @@ extern pg_nodiscard void *guc_realloc(int elevel, void *old, size_t size);
 extern char *guc_strdup(int elevel, const char *src);
 extern void guc_free(void *ptr);
 
-#ifdef EXEC_BACKEND
 extern void write_nondefault_variables(GucContext context);
 extern void read_nondefault_variables(void);
-#endif
 
 /* GUC serialization */
 extern Size EstimateGUCStateSpace(void);

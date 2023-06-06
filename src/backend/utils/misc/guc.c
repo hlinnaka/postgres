@@ -55,10 +55,8 @@
 #define HBA_FILENAME	"pg_hba.conf"
 #define IDENT_FILENAME	"pg_ident.conf"
 
-#ifdef EXEC_BACKEND
 #define CONFIG_EXEC_PARAMS "global/config_exec_params"
 #define CONFIG_EXEC_PARAMS_NEW "global/config_exec_params.new"
-#endif
 
 /*
  * Precision with which REAL type guc values are to be printed for GUC
@@ -5485,7 +5483,6 @@ ShowGUCOption(struct config_generic *record, bool use_units)
 	return pstrdup(val);
 }
 
-#ifdef EXEC_BACKEND
 
 /*
  *	These routines dump out all non-default GUC options into a binary
@@ -5513,7 +5510,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_bool *conf = (struct config_bool *) gconf;
 
-				if (*conf->variable)
+				if (*conf->variable_addr())
 					fprintf(fp, "true");
 				else
 					fprintf(fp, "false");
@@ -5524,7 +5521,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_int *conf = (struct config_int *) gconf;
 
-				fprintf(fp, "%d", *conf->variable);
+				fprintf(fp, "%d", *conf->variable_addr());
 			}
 			break;
 
@@ -5532,7 +5529,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_real *conf = (struct config_real *) gconf;
 
-				fprintf(fp, "%.17g", *conf->variable);
+				fprintf(fp, "%.17g", *conf->variable_addr());
 			}
 			break;
 
@@ -5540,8 +5537,8 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 			{
 				struct config_string *conf = (struct config_string *) gconf;
 
-				if (*conf->variable)
-					fprintf(fp, "%s", *conf->variable);
+				if (*conf->variable_addr())
+					fprintf(fp, "%s", *conf->variable_addr());
 			}
 			break;
 
@@ -5550,7 +5547,7 @@ write_one_nondefault_variable(FILE *fp, struct config_generic *gconf)
 				struct config_enum *conf = (struct config_enum *) gconf;
 
 				fprintf(fp, "%s",
-						config_enum_lookup_by_value(conf, *conf->variable));
+						config_enum_lookup_by_value(conf, *conf->variable_addr()));
 			}
 			break;
 	}
@@ -5715,7 +5712,6 @@ read_nondefault_variables(void)
 
 	FreeFile(fp);
 }
-#endif							/* EXEC_BACKEND */
 
 /*
  * can_skip_gucvar:
