@@ -58,10 +58,8 @@
 #define IDENT_FILENAME	"pg_ident.conf"
 #define HOSTS_FILENAME	"pg_hosts.conf"
 
-#ifdef EXEC_BACKEND
 #define CONFIG_EXEC_PARAMS "global/config_exec_params"
 #define CONFIG_EXEC_PARAMS_NEW "global/config_exec_params.new"
-#endif
 
 /*
  * Precision with which REAL type guc values are to be printed for GUC
@@ -5476,7 +5474,6 @@ ShowGUCOption(const struct config_generic *record, bool use_units)
 }
 
 
-#ifdef EXEC_BACKEND
 
 /*
  *	These routines dump out all non-default GUC options into a binary
@@ -5706,7 +5703,6 @@ read_nondefault_variables(void)
 
 	FreeFile(fp);
 }
-#endif							/* EXEC_BACKEND */
 
 /*
  * can_skip_gucvar:
