@@ -95,15 +95,15 @@ session_guc int			vacuum_cost_limit = 200;
  * are free to set it if they desire this behavior, but it is false by default
  * and reset to false in between vacuuming each relation.
  */
-bool		VacuumFailsafeActive = false;
+session_local bool		VacuumFailsafeActive = false;
 
 /*
  * Variables for cost-based parallel vacuum.  See comments atop
  * compute_parallel_delay to understand how it works.
  */
-pg_atomic_uint32 *VacuumSharedCostBalance = NULL;
-pg_atomic_uint32 *VacuumActiveNWorkers = NULL;
-int			VacuumCostBalanceLocal = 0;
+session_local pg_atomic_uint32 *VacuumSharedCostBalance = NULL;
+session_local pg_atomic_uint32 *VacuumActiveNWorkers = NULL;
+session_local int			VacuumCostBalanceLocal = 0;
 
 /* non-export function prototypes */
 static List *expand_vacuum_rel(VacuumRelation *vrel,

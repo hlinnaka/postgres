@@ -128,6 +128,7 @@ struct _DestReceiver
 	/* Private fields might appear beyond this point... */
 };
 
+#define None_Receiver BLESSED_None_Receiver
 extern PGDLLIMPORT DestReceiver *None_Receiver; /* permanent receiver for
 												 * DestNone */
 

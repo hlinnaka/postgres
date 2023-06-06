@@ -80,8 +80,8 @@ GinTernaryValueGetDatum(GinTernaryValue X)
 #define PG_RETURN_GIN_TERNARY_VALUE(x) return GinTernaryValueGetDatum(x)
 
 /* GUC parameters */
-extern PGDLLIMPORT int GinFuzzySearchLimit;
-extern PGDLLIMPORT int gin_pending_list_limit;
+extern PGDLLIMPORT session_guc int GinFuzzySearchLimit;
+extern PGDLLIMPORT session_guc int gin_pending_list_limit;
 
 /* ginutil.c */
 extern void ginGetStats(Relation index, GinStatsData *stats);

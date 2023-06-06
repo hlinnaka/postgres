@@ -24,7 +24,7 @@
 #include "utils/rel.h"
 
 /* GUC parameter */
-int			GinFuzzySearchLimit = 0;
+session_guc int			GinFuzzySearchLimit = 0;
 
 typedef struct pendingPosition
 {

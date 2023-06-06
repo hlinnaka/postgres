@@ -261,9 +261,9 @@ static struct SYSCACHECALLBACK
 	Datum		arg;
 }			syscache_callback_list[MAX_SYSCACHE_CALLBACKS];
 
-static int16 syscache_callback_links[SysCacheSize];
+static session_local int16 syscache_callback_links[SysCacheSize];
 
-static int	syscache_callback_count = 0;
+static session_local int	syscache_callback_count = 0;
 
 static struct RELCACHECALLBACK
 {
@@ -271,7 +271,7 @@ static struct RELCACHECALLBACK
 	Datum		arg;
 }			relcache_callback_list[MAX_RELCACHE_CALLBACKS];
 
-static int	relcache_callback_count = 0;
+static session_local int	relcache_callback_count = 0;
 
 /* ----------------------------------------------------------------
  *				Invalidation subgroup support functions

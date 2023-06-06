@@ -184,8 +184,8 @@ static inline bool pgstat_is_kind_valid(int ikind);
  * ----------
  */
 
-bool		pgstat_track_counts = false;
-int			pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_CACHE;
+session_guc bool		pgstat_track_counts = false;
+session_guc int			pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_CACHE;
 
 
 /* ----------
@@ -193,7 +193,7 @@ int			pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_CACHE;
  * ----------
  */
 
-PgStat_LocalState pgStatLocal;
+session_local PgStat_LocalState pgStatLocal;
 
 
 /* ----------
@@ -210,7 +210,7 @@ PgStat_LocalState pgStatLocal;
  * easier to track / attribute memory usage.
  */
 
-static MemoryContext pgStatPendingContext = NULL;
+static session_local MemoryContext pgStatPendingContext = NULL;
 
 /*
  * Backend local list of PgStat_EntryRef with unflushed pending stats.
@@ -225,13 +225,13 @@ static dlist_head pgStatPending = DLIST_STATIC_INIT(pgStatPending);
  * Force the next stats flush to happen regardless of
  * PGSTAT_MIN_INTERVAL. Useful in test scripts.
  */
-static bool pgStatForceNextFlush = false;
+static session_local bool pgStatForceNextFlush = false;
 
 /*
  * Force-clear existing snapshot before next use when stats_fetch_consistency
  * is changed.
  */
-static bool force_stats_snapshot_clear = false;
+static session_local bool force_stats_snapshot_clear = false;
 
 
 /*
@@ -239,8 +239,8 @@ static bool force_stats_snapshot_clear = false;
  * shutdown.
  */
 #ifdef USE_ASSERT_CHECKING
-static bool pgstat_is_initialized = false;
-static bool pgstat_is_shutdown = false;
+static session_local bool pgstat_is_initialized = false;
+static session_local bool pgstat_is_shutdown = false;
 #endif
 
 

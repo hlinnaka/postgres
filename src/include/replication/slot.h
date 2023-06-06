@@ -207,10 +207,10 @@ typedef struct ReplicationSlotCtlData
  */
 #define ReplicationSlotCtl SHMEM_ReplicationSlotCtl
 extern PGDLLIMPORT ReplicationSlotCtlData *ReplicationSlotCtl;
-extern PGDLLIMPORT ReplicationSlot *MyReplicationSlot;
+extern PGDLLIMPORT session_local ReplicationSlot *MyReplicationSlot;
 
 /* GUCs */
-extern PGDLLIMPORT int max_replication_slots;
+extern PGDLLIMPORT postmaster_guc int max_replication_slots;
 
 /* shmem initialization functions */
 extern Size ReplicationSlotsShmemSize(void);

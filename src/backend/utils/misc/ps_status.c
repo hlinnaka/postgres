@@ -28,7 +28,7 @@
 extern char **environ;
 
 /* GUC variable */
-bool		update_process_title = DEFAULT_UPDATE_PROCESS_TITLE;
+session_guc bool		update_process_title = DEFAULT_UPDATE_PROCESS_TITLE;
 
 /*
  * Alternative ways of updating ps display:

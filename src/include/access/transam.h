@@ -264,6 +264,7 @@ typedef struct TransamVariablesData
 extern bool TransactionStartedDuringRecovery(void);
 
 /* in transam/varsup.c */
+#define TransamVariables SHMEM_TransamVariables
 extern PGDLLIMPORT TransamVariablesData *TransamVariables;
 
 /*

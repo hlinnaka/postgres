@@ -28,8 +28,8 @@ typedef struct PgStat_PendingIO
 } PgStat_PendingIO;
 
 
-static PgStat_PendingIO PendingIOStats;
-bool		have_iostats = false;
+static session_local PgStat_PendingIO PendingIOStats;
+session_local bool		have_iostats = false;
 
 
 /*

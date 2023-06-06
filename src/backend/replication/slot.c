@@ -97,10 +97,10 @@ typedef struct ReplicationSlotOnDisk
 ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
 
 /* My backend's replication slot in the shared memory array */
-ReplicationSlot *MyReplicationSlot = NULL;
+session_local ReplicationSlot *MyReplicationSlot = NULL;
 
 /* GUC variable */
-int			max_replication_slots = 10; /* the maximum number of replication
+postmaster_guc int			max_replication_slots = 10; /* the maximum number of replication
 										 * slots */
 
 static void ReplicationSlotShmemExit(int code, Datum arg);

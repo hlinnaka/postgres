@@ -308,11 +308,11 @@ extern PGDLLIMPORT session_guc int vacuum_multixact_failsafe_age;
 #define MAX_STATISTICS_TARGET 10000
 
 /* Variables for cost-based parallel vacuum */
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumSharedCostBalance;
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumActiveNWorkers;
-extern PGDLLIMPORT int VacuumCostBalanceLocal;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumSharedCostBalance;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumActiveNWorkers;
+extern PGDLLIMPORT session_local int VacuumCostBalanceLocal;
 
-extern PGDLLIMPORT bool VacuumFailsafeActive;
+extern PGDLLIMPORT session_local bool VacuumFailsafeActive;
 extern PGDLLIMPORT session_guc double vacuum_cost_delay;
 extern PGDLLIMPORT session_guc int vacuum_cost_limit;
 

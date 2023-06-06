@@ -143,7 +143,7 @@
  * This GUC parameter lets the DBA limit max_safe_fds to something less than
  * what the postmaster's initial probe suggests will work.
  */
-int			max_files_per_process = 1000;
+postmaster_guc int			max_files_per_process = 1000;
 
 /*
  * Maximum number of file descriptors to open for operations that fd.c knows

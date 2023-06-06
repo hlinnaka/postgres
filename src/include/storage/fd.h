@@ -57,10 +57,12 @@ typedef int File;
 
 
 /* GUC parameter */
-extern PGDLLIMPORT int max_files_per_process;
+#ifndef FRONTEND
+extern PGDLLIMPORT postmaster_guc int max_files_per_process;
 extern PGDLLIMPORT bool data_sync_retry;
 extern PGDLLIMPORT int recovery_init_sync_method;
 extern PGDLLIMPORT int io_direct_flags;
+#endif
 
 /*
  * This is private to fd.c, but exported for save/restore_backend_variables()
