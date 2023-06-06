@@ -622,6 +622,7 @@ open_auth_file(const char *filename, int elevel, int depth,
 	file = AllocateFile(filename, "r");
 	if (file == NULL)
 	{
+		char		errorbuf[PG_STRERROR_R_BUFLEN];
 		int			save_errno = errno;
 
 		ereport(elevel,
@@ -630,7 +631,7 @@ open_auth_file(const char *filename, int elevel, int depth,
 						filename)));
 		if (err_msg)
 			*err_msg = psprintf("could not open file \"%s\": %s",
-								filename, strerror(save_errno));
+								filename, strerror_r(save_errno, errorbuf, PG_STRERROR_R_BUFLEN));
 		/* the caller may care about some specific errno */
 		errno = save_errno;
 		return NULL;
@@ -762,13 +763,14 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
 		if (ferror(file))
 		{
 			/* I/O error! */
+			char		errorbuf[PG_STRERROR_R_BUFLEN];
 			int			save_errno = errno;
 
 			ereport(elevel,
 					(errcode_for_file_access(),
 					 errmsg("could not read file \"%s\": %m", filename)));
 			err_msg = psprintf("could not read file \"%s\": %s",
-							   filename, strerror(save_errno));
+							   filename, strerror_r(save_errno, errorbuf, PG_STRERROR_R_BUFLEN));
 			break;
 		}
 

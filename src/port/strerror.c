@@ -31,6 +31,7 @@ static char *win32_socket_strerror(int errnum, char *buf, size_t buflen);
 /*
  * A slightly cleaned-up version of strerror()
  */
+#ifdef FRONTEND
 char *
 pg_strerror(int errnum)
 {
@@ -38,6 +39,7 @@ pg_strerror(int errnum)
 
 	return pg_strerror_r(errnum, errorstr_buf, sizeof(errorstr_buf));
 }
+#endif
 
 /*
  * A slightly cleaned-up version of strerror_r()

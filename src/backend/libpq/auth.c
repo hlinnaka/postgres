@@ -1884,12 +1884,13 @@ auth_peer(hbaPort *port)
 	pw = getpwuid(uid);
 	if (!pw)
 	{
+		char		errorbuf[PG_STRERROR_R_BUFLEN];
 		int			save_errno = errno;
 
 		ereport(LOG,
 				(errmsg("could not look up local user ID %ld: %s",
 						(long) uid,
-						save_errno ? strerror(save_errno) : _("user does not exist"))));
+						save_errno ? strerror_r(save_errno, errorbuf, PG_STRERROR_R_BUFLEN) : _("user does not exist"))));
 		return STATUS_ERROR;
 	}
 

@@ -1792,10 +1792,12 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 
 	if (configdir && stat(configdir, &stat_buf) != 0)
 	{
+		char		errorbuf[PG_STRERROR_R_BUFLEN];
+
 		write_stderr("%s: could not access directory \"%s\": %s\n",
 					 progname,
 					 configdir,
-					 strerror(errno));
+					 strerror_r(errno, errorbuf, PG_STRERROR_R_BUFLEN));
 		if (errno == ENOENT)
 			write_stderr("Run initdb or pg_basebackup to initialize a PostgreSQL data directory.\n");
 		return false;
@@ -1844,8 +1846,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
 	 */
 	if (stat(ConfigFileName, &stat_buf) != 0)
 	{
+		char		errorbuf[PG_STRERROR_R_BUFLEN];
+
 		write_stderr("%s: could not access the server configuration file \"%s\": %s\n",
-					 progname, ConfigFileName, strerror(errno));
+					 progname, ConfigFileName,
+					 strerror_r(errno, errorbuf, PG_STRERROR_R_BUFLEN));
 		free(configdir);
 		return false;
 	}

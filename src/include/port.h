@@ -247,7 +247,9 @@ extern int	pg_printf(const char *fmt,...) pg_attribute_printf(1, 2);
 extern int	pg_strfromd(char *str, size_t count, int precision, double value);
 
 /* Replace strerror() with our own, somewhat more robust wrapper */
+#ifdef FRONTEND
 extern char *pg_strerror(int errnum);
+#endif
 #define strerror pg_strerror
 
 /* Likewise for strerror_r(); note we prefer the GNU API for that */
