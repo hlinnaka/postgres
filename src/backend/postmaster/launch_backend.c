@@ -269,6 +269,9 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 			PGSharedMemoryDetach();
 		}
 
+		/* Read in remaining GUC variables. */
+		read_nondefault_variables();
+
 		/*
 		 * Enter the Main function with TopMemoryContext.  The startup data is
 		 * allocated in PostmasterContext, so we cannot release it here yet.

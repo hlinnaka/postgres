@@ -1026,10 +1026,10 @@ PostmasterMain(int argc, char *argv[])
 				(errmsg("could not create I/O completion port for child queue")));
 #endif
 
-#ifdef EXEC_BACKEND
 	/* Write out nondefault GUC settings for child processes to use */
 	write_nondefault_variables(PGC_POSTMASTER);
 
+#ifdef EXEC_BACKEND
 	/*
 	 * Clean out the temp directory used to transmit parameters to child
 	 * processes (see internal_forkexec).  We must do this before launching
@@ -2035,10 +2035,8 @@ process_pm_reload_request(void)
 		}
 #endif
 
-#ifdef EXEC_BACKEND
 		/* Update the starting-point file for future children */
 		write_nondefault_variables(PGC_SIGHUP);
-#endif
 	}
 }
 
