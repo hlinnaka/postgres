@@ -120,11 +120,11 @@ session_local bool		am_cascading_walsender = false; /* Am I cascading WAL to ano
 session_local bool		am_db_walsender = false;	/* Connected to a database? */
 
 /* GUC variables */
-int			max_wal_senders = 10;	/* the maximum number of concurrent
+postmaster_guc int			max_wal_senders = 10;	/* the maximum number of concurrent
 									 * walsenders */
-int			wal_sender_timeout = 60 * 1000; /* maximum time to send one WAL
+session_guc int			wal_sender_timeout = 60 * 1000; /* maximum time to send one WAL
 											 * data message */
-bool		log_replication_commands = false;
+session_guc bool		log_replication_commands = false;
 
 /*
  * State for WalSndWakeupRequest

@@ -34,7 +34,7 @@
 
 
 /* GUC variable */
-bool		ignore_invalid_pages = false;
+postmaster_guc bool		ignore_invalid_pages = false;
 
 /*
  * Are we doing recovery from XLOG?

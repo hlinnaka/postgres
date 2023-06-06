@@ -55,7 +55,7 @@
 
 /* GUC variables */
 #ifdef TRACE_SYNCSCAN
-bool		trace_syncscan = false;
+session_guc bool		trace_syncscan = false;
 #endif
 
 

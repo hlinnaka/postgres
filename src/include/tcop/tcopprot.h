@@ -26,9 +26,9 @@
 
 extern PGDLLIMPORT session_local CommandDest whereToSendOutput;
 extern PGDLLIMPORT session_local const char *debug_query_string;
-extern PGDLLIMPORT int max_stack_depth;
-extern PGDLLIMPORT int PostAuthDelay;
-extern PGDLLIMPORT int client_connection_check_interval;
+extern PGDLLIMPORT session_guc int max_stack_depth;
+extern PGDLLIMPORT session_guc int PostAuthDelay;
+extern PGDLLIMPORT session_guc int client_connection_check_interval;
 
 /* GUC-configurable parameters */
 
@@ -40,7 +40,7 @@ typedef enum
 	LOGSTMT_ALL,				/* log all statements */
 } LogStmtLevel;
 
-extern PGDLLIMPORT int log_statement;
+extern PGDLLIMPORT session_guc int log_statement;
 
 extern List *pg_parse_query(const char *query_string);
 extern List *pg_rewrite_query(Query *query);

@@ -38,9 +38,9 @@
 #include "utils/timestamp.h"
 
 /* User-settable GUC parameters */
-int			max_standby_archive_delay = 30 * 1000;
-int			max_standby_streaming_delay = 30 * 1000;
-bool		log_recovery_conflict_waits = false;
+sighup_guc int			max_standby_archive_delay = 30 * 1000;
+sighup_guc int			max_standby_streaming_delay = 30 * 1000;
+sighup_guc bool		log_recovery_conflict_waits = false;
 
 /*
  * Keep track of all the exclusive locks owned by original transactions.

@@ -93,16 +93,16 @@
 #endif
 
 /* XXX these should appear in other modules' header files */
-extern bool Log_disconnections;
-extern int	CommitDelay;
-extern int	CommitSiblings;
-extern char *default_tablespace;
-extern char *temp_tablespaces;
-extern bool ignore_checksum_failure;
-extern bool ignore_invalid_pages;
+extern session_guc bool Log_disconnections;
+extern session_guc int	CommitDelay;
+extern session_guc int	CommitSiblings;
+extern session_guc char *default_tablespace;
+extern session_guc char *temp_tablespaces;
+extern session_guc bool ignore_checksum_failure;
+extern postmaster_guc bool ignore_invalid_pages;
 
 #ifdef TRACE_SYNCSCAN
-extern bool trace_syncscan;
+extern session_guc bool trace_syncscan;
 #endif
 #ifdef DEBUG_BOUNDED_SORT
 extern session_guc bool optimize_bounded_sort;

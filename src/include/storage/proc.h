@@ -426,12 +426,12 @@ extern PGDLLIMPORT PGPROC *PreparedXactProcs;
 #define NUM_AUXILIARY_PROCS		5
 
 /* configurable options */
-extern PGDLLIMPORT int DeadlockTimeout;
-extern PGDLLIMPORT int StatementTimeout;
-extern PGDLLIMPORT int LockTimeout;
-extern PGDLLIMPORT int IdleInTransactionSessionTimeout;
-extern PGDLLIMPORT int IdleSessionTimeout;
-extern PGDLLIMPORT bool log_lock_waits;
+extern PGDLLIMPORT session_guc int DeadlockTimeout;
+extern PGDLLIMPORT session_guc int StatementTimeout;
+extern PGDLLIMPORT session_guc int LockTimeout;
+extern PGDLLIMPORT session_guc int IdleInTransactionSessionTimeout;
+extern PGDLLIMPORT session_guc int IdleSessionTimeout;
+extern PGDLLIMPORT session_guc bool log_lock_waits;
 
 
 /*

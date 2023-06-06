@@ -36,20 +36,20 @@
 #define LOCALE_NAME_BUFLEN 128
 
 /* GUC settings */
-extern PGDLLIMPORT char *locale_messages;
-extern PGDLLIMPORT char *locale_monetary;
-extern PGDLLIMPORT char *locale_numeric;
-extern PGDLLIMPORT char *locale_time;
-extern PGDLLIMPORT int icu_validation_level;
+extern PGDLLIMPORT session_guc char *locale_messages;
+extern PGDLLIMPORT session_guc char *locale_monetary;
+extern PGDLLIMPORT session_guc char *locale_numeric;
+extern PGDLLIMPORT session_guc char *locale_time;
+extern PGDLLIMPORT session_guc int icu_validation_level;
 
 /* lc_time localization cache */
-extern PGDLLIMPORT char *localized_abbrev_days[];
-extern PGDLLIMPORT char *localized_full_days[];
-extern PGDLLIMPORT char *localized_abbrev_months[];
-extern PGDLLIMPORT char *localized_full_months[];
+extern PGDLLIMPORT session_local char *localized_abbrev_days[];
+extern PGDLLIMPORT session_local char *localized_full_days[];
+extern PGDLLIMPORT session_local char *localized_abbrev_months[];
+extern PGDLLIMPORT session_local char *localized_full_months[];
 
 /* is the databases's LC_CTYPE the C locale? */
-extern PGDLLIMPORT bool database_ctype_is_c;
+extern PGDLLIMPORT session_local bool database_ctype_is_c;
 
 extern bool check_locale(int category, const char *locale, char **canonname);
 extern char *pg_perm_setlocale(int category, const char *locale);

@@ -55,12 +55,12 @@
 #include "utils/timestamp.h"
 
 /* GUC variables */
-int			DeadlockTimeout = 1000;
-int			StatementTimeout = 0;
-int			LockTimeout = 0;
-int			IdleInTransactionSessionTimeout = 0;
-int			IdleSessionTimeout = 0;
-bool		log_lock_waits = false;
+session_guc int			DeadlockTimeout = 1000;
+session_guc int			StatementTimeout = 0;
+session_guc int			LockTimeout = 0;
+session_guc int			IdleInTransactionSessionTimeout = 0;
+session_guc int			IdleSessionTimeout = 0;
+session_guc bool		log_lock_waits = false;
 
 /* Pointer to this process's PGPROC struct, if any */
 session_local PGPROC	   *MyProc = NULL;

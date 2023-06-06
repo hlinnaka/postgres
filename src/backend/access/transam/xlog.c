@@ -114,33 +114,33 @@ extern uint32 bootstrap_data_checksum_version;
 #define BootstrapTimeLineID		1
 
 /* User-settable parameters */
-int			max_wal_size_mb = 1024; /* 1 GB */
-int			min_wal_size_mb = 80;	/* 80 MB */
-int			wal_keep_size_mb = 0;
-int			XLOGbuffers = -1;
-int			XLogArchiveTimeout = 0;
-int			XLogArchiveMode = ARCHIVE_MODE_OFF;
-char	   *XLogArchiveCommand = NULL;
-bool		EnableHotStandby = false;
-bool		fullPageWrites = true;
-bool		wal_log_hints = false;
-int			wal_compression = WAL_COMPRESSION_NONE;
-char	   *wal_consistency_checking_string = NULL;
-bool	   *wal_consistency_checking = NULL;
-bool		wal_init_zero = true;
-bool		wal_recycle = true;
-bool		log_checkpoints = true;
-int			wal_sync_method = DEFAULT_WAL_SYNC_METHOD;
-int			wal_level = WAL_LEVEL_REPLICA;
-int			CommitDelay = 0;	/* precommit delay in microseconds */
-int			CommitSiblings = 5; /* # concurrent xacts needed to sleep */
-int			wal_retrieve_retry_interval = 5000;
-int			max_slot_wal_keep_size_mb = -1;
-int			wal_decode_buffer_size = 512 * 1024;
-bool		track_wal_io_timing = false;
+sighup_guc int			max_wal_size_mb = 1024; /* 1 GB */
+sighup_guc int			min_wal_size_mb = 80;	/* 80 MB */
+sighup_guc int			wal_keep_size_mb = 0;
+postmaster_guc int			XLOGbuffers = -1;
+sighup_guc int			XLogArchiveTimeout = 0;
+postmaster_guc int			XLogArchiveMode = ARCHIVE_MODE_OFF;
+sighup_guc char	   *XLogArchiveCommand = NULL;
+postmaster_guc bool		EnableHotStandby = false;
+sighup_guc bool		fullPageWrites = true;
+postmaster_guc bool		wal_log_hints = false;
+session_guc int			wal_compression = WAL_COMPRESSION_NONE;
+session_guc char	   *wal_consistency_checking_string = NULL;
+session_guc bool	   *wal_consistency_checking = NULL;
+session_guc bool		wal_init_zero = true;
+session_guc bool		wal_recycle = true;
+sighup_guc bool		log_checkpoints = true;
+sighup_guc int			wal_sync_method = DEFAULT_WAL_SYNC_METHOD;
+postmaster_guc int			wal_level = WAL_LEVEL_REPLICA;
+session_guc int			CommitDelay = 0;	/* precommit delay in microseconds */
+session_guc int			CommitSiblings = 5; /* # concurrent xacts needed to sleep */
+sighup_guc int			wal_retrieve_retry_interval = 5000;
+sighup_guc int			max_slot_wal_keep_size_mb = -1;
+postmaster_guc int			wal_decode_buffer_size = 512 * 1024;
+session_guc bool		track_wal_io_timing = false;
 
 #ifdef WAL_DEBUG
-bool		XLOG_DEBUG = false;
+session_guc bool		XLOG_DEBUG = false;
 #endif
 
 int			wal_segment_size = DEFAULT_XLOG_SEG_SIZE;

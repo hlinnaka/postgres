@@ -426,10 +426,10 @@ static session_local bool amRegisteredListener = false;
 static session_local bool tryAdvanceTail = false;
 
 /* GUC parameters */
-bool		Trace_notify = false;
+session_guc bool		Trace_notify = false;
 
 /* For 8 KB pages this gives 8 GB of disk space */
-int			max_notify_queue_pages = 1048576;
+postmaster_guc int			max_notify_queue_pages = 1048576;
 
 /* local function prototypes */
 static inline int64 asyncQueuePageDiff(int64 p, int64 q);

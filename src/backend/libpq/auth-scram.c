@@ -194,7 +194,7 @@ static char *scram_mock_salt(const char *username,
 /*
  * The number of iterations to use when generating new secrets.
  */
-int			scram_sha_256_iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
+session_guc int			scram_sha_256_iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
 
 /*
  * Get a list of SASL mechanisms that this module supports.

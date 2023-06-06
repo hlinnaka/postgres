@@ -89,18 +89,18 @@ const session_local char *debug_query_string; /* client-supplied query string */
 session_local CommandDest whereToSendOutput = DestDebug;
 
 /* flag for logging end of session */
-bool		Log_disconnections = false;
+session_guc bool		Log_disconnections = false;
 
-int			log_statement = LOGSTMT_NONE;
+session_guc int			log_statement = LOGSTMT_NONE;
 
 /* GUC variable for maximum stack depth (measured in kilobytes) */
-int			max_stack_depth = 100;
+session_guc int			max_stack_depth = 100;
 
 /* wait N seconds to allow attach from a debugger */
-int			PostAuthDelay = 0;
+session_guc int			PostAuthDelay = 0;
 
 /* Time between checks that the client is still connected. */
-int			client_connection_check_interval = 0;
+session_guc int			client_connection_check_interval = 0;
 
 /* ----------------
  *		private typedefs etc
@@ -121,7 +121,7 @@ typedef struct BindParamCbData
  */
 
 /* max_stack_depth converted to bytes for speed of checking */
-static long max_stack_depth_bytes = 100 * 1024L;
+static session_local long max_stack_depth_bytes = 100 * 1024L;
 
 /*
  * Stack base pointer -- initialized by PostmasterMain and inherited by
