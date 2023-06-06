@@ -39,6 +39,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#undef strerror
+
 void
 err(int eval, const char *fmt, ...)
 {

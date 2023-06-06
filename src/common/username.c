@@ -40,9 +40,11 @@ get_user_name(char **errstr)
 	pw = getpwuid(user_id);
 	if (!pw)
 	{
+		char		errorbuf[PG_STRERROR_R_BUFLEN];
+
 		*errstr = psprintf(_("could not look up effective user ID %ld: %s"),
 						   (long) user_id,
-						   errno ? strerror(errno) : _("user does not exist"));
+						   errno ? strerror_r(errno, errorbuf, PG_STRERROR_R_BUFLEN) : _("user does not exist"));
 		return NULL;
 	}
 

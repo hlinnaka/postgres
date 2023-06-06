@@ -1500,7 +1500,10 @@ SSLerrmessage(unsigned long ecode)
 	 */
 #ifdef ERR_SYSTEM_ERROR
 	if (ERR_SYSTEM_ERROR(ecode))
-		return strerror(ERR_GET_REASON(ecode));
+	{
+		char		*sebuf = palloc(PG_STRERROR_R_BUFLEN);
+		return strerror_r(ERR_GET_REASON(ecode), sebuf, PG_STRERROR_R_BUFLEN);
+	}
 #endif
 
 	/* No choice but to report the numeric ecode */

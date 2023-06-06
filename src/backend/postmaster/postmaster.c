@@ -3622,11 +3622,12 @@ report_fork_failure_to_client(ClientSocket *client_sock, int errnum)
 {
 	char		buffer[1000];
 	int			rc;
+	char		errorbuf[PG_STRERROR_R_BUFLEN];
 
 	/* Format the error message packet (always V2 protocol) */
 	snprintf(buffer, sizeof(buffer), "E%s%s\n",
 			 _("could not fork new process for connection: "),
-			 strerror(errnum));
+			 strerror_r(errnum, errorbuf, PG_STRERROR_R_BUFLEN));
 
 	/* Set port to non-blocking.  Don't do send() if this fails */
 	if (!pg_set_noblock(client_sock->sock))
