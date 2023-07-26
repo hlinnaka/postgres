@@ -1,0 +1,8 @@
+[
+  {
+    "directory": ".",
+    "command": "cc -o example.c.o -c example.c",
+    "file": "example.c",
+    "output": "example.c.o"
+  }
+]
