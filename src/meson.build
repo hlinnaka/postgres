@@ -14,6 +14,7 @@ subdir('pl')
 subdir('interfaces')
 
 subdir('tools/pg_bsd_indent')
+subdir('tools/pgguclifetimes')
 
 
 ### Generate a Makefile.global that's complete enough for PGXS to work.
