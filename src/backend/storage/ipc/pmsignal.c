@@ -80,22 +80,22 @@ struct PMSignalData
 };
 
 /* PMSignalState pointer is valid in both postmaster and child processes */
-NON_EXEC_STATIC volatile PMSignalData *PMSignalState = NULL;
+NON_EXEC_STATIC global volatile PMSignalData *PMSignalState = NULL;
 
 /*
  * These static variables are valid only in the postmaster.  We keep a
  * duplicative private array so that we can trust its state even if some
  * failing child has clobbered the PMSignalData struct in shared memory.
  */
-static int	num_child_inuse;	/* # of entries in PMChildInUse[] */
-static int	next_child_inuse;	/* next slot to try to assign */
-static bool *PMChildInUse;		/* true if i'th flag slot is assigned */
+static global int	num_child_inuse;	/* # of entries in PMChildInUse[] */
+static global int	next_child_inuse;	/* next slot to try to assign */
+static global bool *PMChildInUse;		/* true if i'th flag slot is assigned */
 
 /*
  * Signal handler to be notified if postmaster dies.
  */
 #ifdef USE_POSTMASTER_DEATH_SIGNAL
-volatile sig_atomic_t postmaster_possibly_dead = false;
+volatile global sig_atomic_t postmaster_possibly_dead = false;
 
 static void
 postmaster_death_handler(SIGNAL_ARGS)

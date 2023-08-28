@@ -26,7 +26,7 @@
 #include "varatt.h"
 
 /* FTS operator priorities, see ts_type.h */
-const int	tsearch_op_priority[OP_COUNT] =
+static_singleton const int	tsearch_op_priority[OP_COUNT] =
 {
 	4,							/* OP_NOT */
 	2,							/* OP_AND */

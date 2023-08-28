@@ -21,8 +21,8 @@
 
 #include <signal.h>
 
-extern PGDLLIMPORT volatile sig_atomic_t ConfigReloadPending;
-extern PGDLLIMPORT volatile sig_atomic_t ShutdownRequestPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ConfigReloadPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ShutdownRequestPending;
 
 extern void HandleMainLoopInterrupts(void);
 extern void SignalHandlerForConfigReload(SIGNAL_ARGS);

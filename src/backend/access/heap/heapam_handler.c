@@ -56,7 +56,7 @@ static bool SampleHeapTupleVisible(TableScanDesc scan, Buffer buffer,
 
 static BlockNumber heapam_scan_get_blocks_done(HeapScanDesc hscan);
 
-static const TableAmRoutine heapam_methods;
+static static_singleton const TableAmRoutine heapam_methods;
 
 
 /* ------------------------------------------------------------------------
@@ -2589,7 +2589,7 @@ SampleHeapTupleVisible(TableScanDesc scan, Buffer buffer,
  * ------------------------------------------------------------------------
  */
 
-static const TableAmRoutine heapam_methods = {
+static static_singleton const TableAmRoutine heapam_methods = {
 	.type = T_TableAmRoutine,
 
 	.slot_callbacks = heapam_slot_callbacks,

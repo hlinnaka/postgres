@@ -20,7 +20,7 @@
 #include "utils/pgstat_internal.h"
 
 
-PgStat_CheckpointerStats PendingCheckpointerStats = {0};
+global PgStat_CheckpointerStats PendingCheckpointerStats = {0};
 
 
 /*
@@ -30,7 +30,7 @@ void
 pgstat_report_checkpointer(void)
 {
 	/* We assume this initializes to zeroes */
-	static const PgStat_CheckpointerStats all_zeroes;
+	static global const PgStat_CheckpointerStats all_zeroes;
 	PgStatShared_Checkpointer *stats_shmem = &pgStatLocal.shmem->checkpointer;
 
 	Assert(!pgStatLocal.shmem->is_shutdown);

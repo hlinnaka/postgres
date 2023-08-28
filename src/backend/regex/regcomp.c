@@ -353,7 +353,7 @@ struct vars
 
 
 /* static function list */
-static const struct fns functions = {
+static static_singleton const struct fns functions = {
 	rfree,						/* regfree insides */
 	rstacktoodeep				/* check for stack getting dangerously deep */
 };

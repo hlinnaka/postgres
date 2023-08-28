@@ -91,11 +91,11 @@ typedef enum
 } IpcMemoryState;
 
 
-unsigned long UsedShmemSegID = 0;
-void	   *UsedShmemSegAddr = NULL;
+global unsigned long UsedShmemSegID = 0;
+global void	   *UsedShmemSegAddr = NULL;
 
-static Size AnonymousShmemSize;
-static void *AnonymousShmem = NULL;
+static global Size AnonymousShmemSize;
+static global void *AnonymousShmem = NULL;
 
 static void *InternalIpcMemoryCreate(IpcMemoryKey memKey, Size size);
 static void IpcMemoryDetach(int status, Datum shmaddr);

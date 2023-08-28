@@ -220,7 +220,7 @@ typedef struct PGLZ_HistEntry
  * The provided standard strategies
  * ----------
  */
-static const PGLZ_Strategy strategy_default_data = {
+static static_singleton const PGLZ_Strategy strategy_default_data = {
 	32,							/* Data chunks less than 32 bytes are not
 								 * compressed */
 	INT_MAX,					/* No upper limit on what we'll try to
@@ -233,10 +233,10 @@ static const PGLZ_Strategy strategy_default_data = {
 	10							/* Lower good match size by 10% at every loop
 								 * iteration */
 };
-const PGLZ_Strategy *const PGLZ_strategy_default = &strategy_default_data;
+static_singleton const PGLZ_Strategy *const PGLZ_strategy_default = &strategy_default_data;
 
 
-static const PGLZ_Strategy strategy_always_data = {
+static static_singleton const PGLZ_Strategy strategy_always_data = {
 	0,							/* Chunks of any size are compressed */
 	INT_MAX,
 	0,							/* It's enough to save one single byte */
@@ -245,15 +245,15 @@ static const PGLZ_Strategy strategy_always_data = {
 								 * is found */
 	6							/* Look harder for a good match */
 };
-const PGLZ_Strategy *const PGLZ_strategy_always = &strategy_always_data;
+static_singleton const PGLZ_Strategy *const PGLZ_strategy_always = &strategy_always_data;
 
 
 /* ----------
  * Statically allocated work arrays for history
  * ----------
  */
-static int16 hist_start[PGLZ_MAX_HISTORY_LISTS];
-static PGLZ_HistEntry hist_entries[PGLZ_HISTORY_SIZE + 1];
+static session_local int16 hist_start[PGLZ_MAX_HISTORY_LISTS];
+static session_local PGLZ_HistEntry hist_entries[PGLZ_HISTORY_SIZE + 1];
 
 /*
  * Element 0 in hist_entries is unused, and means 'invalid'. Likewise,

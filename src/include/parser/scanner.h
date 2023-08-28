@@ -130,7 +130,7 @@ typedef struct ScannerCallbackState
 
 
 /* Constant data exported from parser/scan.l */
-extern PGDLLIMPORT const uint16 ScanKeywordTokens[];
+extern PGDLLIMPORT const static_singleton uint16 ScanKeywordTokens[];
 
 /* Entry points in parser/scan.l */
 extern core_yyscan_t scanner_init(const char *str,

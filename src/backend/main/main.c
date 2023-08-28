@@ -41,8 +41,8 @@
 #include "utils/ps_status.h"
 
 
-const char *progname;
-static bool reached_main = false;
+dynamic_singleton const char *progname;
+static dynamic_singleton bool reached_main = false;
 
 
 static void startup_hacks(const char *progname);

@@ -31,7 +31,7 @@
 
 
 /* GUC variable */
-bool		ignore_invalid_pages = false;
+postmaster_guc bool		ignore_invalid_pages = false;
 
 /*
  * Are we doing recovery from XLOG?
@@ -47,10 +47,10 @@ bool		ignore_invalid_pages = false;
  * This is updated from xlog.c and xlogrecovery.c, but lives here because
  * it's mostly read by WAL redo functions.
  */
-bool		InRecovery = false;
+global bool		InRecovery = false;
 
 /* Are we in Hot Standby mode? Only valid in startup process, see xlogutils.h */
-HotStandbyState standbyState = STANDBY_DISABLED;
+global HotStandbyState standbyState = STANDBY_DISABLED;
 
 /*
  * During XLOG replay, we may see XLOG records for incremental updates of
@@ -75,7 +75,7 @@ typedef struct xl_invalid_page
 	bool		present;		/* page existed but contained zeroes */
 } xl_invalid_page;
 
-static HTAB *invalid_page_tab = NULL;
+static session_local HTAB *invalid_page_tab = NULL;
 
 static int	read_local_xlog_page_guts(XLogReaderState *state, XLogRecPtr targetPagePtr,
 									  int reqLen, XLogRecPtr targetRecPtr,

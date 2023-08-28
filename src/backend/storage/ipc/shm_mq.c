@@ -165,7 +165,7 @@ static void shm_mq_inc_bytes_written(shm_mq *mq, Size n);
 static void shm_mq_detach_callback(dsm_segment *seg, Datum arg);
 
 /* Minimum queue size is enough for header and at least one chunk of data. */
-const Size	shm_mq_minimum_size =
+static_singleton const Size	shm_mq_minimum_size =
 MAXALIGN(offsetof(shm_mq, mq_ring)) + MAXIMUM_ALIGNOF;
 
 #define MQH_INITIAL_BUFSIZE				8192

@@ -291,7 +291,7 @@ typedef struct AsyncQueueControl
 	QueueBackendStatus backend[FLEXIBLE_ARRAY_MEMBER];
 } AsyncQueueControl;
 
-static AsyncQueueControl *asyncQueueControl;
+static global AsyncQueueControl *asyncQueueControl;
 
 #define QUEUE_HEAD					(asyncQueueControl->head)
 #define QUEUE_TAIL					(asyncQueueControl->tail)
@@ -305,7 +305,7 @@ static AsyncQueueControl *asyncQueueControl;
 /*
  * The SLRU buffer area through which we access the notification queue
  */
-static SlruCtlData NotifyCtlData;
+static global SlruCtlData NotifyCtlData;
 
 #define NotifyCtl					(&NotifyCtlData)
 #define QUEUE_PAGESIZE				BLCKSZ
@@ -317,7 +317,7 @@ static SlruCtlData NotifyCtlData;
  * (ie, have committed a LISTEN on).  It is a simple list of channel names,
  * allocated in TopMemoryContext.
  */
-static List *listenChannels = NIL;	/* list of C strings */
+static session_local List *listenChannels = NIL;	/* list of C strings */
 
 /*
  * State for pending LISTEN/UNLISTEN actions consists of an ordered list of
@@ -349,7 +349,7 @@ typedef struct ActionList
 	struct ActionList *upper;	/* details for upper transaction levels */
 } ActionList;
 
-static ActionList *pendingActions = NULL;
+static session_local ActionList *pendingActions = NULL;
 
 /*
  * State for outbound notifies consists of a list of all channels+payloads
@@ -401,7 +401,7 @@ struct NotificationHash
 	Notification *event;		/* => the actual Notification struct */
 };
 
-static NotificationList *pendingNotifies = NULL;
+static session_local NotificationList *pendingNotifies = NULL;
 
 /*
  * Inbound notifications are initially processed by HandleNotifyInterrupt(),
@@ -410,22 +410,22 @@ static NotificationList *pendingNotifies = NULL;
  * latch. ProcessNotifyInterrupt() will then be called whenever it's safe to
  * actually deal with the interrupt.
  */
-volatile sig_atomic_t notifyInterruptPending = false;
+volatile session_local sig_atomic_t notifyInterruptPending = false;
 
 /* True if we've registered an on_shmem_exit cleanup */
-static bool unlistenExitRegistered = false;
+static session_local bool unlistenExitRegistered = false;
 
 /* True if we're currently registered as a listener in asyncQueueControl */
-static bool amRegisteredListener = false;
+static session_local bool amRegisteredListener = false;
 
 /* have we advanced to a page that's a multiple of QUEUE_CLEANUP_DELAY? */
-static bool tryAdvanceTail = false;
+static session_local bool tryAdvanceTail = false;
 
 /* GUC parameters */
-bool		Trace_notify = false;
+session_guc bool		Trace_notify = false;
 
 /* For 8 KB pages this gives 8 GB of disk space */
-int			max_notify_queue_pages = 1048576;
+postmaster_guc int			max_notify_queue_pages = 1048576;
 
 /* local function prototypes */
 static inline int64 asyncQueuePageDiff(int64 p, int64 q);

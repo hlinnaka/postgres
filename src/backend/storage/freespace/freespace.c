@@ -88,7 +88,7 @@ typedef struct
 } FSMAddress;
 
 /* Address of the root page. */
-static const FSMAddress FSM_ROOT_ADDRESS = {FSM_ROOT_LEVEL, 0};
+static static_singleton const FSMAddress FSM_ROOT_ADDRESS = {FSM_ROOT_LEVEL, 0};
 
 /* functions to navigate the tree */
 static FSMAddress fsm_get_child(FSMAddress parent, uint16 slot);

@@ -84,24 +84,24 @@
  *		global variables
  * ----------------
  */
-const char *debug_query_string; /* client-supplied query string */
+const session_local char *debug_query_string; /* client-supplied query string */
 
 /* Note: whereToSendOutput is initialized for the bootstrap/standalone case */
-CommandDest whereToSendOutput = DestDebug;
+session_local CommandDest whereToSendOutput = DestDebug;
 
 /* flag for logging end of session */
-bool		Log_disconnections = false;
+session_guc bool		Log_disconnections = false;
 
-int			log_statement = LOGSTMT_NONE;
+session_guc int			log_statement = LOGSTMT_NONE;
 
 /* GUC variable for maximum stack depth (measured in kilobytes) */
-int			max_stack_depth = 100;
+session_guc int			max_stack_depth = 100;
 
 /* wait N seconds to allow attach from a debugger */
-int			PostAuthDelay = 0;
+session_guc int			PostAuthDelay = 0;
 
 /* Time between checks that the client is still connected. */
-int			client_connection_check_interval = 0;
+session_guc int			client_connection_check_interval = 0;
 
 /* ----------------
  *		private typedefs etc
@@ -122,53 +122,53 @@ typedef struct BindParamCbData
  */
 
 /* max_stack_depth converted to bytes for speed of checking */
-static long max_stack_depth_bytes = 100 * 1024L;
+static session_local long max_stack_depth_bytes = 100 * 1024L;
 
 /*
  * Stack base pointer -- initialized by PostmasterMain and inherited by
  * subprocesses (but see also InitPostmasterChild).
  */
-static char *stack_base_ptr = NULL;
+static session_local char *stack_base_ptr = NULL;
 
 /*
  * Flag to keep track of whether we have started a transaction.
  * For extended query protocol this has to be remembered across messages.
  */
-static bool xact_started = false;
+static session_local bool xact_started = false;
 
 /*
  * Flag to indicate that we are doing the outer loop's read-from-client,
  * as opposed to any random read from client that might happen within
  * commands like COPY FROM STDIN.
  */
-static bool DoingCommandRead = false;
+static session_local bool DoingCommandRead = false;
 
 /*
  * Flags to implement skip-till-Sync-after-error behavior for messages of
  * the extended query protocol.
  */
-static bool doing_extended_query_message = false;
-static bool ignore_till_sync = false;
+static session_local bool doing_extended_query_message = false;
+static session_local bool ignore_till_sync = false;
 
 /*
  * If an unnamed prepared statement exists, it's stored here.
  * We keep it separate from the hashtable kept by commands/prepare.c
  * in order to reduce overhead for short-lived queries.
  */
-static CachedPlanSource *unnamed_stmt_psrc = NULL;
+static session_local CachedPlanSource *unnamed_stmt_psrc = NULL;
 
 /* assorted command-line switches */
-static const char *userDoption = NULL;	/* -D switch */
-static bool EchoQuery = false;	/* -E switch */
-static bool UseSemiNewlineNewline = false;	/* -j switch */
+static session_local const char *userDoption = NULL;	/* -D switch */
+static session_local bool EchoQuery = false;	/* -E switch */
+static session_local bool UseSemiNewlineNewline = false;	/* -j switch */
 
 /* whether or not, and why, we were canceled by conflict with recovery */
-static volatile sig_atomic_t RecoveryConflictPending = false;
-static volatile sig_atomic_t RecoveryConflictPendingReasons[NUM_PROCSIGNALS];
+static session_local volatile sig_atomic_t RecoveryConflictPending = false;
+static session_local volatile sig_atomic_t RecoveryConflictPendingReasons[NUM_PROCSIGNALS];
 
 /* reused buffer to pass to SendRowDescriptionMessage() */
-static MemoryContext row_description_context = NULL;
-static StringInfoData row_description_buf;
+static session_local MemoryContext row_description_context = NULL;
+static session_local StringInfoData row_description_buf;
 
 /* ----------------------------------------------------------------
  *		decls for routines only used in this file
@@ -4986,8 +4986,8 @@ get_stack_depth_rlimit(void)
 }
 
 
-static struct rusage Save_r;
-static struct timeval Save_t;
+static session_local struct rusage Save_r;
+static session_local struct timeval Save_t;
 
 void
 ResetUsage(void)

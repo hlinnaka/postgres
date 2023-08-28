@@ -23,7 +23,7 @@
 
 
 #define NUM_WEIGHTS 4
-static const float default_weights[NUM_WEIGHTS] = {0.1f, 0.2f, 0.4f, 1.0f};
+static static_singleton const float default_weights[NUM_WEIGHTS] = {0.1f, 0.2f, 0.4f, 1.0f};
 
 #define wpos(wep)	( w[ WEP_GETWEIGHT(wep) ] )
 

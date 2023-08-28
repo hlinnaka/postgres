@@ -38,7 +38,7 @@
 
 static unsigned char hex2_to_uchar(const unsigned char *ptr, bool *badhex);
 
-static const signed char hexlookup[128] = {
+static static_singleton const signed char hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,

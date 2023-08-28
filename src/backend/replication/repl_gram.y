@@ -24,7 +24,7 @@
 
 
 /* Result of the parsing is returned here */
-Node *replication_parse_result;
+session_local Node *replication_parse_result;
 
 
 /*

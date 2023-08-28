@@ -79,11 +79,11 @@ typedef void (*ExplainOneQuery_hook_type) (Query *query,
 										   const char *queryString,
 										   ParamListInfo params,
 										   QueryEnvironment *queryEnv);
-extern PGDLLIMPORT ExplainOneQuery_hook_type ExplainOneQuery_hook;
+extern PGDLLIMPORT session_local ExplainOneQuery_hook_type ExplainOneQuery_hook;
 
 /* Hook for plugins to get control in explain_get_index_name() */
 typedef const char *(*explain_get_index_name_hook_type) (Oid indexId);
-extern PGDLLIMPORT explain_get_index_name_hook_type explain_get_index_name_hook;
+extern PGDLLIMPORT session_local explain_get_index_name_hook_type explain_get_index_name_hook;
 
 
 extern void ExplainQuery(ParseState *pstate, ExplainStmt *stmt,

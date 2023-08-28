@@ -46,6 +46,22 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
+#if __has_attribute (annotate)
+#define internal_guc __attribute__((annotate("internal_guc")))
+#define postmaster_guc __attribute__((annotate("postmaster_guc")))
+#define session_guc __thread __attribute__((annotate("session_guc")))
+#define sighup_guc __thread __attribute__((annotate("sighup_guc")))
+#define suset_guc __thread __attribute__((annotate("suset_guc")))
+#define userset_guc __thread __attribute__((annotate("userset_guc")))
+#else
+#define internal_guc
+#define postmaster_guc
+#define session_guc __thread
+#define sighup_guc __thread
+#define suset_guc __thread
+#define userset_guc __thread
+#endif
+
 /* ----------------------------------------------------------------
  *				Section 1:	Datum type + support functions
  * ----------------------------------------------------------------

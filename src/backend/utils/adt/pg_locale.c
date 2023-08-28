@@ -94,12 +94,12 @@
 
 
 /* GUC settings */
-char	   *locale_messages;
-char	   *locale_monetary;
-char	   *locale_numeric;
-char	   *locale_time;
+session_guc char	   *locale_messages;
+session_guc char	   *locale_monetary;
+session_guc char	   *locale_numeric;
+session_guc char	   *locale_time;
 
-int			icu_validation_level = WARNING;
+session_guc int			icu_validation_level = WARNING;
 
 /*
  * lc_time localization cache.
@@ -108,17 +108,17 @@ int			icu_validation_level = WARNING;
  * element is left as NULL for the convenience of outside code that wants
  * to sequentially scan these arrays.
  */
-char	   *localized_abbrev_days[7 + 1];
-char	   *localized_full_days[7 + 1];
-char	   *localized_abbrev_months[12 + 1];
-char	   *localized_full_months[12 + 1];
+session_local char	   *localized_abbrev_days[7 + 1];
+session_local char	   *localized_full_days[7 + 1];
+session_local char	   *localized_abbrev_months[12 + 1];
+session_local char	   *localized_full_months[12 + 1];
 
 /* is the databases's LC_CTYPE the C locale? */
-bool		database_ctype_is_c = false;
+session_local bool		database_ctype_is_c = false;
 
 /* indicates whether locale information cache is valid */
-static bool CurrentLocaleConvValid = false;
-static bool CurrentLCTimeValid = false;
+static session_local bool CurrentLocaleConvValid = false;
+static session_local bool CurrentLCTimeValid = false;
 
 /* Cache for collation-related knowledge */
 
@@ -131,7 +131,7 @@ typedef struct
 	pg_locale_t locale;			/* locale_t struct, or 0 if not valid */
 } collation_cache_entry;
 
-static HTAB *collation_cache = NULL;
+static session_local HTAB *collation_cache = NULL;
 
 
 #if defined(WIN32) && defined(LC_MESSAGES)
@@ -144,7 +144,7 @@ static char *IsoLocaleName(const char *);
  * in database encoding.  Since the database encoding doesn't change, we only
  * need one of these per session.
  */
-static UConverter *icu_converter = NULL;
+static session_local UConverter *icu_converter = NULL;
 
 static UCollator *pg_ucol_open(const char *loc_str);
 static void init_icu_converter(void);
@@ -1443,7 +1443,7 @@ lc_ctype_is_c(Oid collation)
 	return (lookup_collation_cache(collation, true))->ctype_is_c;
 }
 
-struct pg_locale_struct default_locale;
+session_local struct pg_locale_struct default_locale;
 
 void
 make_icu_collator(const char *iculocstr,

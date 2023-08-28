@@ -24,6 +24,7 @@
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/backend_status.h"
+#include "utils/elog_gucs.h"
 #include "utils/guc.h"
 #include "utils/ps_status.h"
 

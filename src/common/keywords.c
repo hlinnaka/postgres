@@ -26,7 +26,7 @@
 
 #define PG_KEYWORD(kwname, value, category, collabel) category,
 
-const uint8 ScanKeywordCategories[SCANKEYWORDS_NUM_KEYWORDS] = {
+static_singleton const uint8 ScanKeywordCategories[SCANKEYWORDS_NUM_KEYWORDS] = {
 #include "parser/kwlist.h"
 };
 
@@ -39,7 +39,7 @@ const uint8 ScanKeywordCategories[SCANKEYWORDS_NUM_KEYWORDS] = {
 #define BARE_LABEL true
 #define AS_LABEL false
 
-const bool	ScanKeywordBareLabel[SCANKEYWORDS_NUM_KEYWORDS] = {
+static_singleton const bool	ScanKeywordBareLabel[SCANKEYWORDS_NUM_KEYWORDS] = {
 #include "parser/kwlist.h"
 };
 

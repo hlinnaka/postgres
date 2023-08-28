@@ -23,7 +23,7 @@
 
 
 /* Klugy flag to tell scanner how to look up identifiers */
-IdentifierLookup plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
+session_local IdentifierLookup plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 
 /*
  * A word about keywords:
@@ -63,11 +63,11 @@ IdentifierLookup plpgsql_IdentifierLookup = IDENTIFIER_LOOKUP_NORMAL;
 /* Token codes for PL/pgSQL keywords */
 #define PG_KEYWORD(kwname, value) value,
 
-static const uint16 ReservedPLKeywordTokens[] = {
+static static_singleton const uint16 ReservedPLKeywordTokens[] = {
 #include "pl_reserved_kwlist.h"
 };
 
-static const uint16 UnreservedPLKeywordTokens[] = {
+static static_singleton const uint16 UnreservedPLKeywordTokens[] = {
 #include "pl_unreserved_kwlist.h"
 };
 
@@ -103,29 +103,29 @@ typedef struct
  */
 
 /* The stuff the core lexer needs */
-static core_yyscan_t yyscanner = NULL;
-static core_yy_extra_type core_yy;
+static session_local core_yyscan_t yyscanner = NULL;
+static session_local core_yy_extra_type core_yy;
 
 /* The original input string */
-static const char *scanorig;
+static session_local const char *scanorig;
 
 /* Current token's length (corresponds to plpgsql_yylval and plpgsql_yylloc) */
-static int	plpgsql_yyleng;
+static session_local int	plpgsql_yyleng;
 
 /* Current token's code (corresponds to plpgsql_yylval and plpgsql_yylloc) */
-static int	plpgsql_yytoken;
+static session_local int	plpgsql_yytoken;
 
 /* Token pushback stack */
 #define MAX_PUSHBACKS 4
 
-static int	num_pushbacks;
-static int	pushback_token[MAX_PUSHBACKS];
-static TokenAuxData pushback_auxdata[MAX_PUSHBACKS];
+static session_local int	num_pushbacks;
+static session_local int	pushback_token[MAX_PUSHBACKS];
+static session_local TokenAuxData pushback_auxdata[MAX_PUSHBACKS];
 
 /* State for plpgsql_location_to_lineno() */
-static const char *cur_line_start;
-static const char *cur_line_end;
-static int	cur_line_num;
+static session_local const char *cur_line_start;
+static session_local const char *cur_line_end;
+static session_local int	cur_line_num;
 
 /* Internal functions */
 static int	internal_yylex(TokenAuxData *auxdata);

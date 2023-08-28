@@ -34,10 +34,10 @@
 #include "regex/regguts.h"
 
 /* unknown-error explanation */
-static const char unk[] = "*** unknown regex error code 0x%x ***";
+static static_singleton const char unk[] = "*** unknown regex error code 0x%x ***";
 
 /* struct to map among codes, code names, and explanations */
-static const struct rerr
+static static_singleton const struct rerr
 {
 	int			code;
 	const char *name;

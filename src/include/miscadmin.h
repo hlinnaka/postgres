@@ -87,23 +87,23 @@
 
 /* in globals.c */
 /* these are marked volatile because they are set by signal handlers: */
-extern PGDLLIMPORT volatile sig_atomic_t InterruptPending;
-extern PGDLLIMPORT volatile sig_atomic_t QueryCancelPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcDiePending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t TransactionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcSignalBarrierPending;
-extern PGDLLIMPORT volatile sig_atomic_t LogMemoryContextPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t InterruptPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t QueryCancelPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ProcDiePending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t TransactionTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleSessionTimeoutPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ProcSignalBarrierPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t LogMemoryContextPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
 
-extern PGDLLIMPORT volatile sig_atomic_t CheckClientConnectionPending;
-extern PGDLLIMPORT volatile sig_atomic_t ClientConnectionLost;
+extern PGDLLIMPORT session_local volatile sig_atomic_t CheckClientConnectionPending;
+extern PGDLLIMPORT session_local volatile sig_atomic_t ClientConnectionLost;
 
 /* these are marked volatile because they are examined by signal handlers: */
-extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
-extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
-extern PGDLLIMPORT volatile uint32 CritSectionCount;
+extern PGDLLIMPORT session_local volatile uint32 InterruptHoldoffCount;
+extern PGDLLIMPORT session_local volatile uint32 QueryCancelHoldoffCount;
+extern PGDLLIMPORT session_local volatile uint32 CritSectionCount;
 
 /* in tcop/postgres.c */
 extern void ProcessInterrupts(void);
@@ -162,51 +162,53 @@ do { \
 /*
  * from utils/init/globals.c
  */
-extern PGDLLIMPORT pid_t PostmasterPid;
-extern PGDLLIMPORT bool IsPostmasterEnvironment;
-extern PGDLLIMPORT bool IsUnderPostmaster;
-extern PGDLLIMPORT bool IsBinaryUpgrade;
+#ifndef FRONTEND
+extern PGDLLIMPORT global pid_t PostmasterPid;
+extern PGDLLIMPORT global bool IsPostmasterEnvironment;
+extern PGDLLIMPORT session_local bool IsUnderPostmaster;
+extern PGDLLIMPORT global bool IsBinaryUpgrade;
 
-extern PGDLLIMPORT bool ExitOnAnyError;
+extern PGDLLIMPORT session_guc bool ExitOnAnyError;
 
-extern PGDLLIMPORT char *DataDir;
-extern PGDLLIMPORT int data_directory_mode;
+extern PGDLLIMPORT session_local char *DataDir;
+extern PGDLLIMPORT session_local int data_directory_mode;
 
-extern PGDLLIMPORT int NBuffers;
-extern PGDLLIMPORT int MaxBackends;
-extern PGDLLIMPORT int MaxConnections;
-extern PGDLLIMPORT int max_worker_processes;
-extern PGDLLIMPORT int max_parallel_workers;
+extern PGDLLIMPORT postmaster_guc int NBuffers;
+extern PGDLLIMPORT dynamic_singleton int MaxBackends;
+extern PGDLLIMPORT postmaster_guc int MaxConnections;
+extern PGDLLIMPORT postmaster_guc int max_worker_processes;
+extern PGDLLIMPORT session_guc int max_parallel_workers;
 
-extern PGDLLIMPORT int commit_timestamp_buffers;
-extern PGDLLIMPORT int multixact_member_buffers;
-extern PGDLLIMPORT int multixact_offset_buffers;
-extern PGDLLIMPORT int notify_buffers;
-extern PGDLLIMPORT int serializable_buffers;
-extern PGDLLIMPORT int subtransaction_buffers;
-extern PGDLLIMPORT int transaction_buffers;
+extern PGDLLIMPORT postmaster_guc int commit_timestamp_buffers;
+extern PGDLLIMPORT postmaster_guc int multixact_member_buffers;
+extern PGDLLIMPORT postmaster_guc int multixact_offset_buffers;
+extern PGDLLIMPORT postmaster_guc int notify_buffers;
+extern PGDLLIMPORT postmaster_guc int serializable_buffers;
+extern PGDLLIMPORT postmaster_guc int subtransaction_buffers;
+extern PGDLLIMPORT postmaster_guc int transaction_buffers;
 
-extern PGDLLIMPORT int MyProcPid;
-extern PGDLLIMPORT pg_time_t MyStartTime;
-extern PGDLLIMPORT TimestampTz MyStartTimestamp;
-extern PGDLLIMPORT struct Port *MyProcPort;
-extern PGDLLIMPORT struct Latch *MyLatch;
-extern PGDLLIMPORT int32 MyCancelKey;
-extern PGDLLIMPORT int MyPMChildSlot;
+extern PGDLLIMPORT session_local int MyProcPid;
+extern PGDLLIMPORT session_local pg_time_t MyStartTime;
+extern PGDLLIMPORT session_local TimestampTz MyStartTimestamp;
+extern PGDLLIMPORT session_local struct Port *MyProcPort;
+extern PGDLLIMPORT session_local struct Latch *MyLatch;
+extern PGDLLIMPORT session_local int32 MyCancelKey;
+extern PGDLLIMPORT session_local int MyPMChildSlot;
 
-extern PGDLLIMPORT char OutputFileName[];
-extern PGDLLIMPORT char my_exec_path[];
-extern PGDLLIMPORT char pkglib_path[];
+extern PGDLLIMPORT dynamic_singleton char OutputFileName[];
+extern PGDLLIMPORT dynamic_singleton char my_exec_path[];
+extern PGDLLIMPORT dynamic_singleton char pkglib_path[];
 
 #ifdef EXEC_BACKEND
 extern PGDLLIMPORT char postgres_exec_path[];
 #endif
 
-extern PGDLLIMPORT Oid MyDatabaseId;
+extern PGDLLIMPORT session_local Oid MyDatabaseId;
 
-extern PGDLLIMPORT Oid MyDatabaseTableSpace;
+extern PGDLLIMPORT session_local Oid MyDatabaseTableSpace;
 
 extern PGDLLIMPORT bool MyDatabaseHasLoginEventTriggers;
+#endif /* FRONTEND */
 
 /*
  * Date/Time Configuration
@@ -242,8 +244,8 @@ extern PGDLLIMPORT bool MyDatabaseHasLoginEventTriggers;
 #define DATEORDER_DMY			1
 #define DATEORDER_MDY			2
 
-extern PGDLLIMPORT int DateStyle;
-extern PGDLLIMPORT int DateOrder;
+extern PGDLLIMPORT session_local int DateStyle;
+extern PGDLLIMPORT session_local int DateOrder;
 
 /*
  * IntervalStyles
@@ -257,16 +259,21 @@ extern PGDLLIMPORT int DateOrder;
 #define INTSTYLE_SQL_STANDARD		2
 #define INTSTYLE_ISO_8601			3
 
-extern PGDLLIMPORT int IntervalStyle;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int IntervalStyle;
+#endif
 
 #define MAXTZLEN		10		/* max TZ name len, not counting tr. null */
 
-extern PGDLLIMPORT bool enableFsync;
-extern PGDLLIMPORT bool allowSystemTableMods;
-extern PGDLLIMPORT int work_mem;
-extern PGDLLIMPORT double hash_mem_multiplier;
-extern PGDLLIMPORT int maintenance_work_mem;
-extern PGDLLIMPORT int max_parallel_maintenance_workers;
+#ifndef FRONTEND
+extern PGDLLIMPORT sighup_guc bool enableFsync;
+extern PGDLLIMPORT session_guc bool allowSystemTableMods;
+extern PGDLLIMPORT session_guc int work_mem;
+extern PGDLLIMPORT session_guc double hash_mem_multiplier;
+extern PGDLLIMPORT session_guc int maintenance_work_mem;
+extern PGDLLIMPORT session_guc int max_parallel_maintenance_workers;
+
+#endif		/* FRONTEND */
 
 /*
  * Upper and lower hard limits for the buffer access strategy ring size
@@ -276,20 +283,22 @@ extern PGDLLIMPORT int max_parallel_maintenance_workers;
 #define MIN_BAS_VAC_RING_SIZE_KB 128
 #define MAX_BAS_VAC_RING_SIZE_KB (16 * 1024 * 1024)
 
-extern PGDLLIMPORT int VacuumBufferUsageLimit;
-extern PGDLLIMPORT int VacuumCostPageHit;
-extern PGDLLIMPORT int VacuumCostPageMiss;
-extern PGDLLIMPORT int VacuumCostPageDirty;
-extern PGDLLIMPORT int VacuumCostLimit;
-extern PGDLLIMPORT double VacuumCostDelay;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int VacuumBufferUsageLimit;
+extern PGDLLIMPORT session_guc int VacuumCostPageHit;
+extern PGDLLIMPORT session_guc int VacuumCostPageMiss;
+extern PGDLLIMPORT session_guc int VacuumCostPageDirty;
+extern PGDLLIMPORT session_guc int VacuumCostLimit;
+extern PGDLLIMPORT session_guc double VacuumCostDelay;
 
-extern PGDLLIMPORT int64 VacuumPageHit;
-extern PGDLLIMPORT int64 VacuumPageMiss;
-extern PGDLLIMPORT int64 VacuumPageDirty;
+extern PGDLLIMPORT session_local int64 VacuumPageHit;
+extern PGDLLIMPORT session_local int64 VacuumPageMiss;
+extern PGDLLIMPORT session_local int64 VacuumPageDirty;
 
-extern PGDLLIMPORT int VacuumCostBalance;
-extern PGDLLIMPORT bool VacuumCostActive;
+extern PGDLLIMPORT session_local int VacuumCostBalance;
+extern PGDLLIMPORT session_local bool VacuumCostActive;
 
+#endif		/* FRONTEND */
 
 /* in tcop/postgres.c */
 
@@ -315,7 +324,7 @@ extern void PreventCommandDuringRecovery(const char *cmdname);
 #define SECURITY_RESTRICTED_OPERATION	0x0002
 #define SECURITY_NOFORCE_RLS			0x0004
 
-extern PGDLLIMPORT char *DatabasePath;
+extern PGDLLIMPORT session_local char *DatabasePath;
 
 /* now in utils/init/miscinit.c */
 extern void InitPostmasterChild(void);
@@ -369,7 +378,7 @@ typedef enum BackendType
 
 #define BACKEND_NUM_TYPES (B_LOGGER + 1)
 
-extern PGDLLIMPORT BackendType MyBackendType;
+extern PGDLLIMPORT session_local BackendType MyBackendType;
 
 #define AmAutoVacuumLauncherProcess() (MyBackendType == B_AUTOVAC_LAUNCHER)
 #define AmAutoVacuumWorkerProcess()	(MyBackendType == B_AUTOVAC_WORKER)
@@ -449,7 +458,7 @@ typedef enum ProcessingMode
 	NormalProcessing,			/* normal processing */
 } ProcessingMode;
 
-extern PGDLLIMPORT ProcessingMode Mode;
+extern PGDLLIMPORT session_local ProcessingMode Mode;
 
 #define IsBootstrapProcessingMode() (Mode == BootstrapProcessing)
 #define IsInitProcessingMode()		(Mode == InitProcessing)
@@ -485,7 +494,7 @@ extern void InitPostgres(const char *in_dbname, Oid dboid,
 extern void BaseInit(void);
 
 /* in utils/init/miscinit.c */
-extern PGDLLIMPORT bool IgnoreSystemIndexes;
+extern PGDLLIMPORT bool session_local IgnoreSystemIndexes;
 extern PGDLLIMPORT bool process_shared_preload_libraries_in_progress;
 extern PGDLLIMPORT bool process_shared_preload_libraries_done;
 extern PGDLLIMPORT bool process_shmem_requests_in_progress;
@@ -507,7 +516,7 @@ extern void pg_bindtextdomain(const char *domain);
 extern bool has_rolreplication(Oid roleid);
 
 typedef void (*shmem_request_hook_type) (void);
-extern PGDLLIMPORT shmem_request_hook_type shmem_request_hook;
+extern PGDLLIMPORT session_local shmem_request_hook_type shmem_request_hook;
 
 extern Size EstimateClientConnectionInfoSpace(void);
 extern void SerializeClientConnectionInfo(Size maxsize, char *start_address);

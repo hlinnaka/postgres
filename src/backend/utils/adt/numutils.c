@@ -25,7 +25,7 @@
  * A table of all two-digit numbers. This is used to speed up decimal digit
  * generation by copying pairs of digits into the final output.
  */
-static const char DIGIT_TABLE[200] =
+static static_singleton const char DIGIT_TABLE[200] =
 "00" "01" "02" "03" "04" "05" "06" "07" "08" "09"
 "10" "11" "12" "13" "14" "15" "16" "17" "18" "19"
 "20" "21" "22" "23" "24" "25" "26" "27" "28" "29"
@@ -44,7 +44,7 @@ static inline int
 decimalLength32(const uint32 v)
 {
 	int			t;
-	static const uint32 PowersOfTen[] = {
+	static static_singleton const uint32 PowersOfTen[] = {
 		1, 10, 100,
 		1000, 10000, 100000,
 		1000000, 10000000, 100000000,
@@ -84,7 +84,7 @@ decimalLength64(const uint64 v)
 	return t + (v >= PowersOfTen[t]);
 }
 
-static const int8 hexlookup[128] = {
+static static_singleton const int8 hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,

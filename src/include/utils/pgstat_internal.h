@@ -663,21 +663,21 @@ extern void pgstat_create_transactional(PgStat_Kind kind, Oid dboid, Oid objoid)
  * Variables in pgstat.c
  */
 
-extern PGDLLIMPORT PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT session_local PgStat_LocalState pgStatLocal;
 
 
 /*
  * Variables in pgstat_io.c
  */
 
-extern PGDLLIMPORT bool have_iostats;
+extern PGDLLIMPORT session_local bool have_iostats;
 
 
 /*
  * Variables in pgstat_slru.c
  */
 
-extern PGDLLIMPORT bool have_slrustats;
+extern PGDLLIMPORT session_local bool have_slrustats;
 
 
 /*

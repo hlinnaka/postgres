@@ -19,9 +19,9 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-double		similarity_threshold = 0.3f;
-double		word_similarity_threshold = 0.6f;
-double		strict_word_similarity_threshold = 0.5f;
+userset_guc double		similarity_threshold = 0.3f;
+userset_guc double		word_similarity_threshold = 0.6f;
+userset_guc double		strict_word_similarity_threshold = 0.5f;
 
 PG_FUNCTION_INFO_V1(set_limit);
 PG_FUNCTION_INFO_V1(show_limit);

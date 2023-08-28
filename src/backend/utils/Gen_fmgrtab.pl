@@ -207,7 +207,7 @@ foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 }
 
 # Create the fmgr_builtins table, collect data for fmgr_builtin_oid_index
-print $tfh "\nconst FmgrBuiltin fmgr_builtins[] = {\n";
+print $tfh "\nstatic_singleton const FmgrBuiltin fmgr_builtins[] = {\n";
 my %bmap;
 $bmap{'t'} = 'true';
 $bmap{'f'} = 'false';
@@ -231,15 +231,15 @@ foreach my $s (sort { $a->{oid} <=> $b->{oid} } @fmgr)
 print $tfh "\n};\n";
 
 printf $tfh qq|
-const int fmgr_nbuiltins = (sizeof(fmgr_builtins) / sizeof(FmgrBuiltin));
+static_singleton const int fmgr_nbuiltins = (sizeof(fmgr_builtins) / sizeof(FmgrBuiltin));
 
-const Oid fmgr_last_builtin_oid = %u;
+static_singleton const Oid fmgr_last_builtin_oid = %u;
 |, $last_builtin_oid;
 
 
 # Create fmgr_builtin_oid_index table.
 printf $tfh qq|
-const uint16 fmgr_builtin_oid_index[%u] = {
+static_singleton const uint16 fmgr_builtin_oid_index[%u] = {
 |, $last_builtin_oid + 1;
 
 for (my $i = 0; $i <= $last_builtin_oid; $i++)

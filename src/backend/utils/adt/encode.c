@@ -145,9 +145,9 @@ binary_decode(PG_FUNCTION_ARGS)
  * HEX
  */
 
-static const char hextbl[] = "0123456789abcdef";
+static static_singleton const char hextbl[] = "0123456789abcdef";
 
-static const int8 hexlookup[128] = {
+static static_singleton const int8 hexlookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -249,10 +249,10 @@ hex_dec_len(const char *src, size_t srclen)
  * BASE64
  */
 
-static const char _base64[] =
+static static_singleton const char _base64[] =
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-static const int8 b64lookup[128] = {
+static static_singleton const int8 b64lookup[128] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
@@ -566,7 +566,7 @@ esc_dec_len(const char *src, size_t srclen)
  * Common
  */
 
-static const struct
+static static_singleton const struct
 {
 	const char *name;
 	struct pg_encoding enc;

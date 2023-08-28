@@ -91,7 +91,7 @@
  * value has no effect until the next VACUUM, so no need for stronger lock.
  */
 
-static const relopt_bool boolRelOpts[] =
+static static_singleton relopt_bool boolRelOpts[] =
 {
 	{
 		{
@@ -170,7 +170,7 @@ static const relopt_bool boolRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_int intRelOpts[] =
+static static_singleton relopt_int intRelOpts[] =
 {
 	{
 		{
@@ -385,7 +385,7 @@ static const relopt_int intRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_real realRelOpts[] =
+static static_singleton relopt_real realRelOpts[] =
 {
 	{
 		{
@@ -473,7 +473,7 @@ static const relopt_real realRelOpts[] =
 };
 
 /* values from StdRdOptIndexCleanup */
-static const relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
+static static_singleton const relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 {
 	{"auto", STDRD_OPTION_VACUUM_INDEX_CLEANUP_AUTO},
 	{"on", STDRD_OPTION_VACUUM_INDEX_CLEANUP_ON},
@@ -488,7 +488,7 @@ static const relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 };
 
 /* values from GistOptBufferingMode */
-static const relopt_enum_elt_def gistBufferingOptValues[] =
+static static_singleton const relopt_enum_elt_def gistBufferingOptValues[] =
 {
 	{"auto", GIST_OPTION_BUFFERING_AUTO},
 	{"on", GIST_OPTION_BUFFERING_ON},
@@ -497,7 +497,7 @@ static const relopt_enum_elt_def gistBufferingOptValues[] =
 };
 
 /* values from ViewOptCheckOption */
-static const relopt_enum_elt_def viewCheckOptValues[] =
+static static_singleton const relopt_enum_elt_def viewCheckOptValues[] =
 {
 	/* no value for NOT_SET */
 	{"local", VIEW_OPTION_CHECK_OPTION_LOCAL},
@@ -505,7 +505,7 @@ static const relopt_enum_elt_def viewCheckOptValues[] =
 	{(const char *) NULL}		/* list terminator */
 };
 
-static const relopt_enum enumRelOpts[] =
+static static_singleton relopt_enum enumRelOpts[] =
 {
 	{
 		{
@@ -544,18 +544,18 @@ static const relopt_enum enumRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_string stringRelOpts[] =
+static static_singleton relopt_string stringRelOpts[] =
 {
 	/* list terminator */
 	{{NULL}}
 };
 
-static relopt_gen **relOpts = NULL;
-static bits32 last_assigned_kind = RELOPT_KIND_LAST_DEFAULT;
+static session_local relopt_gen **relOpts = NULL;
+static session_local bits32 last_assigned_kind = RELOPT_KIND_LAST_DEFAULT;
 
-static int	num_custom_options = 0;
-static relopt_gen **custom_options = NULL;
-static bool need_initialization = true;
+static session_local int	num_custom_options = 0;
+static session_local relopt_gen **custom_options = NULL;
+static session_local bool need_initialization = true;
 
 static void initialize_reloptions(void);
 static void parse_one_reloption(relopt_value *option, char *text_str,
@@ -623,7 +623,7 @@ initialize_reloptions(void)
 	j = 0;
 	for (i = 0; boolRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &boolRelOpts[i].gen);
+		relOpts[j] = &boolRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_BOOL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -631,7 +631,7 @@ initialize_reloptions(void)
 
 	for (i = 0; intRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &intRelOpts[i].gen);
+		relOpts[j] = &intRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_INT;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -639,7 +639,7 @@ initialize_reloptions(void)
 
 	for (i = 0; realRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &realRelOpts[i].gen);
+		relOpts[j] = &realRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_REAL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -647,7 +647,7 @@ initialize_reloptions(void)
 
 	for (i = 0; enumRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &enumRelOpts[i].gen);
+		relOpts[j] = &enumRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_ENUM;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -655,7 +655,7 @@ initialize_reloptions(void)
 
 	for (i = 0; stringRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &stringRelOpts[i].gen);
+		relOpts[j] = &stringRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_STRING;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -699,7 +699,7 @@ add_reloption_kind(void)
 static void
 add_reloption(relopt_gen *newoption)
 {
-	static int	max_custom_options = 0;
+	static session_local int	max_custom_options = 0;
 
 	if (num_custom_options >= max_custom_options)
 	{

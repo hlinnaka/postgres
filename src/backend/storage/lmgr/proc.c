@@ -54,16 +54,16 @@
 #include "utils/timestamp.h"
 
 /* GUC variables */
-int			DeadlockTimeout = 1000;
-int			StatementTimeout = 0;
-int			LockTimeout = 0;
-int			IdleInTransactionSessionTimeout = 0;
-int			TransactionTimeout = 0;
-int			IdleSessionTimeout = 0;
-bool		log_lock_waits = false;
+session_guc int			DeadlockTimeout = 1000;
+session_guc int			StatementTimeout = 0;
+session_guc int			LockTimeout = 0;
+session_guc int			IdleInTransactionSessionTimeout = 0;
+session_guc int			TransactionTimeout = 0;
+session_guc int			IdleSessionTimeout = 0;
+session_guc bool		log_lock_waits = false;
 
 /* Pointer to this process's PGPROC struct, if any */
-PGPROC	   *MyProc = NULL;
+session_local PGPROC	   *MyProc = NULL;
 
 /*
  * This spinlock protects the freelist of recycled PGPROC structures.
@@ -72,20 +72,20 @@ PGPROC	   *MyProc = NULL;
  * relatively infrequently (only at backend startup or shutdown) and not for
  * very long, so a spinlock is okay.
  */
-NON_EXEC_STATIC slock_t *ProcStructLock = NULL;
+NON_EXEC_STATIC global slock_t *ProcStructLock = NULL;
 
 /* Pointers to shared-memory structures */
-PROC_HDR   *ProcGlobal = NULL;
-NON_EXEC_STATIC PGPROC *AuxiliaryProcs = NULL;
-PGPROC	   *PreparedXactProcs = NULL;
+global PROC_HDR   *ProcGlobal = NULL;
+NON_EXEC_STATIC global PGPROC *AuxiliaryProcs = NULL;
+global PGPROC	   *PreparedXactProcs = NULL;
 
 /* If we are waiting for a lock, this points to the associated LOCALLOCK */
-static LOCALLOCK *lockAwaited = NULL;
+static session_local LOCALLOCK *lockAwaited = NULL;
 
-static DeadLockState deadlock_state = DS_NOT_YET_CHECKED;
+static session_local DeadLockState deadlock_state = DS_NOT_YET_CHECKED;
 
 /* Is a deadlock check pending? */
-static volatile sig_atomic_t got_deadlock_timeout;
+static session_local volatile sig_atomic_t got_deadlock_timeout;
 
 static void RemoveProcFromArray(int code, Datum arg);
 static void ProcKill(int code, Datum arg);

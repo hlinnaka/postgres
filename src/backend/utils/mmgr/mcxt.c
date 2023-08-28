@@ -43,7 +43,7 @@ static Size BogusGetChunkSpace(void *pointer);
 	[id].get_chunk_context = BogusGetChunkContext, \
 	[id].get_chunk_space = BogusGetChunkSpace
 
-static const MemoryContextMethods mcxt_methods[] = {
+static static_singleton const MemoryContextMethods mcxt_methods[] = {
 	/* aset.c */
 	[MCTX_ASET_ID].alloc = AllocSetAlloc,
 	[MCTX_ASET_ID].free_p = AllocSetFree,
@@ -140,22 +140,22 @@ static const MemoryContextMethods mcxt_methods[] = {
  * CurrentMemoryContext
  *		Default memory context for allocations.
  */
-MemoryContext CurrentMemoryContext = NULL;
+session_local MemoryContext CurrentMemoryContext = NULL;
 
 /*
  * Standard top-level contexts. For a description of the purpose of each
  * of these contexts, refer to src/backend/utils/mmgr/README
  */
-MemoryContext TopMemoryContext = NULL;
-MemoryContext ErrorContext = NULL;
-MemoryContext PostmasterContext = NULL;
-MemoryContext CacheMemoryContext = NULL;
-MemoryContext MessageContext = NULL;
-MemoryContext TopTransactionContext = NULL;
-MemoryContext CurTransactionContext = NULL;
+session_local MemoryContext TopMemoryContext = NULL;
+session_local MemoryContext ErrorContext = NULL;
+session_local MemoryContext PostmasterContext = NULL;
+session_local MemoryContext CacheMemoryContext = NULL;
+session_local MemoryContext MessageContext = NULL;
+session_local MemoryContext TopTransactionContext = NULL;
+session_local MemoryContext CurTransactionContext = NULL;
 
 /* This is a transient link to the active portal's memory context: */
-MemoryContext PortalContext = NULL;
+session_local MemoryContext PortalContext = NULL;
 
 static void MemoryContextDeleteOnly(MemoryContext context);
 static void MemoryContextCallResetCallbacks(MemoryContext context);

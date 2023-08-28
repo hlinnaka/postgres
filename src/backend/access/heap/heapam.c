@@ -124,7 +124,7 @@ static HeapTuple ExtractReplicaIdentity(Relation relation, HeapTuple tp, bool ke
  * Don't look at lockstatus/updstatus directly!  Use get_mxact_status_for_lock
  * instead.
  */
-static const struct
+static static_singleton const struct
 {
 	LOCKMODE	hwlock;
 	int			lockstatus;
@@ -204,7 +204,7 @@ typedef struct IndexDeleteCounts
  * This table maps tuple lock strength values for each particular
  * MultiXactStatus value.
  */
-static const int MultiXactStatusLock[MaxMultiXactStatus + 1] =
+static static_singleton const int MultiXactStatusLock[MaxMultiXactStatus + 1] =
 {
 	LockTupleKeyShare,			/* ForKeyShare */
 	LockTupleShare,				/* ForShare */

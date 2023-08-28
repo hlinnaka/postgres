@@ -65,9 +65,9 @@ fprintf_to_ereport(const char *fmt, const char *msg)
  * as such, changing their values can induce very unintuitive behavior.
  * But we shall have to live with it until we can remove these variables.
  */
-int			backslash_quote = BACKSLASH_QUOTE_SAFE_ENCODING;
-bool		escape_string_warning = true;
-bool		standard_conforming_strings = true;
+session_guc int			backslash_quote = BACKSLASH_QUOTE_SAFE_ENCODING;
+session_guc bool		escape_string_warning = true;
+session_guc bool		standard_conforming_strings = true;
 
 /*
  * Constant data exported from this file.  This array maps from the
@@ -78,7 +78,7 @@ bool		standard_conforming_strings = true;
  */
 #define PG_KEYWORD(kwname, value, category, collabel) value,
 
-const uint16 ScanKeywordTokens[] = {
+const static_singleton uint16 ScanKeywordTokens[] = {
 #include "parser/kwlist.h"
 };
 

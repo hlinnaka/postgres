@@ -818,7 +818,7 @@ intset_binsrch_leaf(uint64 item, leaf_item *arr, int arr_elems, bool nextkey)
  * 2^60 apart, the codeword will go unused on those items.  To represent that,
  * we use a magic EMPTY_CODEWORD codeword value.
  */
-static const struct simple8b_mode
+static static_singleton const struct simple8b_mode
 {
 	uint8		bits_per_int;
 	uint8		num_ints;

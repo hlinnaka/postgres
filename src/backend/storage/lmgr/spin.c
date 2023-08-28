@@ -39,7 +39,7 @@
 #define NUM_EMULATION_SEMAPHORES (NUM_SPINLOCK_SEMAPHORES)
 #endif							/* HAVE_ATOMICS */
 
-PGSemaphore *SpinlockSemaArray;
+global PGSemaphore *SpinlockSemaArray;
 
 #else							/* !HAVE_SPINLOCKS */
 

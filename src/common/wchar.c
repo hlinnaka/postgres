@@ -1776,7 +1776,7 @@ pg_utf8_verifychar(const unsigned char *s, int len)
 /* invalid byte */
 #define ILL ERR
 
-static const uint32 Utf8Transition[256] =
+static static_singleton const uint32 Utf8Transition[256] =
 {
 	/* ASCII */
 

@@ -121,9 +121,9 @@ typedef char *BITVECP;
 
 typedef struct TrgmPackedGraph TrgmPackedGraph;
 
-extern double similarity_threshold;
-extern double word_similarity_threshold;
-extern double strict_word_similarity_threshold;
+extern userset_guc double similarity_threshold;
+extern userset_guc double word_similarity_threshold;
+extern userset_guc double strict_word_similarity_threshold;
 
 extern double index_strategy_get_limit(StrategyNumber strategy);
 extern uint32 trgm2int(trgm *ptr);

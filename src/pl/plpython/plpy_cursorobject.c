@@ -27,15 +27,15 @@ static PyObject *PLy_cursor_iternext(PyObject *self);
 static PyObject *PLy_cursor_fetch(PyObject *self, PyObject *args);
 static PyObject *PLy_cursor_close(PyObject *self, PyObject *unused);
 
-static char PLy_cursor_doc[] = "Wrapper around a PostgreSQL cursor";
+static static_singleton char PLy_cursor_doc[] = "Wrapper around a PostgreSQL cursor";
 
-static PyMethodDef PLy_cursor_methods[] = {
+static static_singleton PyMethodDef PLy_cursor_methods[] = {
 	{"fetch", PLy_cursor_fetch, METH_VARARGS, NULL},
 	{"close", PLy_cursor_close, METH_NOARGS, NULL},
 	{NULL, NULL, 0, NULL}
 };
 
-static PyTypeObject PLy_CursorType = {
+static static_singleton PyTypeObject PLy_CursorType = {
 	PyVarObject_HEAD_INIT(NULL, 0)
 	.tp_name = "PLyCursor",
 	.tp_basicsize = sizeof(PLyCursorObject),

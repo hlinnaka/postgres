@@ -96,8 +96,8 @@ typedef struct
 #define BARRIER_CLEAR_BIT(flags, type) \
 	((flags) &= ~(((uint32) 1) << (uint32) (type)))
 
-static ProcSignalHeader *ProcSignal = NULL;
-static ProcSignalSlot *MyProcSignalSlot = NULL;
+static global ProcSignalHeader *ProcSignal = NULL;
+static session_local ProcSignalSlot *MyProcSignalSlot = NULL;
 
 static bool CheckProcSignal(ProcSignalReason reason);
 static void CleanupProcSignalState(int status, Datum arg);

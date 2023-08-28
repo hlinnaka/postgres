@@ -31,9 +31,9 @@
 #include "utils/inval.h"
 
 
-static MemoryContext LogicalRepRelMapContext = NULL;
+static session_local MemoryContext LogicalRepRelMapContext = NULL;
 
-static HTAB *LogicalRepRelMap = NULL;
+static session_local HTAB *LogicalRepRelMap = NULL;
 
 /*
  * Partition map (LogicalRepPartMap)
@@ -46,8 +46,8 @@ static HTAB *LogicalRepRelMap = NULL;
  * attribute mappings to remote relation's attributes must be maintained
  * separately for each partition.
  */
-static MemoryContext LogicalRepPartMapContext = NULL;
-static HTAB *LogicalRepPartMap = NULL;
+static session_local MemoryContext LogicalRepPartMapContext = NULL;
+static session_local HTAB *LogicalRepPartMap = NULL;
 typedef struct LogicalRepPartMapEntry
 {
 	Oid			partoid;		/* LogicalRepPartMap's key */

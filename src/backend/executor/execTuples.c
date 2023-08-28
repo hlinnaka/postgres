@@ -81,10 +81,10 @@ static inline void tts_buffer_heap_store_tuple(TupleTableSlot *slot,
 static void tts_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple, bool shouldFree);
 
 
-const TupleTableSlotOps TTSOpsVirtual;
-const TupleTableSlotOps TTSOpsHeapTuple;
-const TupleTableSlotOps TTSOpsMinimalTuple;
-const TupleTableSlotOps TTSOpsBufferHeapTuple;
+static_singleton const TupleTableSlotOps TTSOpsVirtual;
+static_singleton const TupleTableSlotOps TTSOpsHeapTuple;
+static_singleton const TupleTableSlotOps TTSOpsMinimalTuple;
+static_singleton const TupleTableSlotOps TTSOpsBufferHeapTuple;
 
 
 /*
@@ -1105,7 +1105,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 }
 
 
-const TupleTableSlotOps TTSOpsVirtual = {
+static_singleton const TupleTableSlotOps TTSOpsVirtual = {
 	.base_slot_size = sizeof(VirtualTupleTableSlot),
 	.init = tts_virtual_init,
 	.release = tts_virtual_release,
@@ -1126,7 +1126,7 @@ const TupleTableSlotOps TTSOpsVirtual = {
 	.copy_minimal_tuple = tts_virtual_copy_minimal_tuple
 };
 
-const TupleTableSlotOps TTSOpsHeapTuple = {
+static_singleton const TupleTableSlotOps TTSOpsHeapTuple = {
 	.base_slot_size = sizeof(HeapTupleTableSlot),
 	.init = tts_heap_init,
 	.release = tts_heap_release,
@@ -1144,7 +1144,7 @@ const TupleTableSlotOps TTSOpsHeapTuple = {
 	.copy_minimal_tuple = tts_heap_copy_minimal_tuple
 };
 
-const TupleTableSlotOps TTSOpsMinimalTuple = {
+static_singleton const TupleTableSlotOps TTSOpsMinimalTuple = {
 	.base_slot_size = sizeof(MinimalTupleTableSlot),
 	.init = tts_minimal_init,
 	.release = tts_minimal_release,
@@ -1162,7 +1162,7 @@ const TupleTableSlotOps TTSOpsMinimalTuple = {
 	.copy_minimal_tuple = tts_minimal_copy_minimal_tuple
 };
 
-const TupleTableSlotOps TTSOpsBufferHeapTuple = {
+static_singleton const TupleTableSlotOps TTSOpsBufferHeapTuple = {
 	.base_slot_size = sizeof(BufferHeapTupleTableSlot),
 	.init = tts_buffer_heap_init,
 	.release = tts_buffer_heap_release,

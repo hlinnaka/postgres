@@ -63,7 +63,7 @@ typedef struct
 	const pg_mb_radix_tree *map2;	/* from UTF8 map name */
 } pg_conv_map;
 
-static const pg_conv_map maps[] = {
+static static_singleton const pg_conv_map maps[] = {
 	{PG_WIN866, &win866_to_unicode_tree, &win866_from_unicode_tree},
 	{PG_WIN874, &win874_to_unicode_tree, &win874_from_unicode_tree},
 	{PG_WIN1250, &win1250_to_unicode_tree, &win1250_from_unicode_tree},

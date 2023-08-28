@@ -36,7 +36,7 @@ typedef struct pg_encname
 	pg_enc		encoding;
 } pg_encname;
 
-static const pg_encname pg_encname_tbl[] =
+static static_singleton const pg_encname pg_encname_tbl[] =
 {
 	{
 		"abc", PG_WIN1258
@@ -305,7 +305,7 @@ static const pg_encname pg_encname_tbl[] =
 #define DEF_ENC2NAME(name, codepage) { #name, PG_##name, codepage }
 #endif
 
-const pg_enc2name pg_enc2name_tbl[] =
+static_singleton const pg_enc2name pg_enc2name_tbl[] =
 {
 	[PG_SQL_ASCII] = DEF_ENC2NAME(SQL_ASCII, 0),
 	[PG_EUC_JP] = DEF_ENC2NAME(EUC_JP, 20932),
@@ -411,7 +411,7 @@ const char *pg_enc2gettext_tbl[] =
  *
  * NULL entries are not supported by ICU, or their mapping is unclear.
  */
-static const char *const pg_enc2icu_tbl[] =
+static static_singleton const char *const pg_enc2icu_tbl[] =
 {
 	[PG_SQL_ASCII] = NULL,
 	[PG_EUC_JP] = "EUC-JP",

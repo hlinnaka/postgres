@@ -67,22 +67,22 @@ donothingCleanup(DestReceiver *self)
  *		static DestReceiver structs for dest types needing no local state
  * ----------------
  */
-static const DestReceiver donothingDR = {
+static static_singleton const DestReceiver donothingDR = {
 	donothingReceive, donothingStartup, donothingCleanup, donothingCleanup,
 	DestNone
 };
 
-static const DestReceiver debugtupDR = {
+static static_singleton const DestReceiver debugtupDR = {
 	debugtup, debugStartup, donothingCleanup, donothingCleanup,
 	DestDebug
 };
 
-static const DestReceiver printsimpleDR = {
+static static_singleton const DestReceiver printsimpleDR = {
 	printsimple, printsimple_startup, donothingCleanup, donothingCleanup,
 	DestRemoteSimple
 };
 
-static const DestReceiver spi_printtupDR = {
+static static_singleton const DestReceiver spi_printtupDR = {
 	spi_printtup, spi_dest_startup, donothingCleanup, donothingCleanup,
 	DestSPI
 };
@@ -93,7 +93,7 @@ static const DestReceiver spi_printtupDR = {
  * It's ok to cast the constness away as any modification of the none receiver
  * would be a bug (which gets easier to catch this way).
  */
-DestReceiver *None_Receiver = (DestReceiver *) &donothingDR;
+static_singleton DestReceiver *None_Receiver = (DestReceiver *) &donothingDR;
 
 /* ----------------
  *		BeginCommand - initialize the destination at start of command

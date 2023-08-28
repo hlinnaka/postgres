@@ -32,7 +32,7 @@
  * items.
  * ----------
  */
-static PLpgSQL_nsitem *ns_top = NULL;
+static session_local PLpgSQL_nsitem *ns_top = NULL;
 
 
 /* ----------
@@ -783,7 +783,7 @@ plpgsql_free_function_memory(PLpgSQL_function *func)
 /**********************************************************************
  * Debug functions for analyzing the compiled code
  **********************************************************************/
-static int	dump_indent;
+static session_local int	dump_indent;
 
 static void dump_ind(void);
 static void dump_stmt(PLpgSQL_stmt *stmt);

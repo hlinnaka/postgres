@@ -28,7 +28,7 @@ struct am_propname
 	IndexAMProperty prop;
 };
 
-static const struct am_propname am_propnames[] =
+static static_singleton const struct am_propname am_propnames[] =
 {
 	{
 		"asc", AMPROP_ASC

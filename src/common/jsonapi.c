@@ -221,7 +221,7 @@ static JsonParseErrorType parse_array(JsonLexContext *lex, const JsonSemAction *
 static JsonParseErrorType report_parse_error(JsonParseContext ctx, JsonLexContext *lex);
 
 /* the null action object used for pure validation */
-JsonSemAction const nullSemAction =
+static_singleton JsonSemAction const nullSemAction =
 {
 	NULL, NULL, NULL, NULL, NULL,
 	NULL, NULL, NULL, NULL, NULL

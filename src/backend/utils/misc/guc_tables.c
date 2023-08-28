@@ -79,6 +79,7 @@
 #include "tsearch/ts_cache.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
+#include "utils/elog_gucs.h"
 #include "utils/float.h"
 #include "utils/guc_hooks.h"
 #include "utils/guc_tables.h"
@@ -95,20 +96,20 @@
 #endif
 
 /* XXX these should appear in other modules' header files */
-extern bool Log_disconnections;
-extern bool Trace_connection_negotiation;
-extern int	CommitDelay;
-extern int	CommitSiblings;
-extern char *default_tablespace;
-extern char *temp_tablespaces;
-extern bool ignore_checksum_failure;
-extern bool ignore_invalid_pages;
+extern session_guc bool Log_disconnections;
+extern session_guc bool Trace_connection_negotiation;
+extern session_guc int	CommitDelay;
+extern session_guc int	CommitSiblings;
+extern session_guc char *default_tablespace;
+extern session_guc char *temp_tablespaces;
+extern session_guc bool ignore_checksum_failure;
+extern postmaster_guc bool ignore_invalid_pages;
 
 #ifdef TRACE_SYNCSCAN
-extern bool trace_syncscan;
+extern session_guc bool trace_syncscan;
 #endif
 #ifdef DEBUG_BOUNDED_SORT
-extern bool optimize_bounded_sort;
+extern session_guc bool optimize_bounded_sort;
 #endif
 
 /*
@@ -117,7 +118,7 @@ extern bool optimize_bounded_sort;
  * NOTE! Option values may not contain double quotes!
  */
 
-static const struct config_enum_entry bytea_output_options[] = {
+static static_singleton const struct config_enum_entry bytea_output_options[] = {
 	{"escape", BYTEA_OUTPUT_ESCAPE, false},
 	{"hex", BYTEA_OUTPUT_HEX, false},
 	{NULL, 0, false}
@@ -131,7 +132,7 @@ StaticAssertDecl(lengthof(bytea_output_options) == (BYTEA_OUTPUT_HEX + 2),
  * they sort slightly different (see "log" level), and because "fatal"/"panic"
  * aren't sensible for client_min_messages.
  */
-static const struct config_enum_entry client_message_level_options[] = {
+static static_singleton const struct config_enum_entry client_message_level_options[] = {
 	{"debug5", DEBUG5, false},
 	{"debug4", DEBUG4, false},
 	{"debug3", DEBUG3, false},
@@ -146,7 +147,7 @@ static const struct config_enum_entry client_message_level_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry server_message_level_options[] = {
+static static_singleton const struct config_enum_entry server_message_level_options[] = {
 	{"debug5", DEBUG5, false},
 	{"debug4", DEBUG4, false},
 	{"debug3", DEBUG3, false},
@@ -163,7 +164,7 @@ static const struct config_enum_entry server_message_level_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry intervalstyle_options[] = {
+static static_singleton const struct config_enum_entry intervalstyle_options[] = {
 	{"postgres", INTSTYLE_POSTGRES, false},
 	{"postgres_verbose", INTSTYLE_POSTGRES_VERBOSE, false},
 	{"sql_standard", INTSTYLE_SQL_STANDARD, false},
@@ -171,7 +172,7 @@ static const struct config_enum_entry intervalstyle_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry icu_validation_level_options[] = {
+static static_singleton const struct config_enum_entry icu_validation_level_options[] = {
 	{"disabled", -1, false},
 	{"debug5", DEBUG5, false},
 	{"debug4", DEBUG4, false},
@@ -190,7 +191,7 @@ static const struct config_enum_entry icu_validation_level_options[] = {
 StaticAssertDecl(lengthof(intervalstyle_options) == (INTSTYLE_ISO_8601 + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry log_error_verbosity_options[] = {
+static static_singleton const struct config_enum_entry log_error_verbosity_options[] = {
 	{"terse", PGERROR_TERSE, false},
 	{"default", PGERROR_DEFAULT, false},
 	{"verbose", PGERROR_VERBOSE, false},
@@ -200,7 +201,7 @@ static const struct config_enum_entry log_error_verbosity_options[] = {
 StaticAssertDecl(lengthof(log_error_verbosity_options) == (PGERROR_VERBOSE + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry log_statement_options[] = {
+static static_singleton const struct config_enum_entry log_statement_options[] = {
 	{"none", LOGSTMT_NONE, false},
 	{"ddl", LOGSTMT_DDL, false},
 	{"mod", LOGSTMT_MOD, false},
@@ -211,7 +212,7 @@ static const struct config_enum_entry log_statement_options[] = {
 StaticAssertDecl(lengthof(log_statement_options) == (LOGSTMT_ALL + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry isolation_level_options[] = {
+static static_singleton const struct config_enum_entry isolation_level_options[] = {
 	{"serializable", XACT_SERIALIZABLE, false},
 	{"repeatable read", XACT_REPEATABLE_READ, false},
 	{"read committed", XACT_READ_COMMITTED, false},
@@ -219,7 +220,7 @@ static const struct config_enum_entry isolation_level_options[] = {
 	{NULL, 0}
 };
 
-static const struct config_enum_entry session_replication_role_options[] = {
+static static_singleton const struct config_enum_entry session_replication_role_options[] = {
 	{"origin", SESSION_REPLICATION_ROLE_ORIGIN, false},
 	{"replica", SESSION_REPLICATION_ROLE_REPLICA, false},
 	{"local", SESSION_REPLICATION_ROLE_LOCAL, false},
@@ -229,7 +230,7 @@ static const struct config_enum_entry session_replication_role_options[] = {
 StaticAssertDecl(lengthof(session_replication_role_options) == (SESSION_REPLICATION_ROLE_LOCAL + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry syslog_facility_options[] = {
+static static_singleton const struct config_enum_entry syslog_facility_options[] = {
 #ifdef HAVE_SYSLOG
 	{"local0", LOG_LOCAL0, false},
 	{"local1", LOG_LOCAL1, false},
@@ -245,7 +246,7 @@ static const struct config_enum_entry syslog_facility_options[] = {
 	{NULL, 0}
 };
 
-static const struct config_enum_entry track_function_options[] = {
+static static_singleton const struct config_enum_entry track_function_options[] = {
 	{"none", TRACK_FUNC_OFF, false},
 	{"pl", TRACK_FUNC_PL, false},
 	{"all", TRACK_FUNC_ALL, false},
@@ -255,7 +256,7 @@ static const struct config_enum_entry track_function_options[] = {
 StaticAssertDecl(lengthof(track_function_options) == (TRACK_FUNC_ALL + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry stats_fetch_consistency[] = {
+static static_singleton const struct config_enum_entry stats_fetch_consistency[] = {
 	{"none", PGSTAT_FETCH_CONSISTENCY_NONE, false},
 	{"cache", PGSTAT_FETCH_CONSISTENCY_CACHE, false},
 	{"snapshot", PGSTAT_FETCH_CONSISTENCY_SNAPSHOT, false},
@@ -265,7 +266,7 @@ static const struct config_enum_entry stats_fetch_consistency[] = {
 StaticAssertDecl(lengthof(stats_fetch_consistency) == (PGSTAT_FETCH_CONSISTENCY_SNAPSHOT + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry xmlbinary_options[] = {
+static static_singleton const struct config_enum_entry xmlbinary_options[] = {
 	{"base64", XMLBINARY_BASE64, false},
 	{"hex", XMLBINARY_HEX, false},
 	{NULL, 0, false}
@@ -274,7 +275,7 @@ static const struct config_enum_entry xmlbinary_options[] = {
 StaticAssertDecl(lengthof(xmlbinary_options) == (XMLBINARY_HEX + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry xmloption_options[] = {
+static static_singleton const struct config_enum_entry xmloption_options[] = {
 	{"content", XMLOPTION_CONTENT, false},
 	{"document", XMLOPTION_DOCUMENT, false},
 	{NULL, 0, false}
@@ -287,7 +288,7 @@ StaticAssertDecl(lengthof(xmloption_options) == (XMLOPTION_CONTENT + 2),
  * Although only "on", "off", and "safe_encoding" are documented, we
  * accept all the likely variants of "on" and "off".
  */
-static const struct config_enum_entry backslash_quote_options[] = {
+static static_singleton const struct config_enum_entry backslash_quote_options[] = {
 	{"safe_encoding", BACKSLASH_QUOTE_SAFE_ENCODING, false},
 	{"on", BACKSLASH_QUOTE_ON, false},
 	{"off", BACKSLASH_QUOTE_OFF, false},
@@ -304,7 +305,7 @@ static const struct config_enum_entry backslash_quote_options[] = {
  * Although only "on", "off", and "auto" are documented, we accept
  * all the likely variants of "on" and "off".
  */
-static const struct config_enum_entry compute_query_id_options[] = {
+static static_singleton const struct config_enum_entry compute_query_id_options[] = {
 	{"auto", COMPUTE_QUERY_ID_AUTO, false},
 	{"regress", COMPUTE_QUERY_ID_REGRESS, false},
 	{"on", COMPUTE_QUERY_ID_ON, false},
@@ -322,7 +323,7 @@ static const struct config_enum_entry compute_query_id_options[] = {
  * Although only "on", "off", and "partition" are documented, we
  * accept all the likely variants of "on" and "off".
  */
-static const struct config_enum_entry constraint_exclusion_options[] = {
+static static_singleton const struct config_enum_entry constraint_exclusion_options[] = {
 	{"partition", CONSTRAINT_EXCLUSION_PARTITION, false},
 	{"on", CONSTRAINT_EXCLUSION_ON, false},
 	{"off", CONSTRAINT_EXCLUSION_OFF, false},
@@ -339,7 +340,7 @@ static const struct config_enum_entry constraint_exclusion_options[] = {
  * Although only "on", "off", "remote_apply", "remote_write", and "local" are
  * documented, we accept all the likely variants of "on" and "off".
  */
-static const struct config_enum_entry synchronous_commit_options[] = {
+static static_singleton const struct config_enum_entry synchronous_commit_options[] = {
 	{"local", SYNCHRONOUS_COMMIT_LOCAL_FLUSH, false},
 	{"remote_write", SYNCHRONOUS_COMMIT_REMOTE_WRITE, false},
 	{"remote_apply", SYNCHRONOUS_COMMIT_REMOTE_APPLY, false},
@@ -358,7 +359,7 @@ static const struct config_enum_entry synchronous_commit_options[] = {
  * Although only "on", "off", "try" are documented, we accept all the likely
  * variants of "on" and "off".
  */
-static const struct config_enum_entry huge_pages_options[] = {
+static static_singleton const struct config_enum_entry huge_pages_options[] = {
 	{"off", HUGE_PAGES_OFF, false},
 	{"on", HUGE_PAGES_ON, false},
 	{"try", HUGE_PAGES_TRY, false},
@@ -371,14 +372,14 @@ static const struct config_enum_entry huge_pages_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry huge_pages_status_options[] = {
+static static_singleton const struct config_enum_entry huge_pages_status_options[] = {
 	{"off", HUGE_PAGES_OFF, false},
 	{"on", HUGE_PAGES_ON, false},
 	{"unknown", HUGE_PAGES_UNKNOWN, false},
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry recovery_prefetch_options[] = {
+static static_singleton const struct config_enum_entry recovery_prefetch_options[] = {
 	{"off", RECOVERY_PREFETCH_OFF, false},
 	{"on", RECOVERY_PREFETCH_ON, false},
 	{"try", RECOVERY_PREFETCH_TRY, false},
@@ -391,7 +392,7 @@ static const struct config_enum_entry recovery_prefetch_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry debug_parallel_query_options[] = {
+static static_singleton const struct config_enum_entry debug_parallel_query_options[] = {
 	{"off", DEBUG_PARALLEL_OFF, false},
 	{"on", DEBUG_PARALLEL_ON, false},
 	{"regress", DEBUG_PARALLEL_REGRESS, false},
@@ -404,20 +405,20 @@ static const struct config_enum_entry debug_parallel_query_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry plan_cache_mode_options[] = {
+static static_singleton const struct config_enum_entry plan_cache_mode_options[] = {
 	{"auto", PLAN_CACHE_MODE_AUTO, false},
 	{"force_generic_plan", PLAN_CACHE_MODE_FORCE_GENERIC_PLAN, false},
 	{"force_custom_plan", PLAN_CACHE_MODE_FORCE_CUSTOM_PLAN, false},
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry password_encryption_options[] = {
+static static_singleton const struct config_enum_entry password_encryption_options[] = {
 	{"md5", PASSWORD_TYPE_MD5, false},
 	{"scram-sha-256", PASSWORD_TYPE_SCRAM_SHA_256, false},
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry ssl_protocol_versions_info[] = {
+static static_singleton const struct config_enum_entry ssl_protocol_versions_info[] = {
 	{"", PG_TLS_ANY, false},
 	{"TLSv1", PG_TLS1_VERSION, false},
 	{"TLSv1.1", PG_TLS1_1_VERSION, false},
@@ -426,7 +427,7 @@ static const struct config_enum_entry ssl_protocol_versions_info[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry debug_logical_replication_streaming_options[] = {
+static static_singleton const struct config_enum_entry debug_logical_replication_streaming_options[] = {
 	{"buffered", DEBUG_LOGICAL_REP_STREAMING_BUFFERED, false},
 	{"immediate", DEBUG_LOGICAL_REP_STREAMING_IMMEDIATE, false},
 	{NULL, 0, false}
@@ -435,7 +436,7 @@ static const struct config_enum_entry debug_logical_replication_streaming_option
 StaticAssertDecl(lengthof(ssl_protocol_versions_info) == (PG_TLS1_3_VERSION + 2),
 				 "array length mismatch");
 
-static const struct config_enum_entry recovery_init_sync_method_options[] = {
+static static_singleton const struct config_enum_entry recovery_init_sync_method_options[] = {
 	{"fsync", DATA_DIR_SYNC_METHOD_FSYNC, false},
 #ifdef HAVE_SYNCFS
 	{"syncfs", DATA_DIR_SYNC_METHOD_SYNCFS, false},
@@ -443,7 +444,7 @@ static const struct config_enum_entry recovery_init_sync_method_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry shared_memory_options[] = {
+static static_singleton const struct config_enum_entry shared_memory_options[] = {
 #ifndef WIN32
 	{"sysv", SHMEM_TYPE_SYSV, false},
 #endif
@@ -456,7 +457,7 @@ static const struct config_enum_entry shared_memory_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry default_toast_compression_options[] = {
+static static_singleton const struct config_enum_entry default_toast_compression_options[] = {
 	{"pglz", TOAST_PGLZ_COMPRESSION, false},
 #ifdef  USE_LZ4
 	{"lz4", TOAST_LZ4_COMPRESSION, false},
@@ -464,7 +465,7 @@ static const struct config_enum_entry default_toast_compression_options[] = {
 	{NULL, 0, false}
 };
 
-static const struct config_enum_entry wal_compression_options[] = {
+static static_singleton const struct config_enum_entry wal_compression_options[] = {
 	{"pglz", WAL_COMPRESSION_PGLZ, false},
 #ifdef USE_LZ4
 	{"lz4", WAL_COMPRESSION_LZ4, false},
@@ -486,68 +487,68 @@ static const struct config_enum_entry wal_compression_options[] = {
 /*
  * Options for enum values stored in other modules
  */
-extern const struct config_enum_entry wal_level_options[];
-extern const struct config_enum_entry archive_mode_options[];
-extern const struct config_enum_entry recovery_target_action_options[];
-extern const struct config_enum_entry wal_sync_method_options[];
-extern const struct config_enum_entry dynamic_shared_memory_options[];
+extern static_singleton const struct config_enum_entry wal_level_options[];
+extern static_singleton const struct config_enum_entry archive_mode_options[];
+extern static_singleton const struct config_enum_entry recovery_target_action_options[];
+extern static_singleton const struct config_enum_entry wal_sync_method_options[];
+extern static_singleton const struct config_enum_entry dynamic_shared_memory_options[];
 
 /*
  * GUC option variables that are exported from this module
  */
-bool		AllowAlterSystem = true;
-bool		log_duration = false;
-bool		Debug_print_plan = false;
-bool		Debug_print_parse = false;
-bool		Debug_print_rewritten = false;
-bool		Debug_pretty_print = true;
+sighup_guc bool		AllowAlterSystem = true;
+session_guc bool		log_duration = false;
+session_guc bool		Debug_print_plan = false;
+session_guc bool		Debug_print_parse = false;
+session_guc bool		Debug_print_rewritten = false;
+session_guc bool		Debug_pretty_print = true;
 
-bool		log_parser_stats = false;
-bool		log_planner_stats = false;
-bool		log_executor_stats = false;
-bool		log_statement_stats = false;	/* this is sort of all three above
+session_guc bool		log_parser_stats = false;
+session_guc bool		log_planner_stats = false;
+session_guc bool		log_executor_stats = false;
+session_guc bool		log_statement_stats = false;	/* this is sort of all three above
 											 * together */
-bool		log_btree_build_stats = false;
-char	   *event_source;
+session_guc bool		log_btree_build_stats = false;
+postmaster_guc char	   *event_source;
 
-bool		row_security;
-bool		check_function_bodies = true;
+session_guc bool		row_security;
+session_guc bool		check_function_bodies = true;
 
 /*
  * This GUC exists solely for backward compatibility, check its definition for
  * details.
  */
 bool		default_with_oids = false;
-bool		current_role_is_superuser;
+session_guc bool		current_role_is_superuser;
 
-int			log_min_error_statement = ERROR;
-int			log_min_messages = WARNING;
-int			client_min_messages = NOTICE;
-int			log_min_duration_sample = -1;
-int			log_min_duration_statement = -1;
-int			log_parameter_max_length = -1;
-int			log_parameter_max_length_on_error = 0;
-int			log_temp_files = -1;
-double		log_statement_sample_rate = 1.0;
-double		log_xact_sample_rate = 0;
-char	   *backtrace_functions;
+session_guc int			log_min_error_statement = ERROR;
+session_guc int			log_min_messages = WARNING;
+session_guc int			client_min_messages = NOTICE;
+session_guc int			log_min_duration_sample = -1;
+session_guc int			log_min_duration_statement = -1;
+session_guc int			log_parameter_max_length = -1;
+session_guc int			log_parameter_max_length_on_error = 0;
+session_guc int			log_temp_files = -1;
+session_guc double		log_statement_sample_rate = 1.0;
+session_guc double		log_xact_sample_rate = 0;
+session_guc char	   *backtrace_functions;
 
-int			temp_file_limit = -1;
+session_guc int			temp_file_limit = -1;
 
-int			num_temp_buffers = 1024;
+session_guc int			num_temp_buffers = 1024;
 
-char	   *cluster_name = "";
-char	   *ConfigFileName;
-char	   *HbaFileName;
-char	   *IdentFileName;
-char	   *external_pid_file;
+postmaster_guc char	   *cluster_name = "";
+postmaster_guc char	   *ConfigFileName;
+postmaster_guc char	   *HbaFileName;
+postmaster_guc char	   *IdentFileName;
+postmaster_guc char	   *external_pid_file;
 
-char	   *application_name;
+session_guc char	   *application_name;
 
-int			tcp_keepalives_idle;
-int			tcp_keepalives_interval;
-int			tcp_keepalives_count;
-int			tcp_user_timeout;
+session_guc int			tcp_keepalives_idle;
+session_guc int			tcp_keepalives_interval;
+session_guc int			tcp_keepalives_count;
+session_guc int			tcp_user_timeout;
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -555,71 +556,72 @@ int			tcp_user_timeout;
  * This avoids breaking compatibility with clients that have never supported
  * renegotiation and therefore always try to zero it.
  */
-int			ssl_renegotiation_limit;
+/* Even though this is a PGC_USERSET, it can only ever be 0. */
+dynamic_singleton int			ssl_renegotiation_limit;
 
 /*
  * This really belongs in pg_shmem.c, but is defined here so that it doesn't
  * need to be duplicated in all the different implementations of pg_shmem.c.
  */
-int			huge_pages = HUGE_PAGES_TRY;
-int			huge_page_size;
-int			huge_pages_status = HUGE_PAGES_UNKNOWN;
+postmaster_guc int			huge_pages = HUGE_PAGES_TRY;
+postmaster_guc int			huge_page_size;
+postmaster_guc int			huge_pages_status = HUGE_PAGES_UNKNOWN;
 
 /*
  * These variables are all dummies that don't do anything, except in some
  * cases provide the value for SHOW to display.  The real state is elsewhere
  * and is kept in sync by assign_hooks.
  */
-static char *syslog_ident_str;
-static double phony_random_seed;
-static char *client_encoding_string;
-static char *datestyle_string;
-static char *server_encoding_string;
-static char *server_version_string;
-static int	server_version_num;
-static char *debug_io_direct_string;
+static sighup_guc char *syslog_ident_str;
+static session_guc double phony_random_seed;
+static session_guc char *client_encoding_string;
+static session_guc char *datestyle_string;
+static session_local char *server_encoding_string;
+static internal_guc char *server_version_string;
+static internal_guc int	server_version_num;
+static postmaster_guc char *debug_io_direct_string;
 
 #ifdef HAVE_SYSLOG
 #define	DEFAULT_SYSLOG_FACILITY LOG_LOCAL0
 #else
 #define	DEFAULT_SYSLOG_FACILITY 0
 #endif
-static int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
+static sighup_guc int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
 
-static char *timezone_string;
-static char *log_timezone_string;
-static char *timezone_abbreviations_string;
-static char *data_directory;
-static char *session_authorization_string;
-static int	max_function_args;
-static int	max_index_keys;
-static int	max_identifier_length;
-static int	block_size;
-static int	segment_size;
-static int	shared_memory_size_mb;
-static int	shared_memory_size_in_huge_pages;
-static int	wal_block_size;
-static bool data_checksums;
-static bool integer_datetimes;
+static session_guc char *timezone_string;
+static sighup_guc char *log_timezone_string;
+static session_guc char *timezone_abbreviations_string;
+static postmaster_guc char *data_directory;
+static session_guc char *session_authorization_string;
+static internal_guc int	max_function_args;
+static internal_guc int	max_index_keys;
+static internal_guc int	max_identifier_length;
+static internal_guc int	block_size;
+static internal_guc int	segment_size;
+static internal_guc int	shared_memory_size_mb;
+static internal_guc int	shared_memory_size_in_huge_pages;
+static internal_guc int	wal_block_size;
+static internal_guc bool data_checksums;
+static internal_guc bool integer_datetimes;
 
 #ifdef USE_ASSERT_CHECKING
 #define DEFAULT_ASSERT_ENABLED true
 #else
 #define DEFAULT_ASSERT_ENABLED false
 #endif
-static bool assert_enabled = DEFAULT_ASSERT_ENABLED;
+static internal_guc bool assert_enabled = DEFAULT_ASSERT_ENABLED;
 
-static char *recovery_target_timeline_string;
-static char *recovery_target_string;
-static char *recovery_target_xid_string;
-static char *recovery_target_name_string;
-static char *recovery_target_lsn_string;
+static postmaster_guc char *recovery_target_timeline_string;
+static postmaster_guc char *recovery_target_string;
+static postmaster_guc char *recovery_target_xid_string;
+static postmaster_guc char *recovery_target_name_string;
+static postmaster_guc char *recovery_target_lsn_string;
 
 /* should be static, but commands/variable.c needs to get at this */
-char	   *role_string;
+session_guc char	   *role_string;
 
 /* should be static, but guc.c needs to get at this */
-bool		in_hot_standby_guc;
+internal_guc bool		in_hot_standby_guc;
 
 
 /*
@@ -627,7 +629,7 @@ bool		in_hot_standby_guc;
  *
  * Note: these strings are deliberately not localized.
  */
-const char *const GucContext_Names[] =
+static_singleton const char *const GucContext_Names[] =
 {
 	[PGC_INTERNAL] = "internal",
 	[PGC_POSTMASTER] = "postmaster",
@@ -646,7 +648,7 @@ StaticAssertDecl(lengthof(GucContext_Names) == (PGC_USERSET + 1),
  *
  * Note: these strings are deliberately not localized.
  */
-const char *const GucSource_Names[] =
+static_singleton const char *const GucSource_Names[] =
 {
 	[PGC_S_DEFAULT] = "default",
 	[PGC_S_DYNAMIC_DEFAULT] = "default",
@@ -670,7 +672,7 @@ StaticAssertDecl(lengthof(GucSource_Names) == (PGC_S_SESSION + 1),
 /*
  * Displayable names for the groupings defined in enum config_group
  */
-const char *const config_group_names[] =
+static_singleton const char *const config_group_names[] =
 {
 	[UNGROUPED] = gettext_noop("Ungrouped"),
 	[FILE_LOCATIONS] = gettext_noop("File Locations"),
@@ -727,7 +729,7 @@ StaticAssertDecl(lengthof(config_group_names) == (DEVELOPER_OPTIONS + 1),
  *
  * Note: these strings are deliberately not localized.
  */
-const char *const config_type_names[] =
+static_singleton const char *const config_type_names[] =
 {
 	[PGC_BOOL] = "bool",
 	[PGC_INT] = "integer",
@@ -738,7 +740,6 @@ const char *const config_type_names[] =
 
 StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 				 "array length mismatch");
-
 
 /*
  * Contents of GUC tables
@@ -767,7 +768,7 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
  *	  variable_is_guc_list_quote() in src/bin/pg_dump/dumputils.c.
  */
 
-struct config_bool ConfigureNamesBool[] =
+static_singleton struct config_bool ConfigureNamesBool[] =
 {
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,

@@ -144,8 +144,8 @@
 #define DEFAULT_PAGE_CPU_MULTIPLIER 50.0
 
 /* Hooks for plugins to get control when we ask for stats */
-get_relation_stats_hook_type get_relation_stats_hook = NULL;
-get_index_stats_hook_type get_index_stats_hook = NULL;
+session_local get_relation_stats_hook_type get_relation_stats_hook = NULL;
+session_local get_index_stats_hook_type get_index_stats_hook = NULL;
 
 static double eqsel_internal(PG_FUNCTION_ARGS, bool negate);
 static double eqjoinsel_inner(Oid opfuncoid, Oid collation,

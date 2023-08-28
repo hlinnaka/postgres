@@ -222,7 +222,7 @@ typedef struct
  * memory within individual chunks, but also means a larger number of
  * potentially-unfilled blocks.
  */
-static const uint16 dsa_size_classes[] = {
+static static_singleton const uint16 dsa_size_classes[] = {
 	sizeof(dsa_area_span), 0,	/* special size classes */
 	8, 16, 24, 32, 40, 48, 56, 64,	/* 8 classes separated by 8 bytes */
 	80, 96, 112, 128,			/* 4 classes separated by 16 bytes */
@@ -245,7 +245,7 @@ static const uint16 dsa_size_classes[] = {
  * round the size of the object up to the next multiple of 8 bytes, and then
  * index into this array.
  */
-static const uint8 dsa_size_class_map[] = {
+static static_singleton const uint8 dsa_size_class_map[] = {
 	2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 	14, 14, 14, 14, 15, 15, 15, 15, 16, 16, 16, 16, 17, 17, 17, 17,
 	18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19,

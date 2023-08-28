@@ -95,7 +95,7 @@ typedef struct stemmer_module
 #define STEMMER_MODULE(name,enc,senc) \
 	{#name, enc, name##_##senc##_create_env, name##_##senc##_close_env, name##_##senc##_stem}
 
-static const stemmer_module stemmer_modules[] =
+static static_singleton const stemmer_module stemmer_modules[] =
 {
 	/*
 	 * Stemmers list from Snowball distribution

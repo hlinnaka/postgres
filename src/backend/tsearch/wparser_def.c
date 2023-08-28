@@ -59,7 +59,7 @@
 
 #define LASTNUM			23
 
-static const char *const tok_alias[] = {
+static static_singleton const char *const tok_alias[] = {
 	"",
 	"asciiword",
 	"word",
@@ -86,7 +86,7 @@ static const char *const tok_alias[] = {
 	"entity"
 };
 
-static const char *const lex_descr[] = {
+static static_singleton const char *const lex_descr[] = {
 	"",
 	"Word, all ASCII",
 	"Word, all letters",
@@ -968,7 +968,7 @@ p_isspecial(TParser *prs)
  * Table of state/action of parser
  */
 
-static const TParserStateActionItem actionTPS_Base[] = {
+static static_singleton const TParserStateActionItem actionTPS_Base[] = {
 	{p_isEOF, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_iseqC, '<', A_PUSH, TPS_InTagFirst, 0, NULL},
 	{p_isignore, 0, A_NEXT, TPS_InSpace, 0, NULL},
@@ -985,7 +985,7 @@ static const TParserStateActionItem actionTPS_Base[] = {
 };
 
 
-static const TParserStateActionItem actionTPS_InNumWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InNumWord[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, NUMWORD, NULL},
 	{p_isalnum, 0, A_NEXT, TPS_InNumWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InNumWord, 0, NULL},
@@ -996,7 +996,7 @@ static const TParserStateActionItem actionTPS_InNumWord[] = {
 	{NULL, 0, A_BINGO, TPS_Base, NUMWORD, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InAsciiWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InAsciiWord[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, ASCIIWORD, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InHostFirstDomain, 0, NULL},
@@ -1014,7 +1014,7 @@ static const TParserStateActionItem actionTPS_InAsciiWord[] = {
 	{NULL, 0, A_BINGO, TPS_Base, ASCIIWORD, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InWord[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, WORD_T, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_Null, 0, NULL},
@@ -1023,7 +1023,7 @@ static const TParserStateActionItem actionTPS_InWord[] = {
 	{NULL, 0, A_BINGO, TPS_Base, WORD_T, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InUnsignedInt[] = {
+static static_singleton const TParserStateActionItem actionTPS_InUnsignedInt[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, UNSIGNEDINT, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InHostFirstDomain, 0, NULL},
@@ -1040,13 +1040,13 @@ static const TParserStateActionItem actionTPS_InUnsignedInt[] = {
 	{NULL, 0, A_BINGO, TPS_Base, UNSIGNEDINT, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InSignedIntFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InSignedIntFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT | A_CLEAR, TPS_InSignedInt, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InSignedInt[] = {
+static static_singleton const TParserStateActionItem actionTPS_InSignedInt[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, SIGNEDINT, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InDecimalFirst, 0, NULL},
@@ -1055,7 +1055,7 @@ static const TParserStateActionItem actionTPS_InSignedInt[] = {
 	{NULL, 0, A_BINGO, TPS_Base, SIGNEDINT, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InSpace[] = {
+static static_singleton const TParserStateActionItem actionTPS_InSpace[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, SPACE, NULL},
 	{p_iseqC, '<', A_BINGO, TPS_Base, SPACE, NULL},
 	{p_isignore, 0, A_NEXT, TPS_Null, 0, NULL},
@@ -1067,13 +1067,13 @@ static const TParserStateActionItem actionTPS_InSpace[] = {
 	{NULL, 0, A_BINGO, TPS_Base, SPACE, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InUDecimalFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InUDecimalFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InUDecimal, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InUDecimal[] = {
+static static_singleton const TParserStateActionItem actionTPS_InUDecimal[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, DECIMAL_T, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InUDecimal, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InVersionFirst, 0, NULL},
@@ -1082,13 +1082,13 @@ static const TParserStateActionItem actionTPS_InUDecimal[] = {
 	{NULL, 0, A_BINGO, TPS_Base, DECIMAL_T, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InDecimalFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InDecimalFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InDecimal, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InDecimal[] = {
+static static_singleton const TParserStateActionItem actionTPS_InDecimal[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, DECIMAL_T, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InDecimal, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InVerVersion, 0, NULL},
@@ -1097,33 +1097,33 @@ static const TParserStateActionItem actionTPS_InDecimal[] = {
 	{NULL, 0, A_BINGO, TPS_Base, DECIMAL_T, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InVerVersion[] = {
+static static_singleton const TParserStateActionItem actionTPS_InVerVersion[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_RERUN, TPS_InSVerVersion, 0, SpecialVerVersion},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InSVerVersion[] = {
+static static_singleton const TParserStateActionItem actionTPS_InSVerVersion[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_BINGO | A_CLRALL, TPS_InUnsignedInt, SPACE, NULL},
 	{NULL, 0, A_NEXT, TPS_Null, 0, NULL}
 };
 
 
-static const TParserStateActionItem actionTPS_InVersionFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InVersionFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InVersion, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InVersion[] = {
+static static_singleton const TParserStateActionItem actionTPS_InVersion[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, VERSIONNUMBER, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InVersion, 0, NULL},
 	{p_iseqC, '.', A_PUSH, TPS_InVersionFirst, 0, NULL},
 	{NULL, 0, A_BINGO, TPS_Base, VERSIONNUMBER, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InMantissaFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InMantissaFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InMantissa, 0, NULL},
 	{p_iseqC, '+', A_NEXT, TPS_InMantissaSign, 0, NULL},
@@ -1131,19 +1131,19 @@ static const TParserStateActionItem actionTPS_InMantissaFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InMantissaSign[] = {
+static static_singleton const TParserStateActionItem actionTPS_InMantissaSign[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InMantissa, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InMantissa[] = {
+static static_singleton const TParserStateActionItem actionTPS_InMantissa[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, SCIENTIFIC, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InMantissa, 0, NULL},
 	{NULL, 0, A_BINGO, TPS_Base, SCIENTIFIC, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '#', A_NEXT, TPS_InXMLEntityNumFirst, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InXMLEntity, 0, NULL},
@@ -1152,7 +1152,7 @@ static const TParserStateActionItem actionTPS_InXMLEntityFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntity[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntity[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isalnum, 0, A_NEXT, TPS_InXMLEntity, 0, NULL},
 	{p_iseqC, ':', A_NEXT, TPS_InXMLEntity, 0, NULL},
@@ -1163,7 +1163,7 @@ static const TParserStateActionItem actionTPS_InXMLEntity[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityNumFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityNumFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, 'x', A_NEXT, TPS_InXMLEntityHexNumFirst, 0, NULL},
 	{p_iseqC, 'X', A_NEXT, TPS_InXMLEntityHexNumFirst, 0, NULL},
@@ -1171,31 +1171,31 @@ static const TParserStateActionItem actionTPS_InXMLEntityNumFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityHexNumFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityHexNumFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isxdigit, 0, A_NEXT, TPS_InXMLEntityHexNum, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityNum[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityNum[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InXMLEntityNum, 0, NULL},
 	{p_iseqC, ';', A_NEXT, TPS_InXMLEntityEnd, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityHexNum[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityHexNum[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isxdigit, 0, A_NEXT, TPS_InXMLEntityHexNum, 0, NULL},
 	{p_iseqC, ';', A_NEXT, TPS_InXMLEntityEnd, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLEntityEnd[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLEntityEnd[] = {
 	{NULL, 0, A_BINGO | A_CLEAR, TPS_Base, XMLENTITY, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '/', A_PUSH, TPS_InTagCloseFirst, 0, NULL},
 	{p_iseqC, '!', A_PUSH, TPS_InCommentFirst, 0, NULL},
@@ -1206,7 +1206,7 @@ static const TParserStateActionItem actionTPS_InTagFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InXMLBegin[] = {
+static static_singleton const TParserStateActionItem actionTPS_InXMLBegin[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	/* <?xml ... */
 	/* XXX do we wants states for the m and l ?  Right now this accepts <?xZ */
@@ -1214,13 +1214,13 @@ static const TParserStateActionItem actionTPS_InXMLBegin[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagCloseFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagCloseFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InTagName, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagName[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagName[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	/* <br/> case */
 	{p_iseqC, '/', A_NEXT, TPS_InTagBeginEnd, 0, NULL},
@@ -1234,13 +1234,13 @@ static const TParserStateActionItem actionTPS_InTagName[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagBeginEnd[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagBeginEnd[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '>', A_NEXT, TPS_InTagEnd, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTag[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTag[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '>', A_NEXT, TPS_InTagEnd, 0, SpecialTags},
 	{p_iseqC, '\'', A_NEXT, TPS_InTagEscapeK, 0, NULL},
@@ -1262,30 +1262,30 @@ static const TParserStateActionItem actionTPS_InTag[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagEscapeK[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagEscapeK[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '\\', A_PUSH, TPS_InTagBackSleshed, 0, NULL},
 	{p_iseqC, '\'', A_NEXT, TPS_InTag, 0, NULL},
 	{NULL, 0, A_NEXT, TPS_InTagEscapeK, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagEscapeKK[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagEscapeKK[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '\\', A_PUSH, TPS_InTagBackSleshed, 0, NULL},
 	{p_iseqC, '"', A_NEXT, TPS_InTag, 0, NULL},
 	{NULL, 0, A_NEXT, TPS_InTagEscapeKK, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagBackSleshed[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagBackSleshed[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{NULL, 0, A_MERGE, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InTagEnd[] = {
+static static_singleton const TParserStateActionItem actionTPS_InTagEnd[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_Base, TAG_T, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InCommentFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InCommentFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '-', A_NEXT, TPS_InCommentLast, 0, NULL},
 	/* <!DOCTYPE ...> */
@@ -1294,43 +1294,43 @@ static const TParserStateActionItem actionTPS_InCommentFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InCommentLast[] = {
+static static_singleton const TParserStateActionItem actionTPS_InCommentLast[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '-', A_NEXT, TPS_InComment, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InComment[] = {
+static static_singleton const TParserStateActionItem actionTPS_InComment[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '-', A_NEXT, TPS_InCloseCommentFirst, 0, NULL},
 	{NULL, 0, A_NEXT, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InCloseCommentFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InCloseCommentFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '-', A_NEXT, TPS_InCloseCommentLast, 0, NULL},
 	{NULL, 0, A_NEXT, TPS_InComment, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InCloseCommentLast[] = {
+static static_singleton const TParserStateActionItem actionTPS_InCloseCommentLast[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '-', A_NEXT, TPS_Null, 0, NULL},
 	{p_iseqC, '>', A_NEXT, TPS_InCommentEnd, 0, NULL},
 	{NULL, 0, A_NEXT, TPS_InComment, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InCommentEnd[] = {
+static static_singleton const TParserStateActionItem actionTPS_InCommentEnd[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_Base, TAG_T, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHostFirstDomain[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHostFirstDomain[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHostDomainSecond, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHost, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHostDomainSecond[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHostDomainSecond[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHostDomain, 0, NULL},
 	{p_isdigit, 0, A_PUSH, TPS_InHost, 0, NULL},
@@ -1341,7 +1341,7 @@ static const TParserStateActionItem actionTPS_InHostDomainSecond[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHostDomain[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHostDomain[] = {
 	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_Base, HOST, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHostDomain, 0, NULL},
 	{p_isdigit, 0, A_PUSH, TPS_InHost, 0, NULL},
@@ -1356,13 +1356,13 @@ static const TParserStateActionItem actionTPS_InHostDomain[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_Base, HOST, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InPortFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InPortFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InPort, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InPort[] = {
+static static_singleton const TParserStateActionItem actionTPS_InPort[] = {
 	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_Base, HOST, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InPort, 0, NULL},
 	{p_isstophost, 0, A_BINGO | A_CLRALL, TPS_InURLPathStart, HOST, NULL},
@@ -1370,14 +1370,14 @@ static const TParserStateActionItem actionTPS_InPort[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_Base, HOST, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHostFirstAN[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHostFirstAN[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHost, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHost, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHost[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHost[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHost, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHost, 0, NULL},
@@ -1388,13 +1388,13 @@ static const TParserStateActionItem actionTPS_InHost[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InEmail[] = {
+static static_singleton const TParserStateActionItem actionTPS_InEmail[] = {
 	{p_isstophost, 0, A_POP, TPS_Null, 0, NULL},
 	{p_ishost, 0, A_BINGO | A_CLRALL, TPS_Base, EMAIL, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InFileFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InFileFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InFile, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InFile, 0, NULL},
@@ -1404,7 +1404,7 @@ static const TParserStateActionItem actionTPS_InFileFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InFileTwiddle[] = {
+static static_singleton const TParserStateActionItem actionTPS_InFileTwiddle[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InFile, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InFile, 0, NULL},
@@ -1413,7 +1413,7 @@ static const TParserStateActionItem actionTPS_InFileTwiddle[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InPathFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InPathFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InFile, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InFile, 0, NULL},
@@ -1423,14 +1423,14 @@ static const TParserStateActionItem actionTPS_InPathFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InPathFirstFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InPathFirstFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '.', A_NEXT, TPS_InPathSecond, 0, NULL},
 	{p_iseqC, '/', A_NEXT, TPS_InFileFirst, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InPathSecond[] = {
+static static_singleton const TParserStateActionItem actionTPS_InPathSecond[] = {
 	{p_isEOF, 0, A_BINGO | A_CLEAR, TPS_Base, FILEPATH, NULL},
 	{p_iseqC, '/', A_NEXT | A_PUSH, TPS_InFileFirst, 0, NULL},
 	{p_iseqC, '/', A_BINGO | A_CLEAR, TPS_Base, FILEPATH, NULL},
@@ -1438,7 +1438,7 @@ static const TParserStateActionItem actionTPS_InPathSecond[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InFile[] = {
+static static_singleton const TParserStateActionItem actionTPS_InFile[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, FILEPATH, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InFile, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InFile, 0, NULL},
@@ -1449,7 +1449,7 @@ static const TParserStateActionItem actionTPS_InFile[] = {
 	{NULL, 0, A_BINGO, TPS_Base, FILEPATH, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InFileNext[] = {
+static static_singleton const TParserStateActionItem actionTPS_InFileNext[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_CLEAR, TPS_InFile, 0, NULL},
 	{p_isdigit, 0, A_CLEAR, TPS_InFile, 0, NULL},
@@ -1457,45 +1457,45 @@ static const TParserStateActionItem actionTPS_InFileNext[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InURLPathFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InURLPathFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isurlchar, 0, A_NEXT, TPS_InURLPath, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL},
 };
 
-static const TParserStateActionItem actionTPS_InURLPathStart[] = {
+static static_singleton const TParserStateActionItem actionTPS_InURLPathStart[] = {
 	{NULL, 0, A_NEXT, TPS_InURLPath, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InURLPath[] = {
+static static_singleton const TParserStateActionItem actionTPS_InURLPath[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, URLPATH, NULL},
 	{p_isurlchar, 0, A_NEXT, TPS_InURLPath, 0, NULL},
 	{NULL, 0, A_BINGO, TPS_Base, URLPATH, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InFURL[] = {
+static static_singleton const TParserStateActionItem actionTPS_InFURL[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isURLPath, 0, A_BINGO | A_CLRALL, TPS_Base, URL_T, SpecialFURL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InProtocolFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InProtocolFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '/', A_NEXT, TPS_InProtocolSecond, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InProtocolSecond[] = {
+static static_singleton const TParserStateActionItem actionTPS_InProtocolSecond[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_iseqC, '/', A_NEXT, TPS_InProtocolEnd, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InProtocolEnd[] = {
+static static_singleton const TParserStateActionItem actionTPS_InProtocolEnd[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_Base, PROTOCOL, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenAsciiWordFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenAsciiWordFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHyphenAsciiWord, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
@@ -1503,7 +1503,7 @@ static const TParserStateActionItem actionTPS_InHyphenAsciiWordFirst[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenAsciiWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenAsciiWord[] = {
 	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphen},
 	{p_isasclet, 0, A_NEXT, TPS_InHyphenAsciiWord, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
@@ -1513,14 +1513,14 @@ static const TParserStateActionItem actionTPS_InHyphenAsciiWord[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, ASCIIHWORD, SpecialHyphen}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenWordFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenWordFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHyphenDigitLookahead, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenWord[] = {
 	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphen},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenWord, 0, NULL},
@@ -1529,14 +1529,14 @@ static const TParserStateActionItem actionTPS_InHyphenWord[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, HWORD, SpecialHyphen}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenNumWordFirst[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenNumWordFirst[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHyphenDigitLookahead, 0, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenNumWord[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenNumWord[] = {
 	{p_isEOF, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphen},
 	{p_isalnum, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
@@ -1544,7 +1544,7 @@ static const TParserStateActionItem actionTPS_InHyphenNumWord[] = {
 	{NULL, 0, A_BINGO | A_CLRALL, TPS_InParseHyphen, NUMHWORD, SpecialHyphen}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenDigitLookahead[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenDigitLookahead[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_InHyphenDigitLookahead, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenNumWord, 0, NULL},
@@ -1552,7 +1552,7 @@ static const TParserStateActionItem actionTPS_InHyphenDigitLookahead[] = {
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InParseHyphen[] = {
+static static_singleton const TParserStateActionItem actionTPS_InParseHyphen[] = {
 	{p_isEOF, 0, A_RERUN, TPS_Base, 0, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHyphenAsciiWordPart, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWordPart, 0, NULL},
@@ -1561,14 +1561,14 @@ static const TParserStateActionItem actionTPS_InParseHyphen[] = {
 	{NULL, 0, A_RERUN, TPS_Base, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InParseHyphenHyphen[] = {
+static static_singleton const TParserStateActionItem actionTPS_InParseHyphenHyphen[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isalnum, 0, A_BINGO | A_CLEAR, TPS_InParseHyphen, SPACE, NULL},
 	{p_isspecial, 0, A_BINGO | A_CLEAR, TPS_InParseHyphen, SPACE, NULL},
 	{NULL, 0, A_POP, TPS_Null, 0, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenWordPart[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenWordPart[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, PARTHWORD, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWordPart, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenWordPart, 0, NULL},
@@ -1576,7 +1576,7 @@ static const TParserStateActionItem actionTPS_InHyphenWordPart[] = {
 	{NULL, 0, A_BINGO, TPS_InParseHyphen, PARTHWORD, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenAsciiWordPart[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenAsciiWordPart[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, ASCIIPARTHWORD, NULL},
 	{p_isasclet, 0, A_NEXT, TPS_InHyphenAsciiWordPart, 0, NULL},
 	{p_isalpha, 0, A_NEXT, TPS_InHyphenWordPart, 0, NULL},
@@ -1585,14 +1585,14 @@ static const TParserStateActionItem actionTPS_InHyphenAsciiWordPart[] = {
 	{NULL, 0, A_BINGO, TPS_InParseHyphen, ASCIIPARTHWORD, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenNumWordPart[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenNumWordPart[] = {
 	{p_isEOF, 0, A_BINGO, TPS_Base, NUMPARTHWORD, NULL},
 	{p_isalnum, 0, A_NEXT, TPS_InHyphenNumWordPart, 0, NULL},
 	{p_isspecial, 0, A_NEXT, TPS_InHyphenNumWordPart, 0, NULL},
 	{NULL, 0, A_BINGO, TPS_InParseHyphen, NUMPARTHWORD, NULL}
 };
 
-static const TParserStateActionItem actionTPS_InHyphenUnsignedInt[] = {
+static static_singleton const TParserStateActionItem actionTPS_InHyphenUnsignedInt[] = {
 	{p_isEOF, 0, A_POP, TPS_Null, 0, NULL},
 	{p_isdigit, 0, A_NEXT, TPS_Null, 0, NULL},
 	{p_isalpha, 0, A_CLEAR, TPS_InHyphenNumWordPart, 0, NULL},
@@ -1625,7 +1625,7 @@ typedef struct
  * order must be the same as in typedef enum {} TParserState!!
  */
 
-static const TParserStateAction Actions[] = {
+static static_singleton const TParserStateAction Actions[] = {
 	TPARSERSTATEACTION(TPS_Base),
 	TPARSERSTATEACTION(TPS_InNumWord),
 	TPARSERSTATEACTION(TPS_InAsciiWord),

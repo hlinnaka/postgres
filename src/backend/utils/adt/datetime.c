@@ -72,16 +72,16 @@ static pg_tz *FetchDynamicTimeZone(TimeZoneAbbrevTable *tbl, const datetkn *tp,
 								   DateTimeErrorExtra *extra);
 
 
-const int	day_tab[2][13] =
+static_singleton const int	day_tab[2][13] =
 {
 	{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0},
 	{31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0}
 };
 
-const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+static_singleton const char *const months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
 
-const char *const days[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
+static_singleton const char *const days[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
 "Thursday", "Friday", "Saturday", NULL};
 
 
@@ -102,7 +102,7 @@ const char *const days[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
  * are loaded from configuration files and stored in zoneabbrevtbl, whose
  * abbrevs[] field has the same format as the static datetktbl.
  */
-static const datetkn datetktbl[] = {
+static static_singleton const datetkn datetktbl[] = {
 	/* token, type, value */
 	{"+infinity", RESERV, DTK_LATE},	/* same as "infinity" */
 	{EARLY, RESERV, DTK_EARLY}, /* "-infinity" reserved for "early time" */
@@ -178,13 +178,13 @@ static const datetkn datetktbl[] = {
 	{YESTERDAY, RESERV, DTK_YESTERDAY}	/* yesterday midnight */
 };
 
-static const int szdatetktbl = sizeof datetktbl / sizeof datetktbl[0];
+static static_singleton const int szdatetktbl = sizeof datetktbl / sizeof datetktbl[0];
 
 /*
  * deltatktbl: same format as datetktbl, but holds keywords used to represent
  * time units (eg, for intervals, and for EXTRACT).
  */
-static const datetkn deltatktbl[] = {
+static static_singleton const datetkn deltatktbl[] = {
 	/* token, type, value */
 	{"@", IGNORE_DTF, 0},		/* postgres relative prefix */
 	{DAGO, AGO, 0},				/* "ago" indicates negative time offset */
@@ -249,17 +249,17 @@ static const datetkn deltatktbl[] = {
 	{"yrs", UNITS, DTK_YEAR}	/* "years" relative */
 };
 
-static const int szdeltatktbl = sizeof deltatktbl / sizeof deltatktbl[0];
+static static_singleton const int szdeltatktbl = sizeof deltatktbl / sizeof deltatktbl[0];
 
-static TimeZoneAbbrevTable *zoneabbrevtbl = NULL;
+static userset_guc TimeZoneAbbrevTable *zoneabbrevtbl = NULL;
 
 /* Caches of recent lookup results in the above tables */
 
-static const datetkn *datecache[MAXDATEFIELDS] = {NULL};
+static session_local const datetkn *datecache[MAXDATEFIELDS] = {NULL};
 
-static const datetkn *deltacache[MAXDATEFIELDS] = {NULL};
+static session_local const datetkn *deltacache[MAXDATEFIELDS] = {NULL};
 
-static const datetkn *abbrevcache[MAXDATEFIELDS] = {NULL};
+static session_local const datetkn *abbrevcache[MAXDATEFIELDS] = {NULL};
 
 
 /*
@@ -396,11 +396,11 @@ GetCurrentTimeUsec(struct pg_tm *tm, fsec_t *fsec, int *tzp)
 	 * however, it might need another look if we ever allow entries in that
 	 * hash to be recycled.
 	 */
-	static TimestampTz cache_ts = 0;
-	static pg_tz *cache_timezone = NULL;
-	static struct pg_tm cache_tm;
-	static fsec_t cache_fsec;
-	static int	cache_tz;
+	static session_local TimestampTz cache_ts = 0;
+	static session_local pg_tz *cache_timezone = NULL;
+	static session_local struct pg_tm cache_tm;
+	static session_local fsec_t cache_fsec;
+	static session_local int	cache_tz;
 
 	if (cur_ts != cache_ts || session_timezone != cache_timezone)
 	{

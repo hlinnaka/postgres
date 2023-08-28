@@ -35,7 +35,7 @@ static inline void pgstat_report_wait_end(void);
 extern void pgstat_set_wait_event_storage(uint32 *wait_event_info);
 extern void pgstat_reset_wait_event_storage(void);
 
-extern PGDLLIMPORT uint32 *my_wait_event_info;
+extern PGDLLIMPORT session_local uint32 *my_wait_event_info;
 
 
 /* ----------

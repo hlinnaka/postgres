@@ -184,8 +184,8 @@
 /*
  * Links to shared-memory data structures for MultiXact control
  */
-static SlruCtlData MultiXactOffsetCtlData;
-static SlruCtlData MultiXactMemberCtlData;
+static global SlruCtlData MultiXactOffsetCtlData;
+static global SlruCtlData MultiXactMemberCtlData;
 
 #define MultiXactOffsetCtl	(&MultiXactOffsetCtlData)
 #define MultiXactMemberCtl	(&MultiXactMemberCtlData)
@@ -295,9 +295,9 @@ typedef struct MultiXactStateData
 #define MaxOldestSlot	(MaxBackends + max_prepared_xacts)
 
 /* Pointers to the state data in shared memory */
-static MultiXactStateData *MultiXactState;
-static MultiXactId *OldestMemberMXactId;
-static MultiXactId *OldestVisibleMXactId;
+static global MultiXactStateData *MultiXactState;
+static global MultiXactId *OldestMemberMXactId;
+static global MultiXactId *OldestVisibleMXactId;
 
 
 /*
@@ -326,8 +326,8 @@ typedef struct mXactCacheEnt
 } mXactCacheEnt;
 
 #define MAX_CACHE_ENTRIES	256
-static dclist_head MXactCache = DCLIST_STATIC_INIT(MXactCache);
-static MemoryContext MXactContext = NULL;
+static /* FIXME: session_local */ dclist_head MXactCache = DCLIST_STATIC_INIT(MXactCache);
+static session_local MemoryContext MXactContext = NULL;
 
 #ifdef MULTIXACT_DEBUG
 #define debug_elog2(a,b) elog(a,b)

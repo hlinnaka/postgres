@@ -35,7 +35,7 @@ static Size ER_get_flat_size(ExpandedObjectHeader *eohptr);
 static void ER_flatten_into(ExpandedObjectHeader *eohptr,
 							void *result, Size allocated_size);
 
-static const ExpandedObjectMethods ER_methods =
+static static_singleton const ExpandedObjectMethods ER_methods =
 {
 	ER_get_flat_size,
 	ER_flatten_into

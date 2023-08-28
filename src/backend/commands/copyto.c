@@ -103,7 +103,7 @@ typedef struct
 } DR_copy;
 
 /* NOTE: there's a copy of this in copyfromparse.c */
-static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
+static static_singleton const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
 
 
 /* non-export function prototypes */

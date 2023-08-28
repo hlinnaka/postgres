@@ -254,7 +254,7 @@ typedef struct AllocSetFreeList
 } AllocSetFreeList;
 
 /* context_freelists[0] is for default params, [1] for small params */
-static AllocSetFreeList context_freelists[2] =
+static static_singleton AllocSetFreeList context_freelists[2] =
 {
 	{
 		0, NULL

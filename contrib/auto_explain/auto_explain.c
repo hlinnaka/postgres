@@ -25,19 +25,19 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-static int	auto_explain_log_min_duration = -1; /* msec or -1 */
-static int	auto_explain_log_parameter_max_length = -1; /* bytes or -1 */
-static bool auto_explain_log_analyze = false;
-static bool auto_explain_log_verbose = false;
-static bool auto_explain_log_buffers = false;
-static bool auto_explain_log_wal = false;
-static bool auto_explain_log_triggers = false;
-static bool auto_explain_log_timing = true;
-static bool auto_explain_log_settings = false;
-static int	auto_explain_log_format = EXPLAIN_FORMAT_TEXT;
-static int	auto_explain_log_level = LOG;
-static bool auto_explain_log_nested_statements = false;
-static double auto_explain_sample_rate = 1;
+static suset_guc int	auto_explain_log_min_duration = -1; /* msec or -1 */
+static suset_guc int	auto_explain_log_parameter_max_length = -1; /* bytes or -1 */
+static suset_guc bool auto_explain_log_analyze = false;
+static suset_guc bool auto_explain_log_verbose = false;
+static suset_guc bool auto_explain_log_buffers = false;
+static suset_guc bool auto_explain_log_wal = false;
+static suset_guc bool auto_explain_log_triggers = false;
+static suset_guc bool auto_explain_log_timing = true;
+static suset_guc bool auto_explain_log_settings = false;
+static suset_guc int	auto_explain_log_format = EXPLAIN_FORMAT_TEXT;
+static suset_guc int	auto_explain_log_level = LOG;
+static suset_guc bool auto_explain_log_nested_statements = false;
+static suset_guc double auto_explain_sample_rate = 1;
 
 static const struct config_enum_entry format_options[] = {
 	{"text", EXPLAIN_FORMAT_TEXT, false},

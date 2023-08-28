@@ -31,7 +31,7 @@
 PG_MODULE_MAGIC;
 
 /* GUC: advisory lock ID to use.  Zero disables the feature. */
-static int	post_planning_lock_id = 0;
+static userset_guc int	post_planning_lock_id = 0;
 
 /* Save previous planner hook user to be a good citizen */
 static planner_hook_type prev_planner_hook = NULL;

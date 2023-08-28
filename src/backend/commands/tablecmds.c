@@ -126,7 +126,7 @@ typedef struct OnCommitItem
 	SubTransactionId deleting_subid;
 } OnCommitItem;
 
-static List *on_commits = NIL;
+static session_local List *on_commits = NIL;
 
 
 /*
@@ -249,7 +249,7 @@ struct dropmsgstrings
 	const char *drophint_msg;
 };
 
-static const struct dropmsgstrings dropmsgstringarray[] = {
+static static_singleton const struct dropmsgstrings dropmsgstringarray[] = {
 	{RELKIND_RELATION,
 		ERRCODE_UNDEFINED_TABLE,
 		gettext_noop("table \"%s\" does not exist"),

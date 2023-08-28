@@ -106,8 +106,8 @@
 
 
 /* GUC variables */
-int			xmlbinary = XMLBINARY_BASE64;
-int			xmloption = XMLOPTION_CONTENT;
+session_guc int			xmlbinary = XMLBINARY_BASE64;
+session_guc int			xmloption = XMLOPTION_CONTENT;
 
 #ifdef USE_LIBXML
 
@@ -220,7 +220,7 @@ static Datum XmlTableGetValue(struct TableFuncScanState *state, int colnum,
 							  Oid typid, int32 typmod, bool *isnull);
 static void XmlTableDestroyOpaque(struct TableFuncScanState *state);
 
-const TableFuncRoutine XmlTableRoutine =
+static_singleton const TableFuncRoutine XmlTableRoutine =
 {
 	.InitOpaque = XmlTableInitOpaque,
 	.SetDocument = XmlTableSetDocument,

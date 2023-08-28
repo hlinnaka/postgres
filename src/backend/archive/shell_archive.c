@@ -29,7 +29,7 @@ static bool shell_archive_file(ArchiveModuleState *state,
 							   const char *path);
 static void shell_archive_shutdown(ArchiveModuleState *state);
 
-static const ArchiveModuleCallbacks shell_archive_callbacks = {
+static static_singleton const ArchiveModuleCallbacks shell_archive_callbacks = {
 	.startup_cb = NULL,
 	.check_configured_cb = shell_archive_configured,
 	.archive_file_cb = shell_archive_file,

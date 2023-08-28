@@ -67,12 +67,12 @@ typedef struct
 	bool		canceled;		/* true if request has been canceled */
 } PendingUnlinkEntry;
 
-static HTAB *pendingOps = NULL;
-static List *pendingUnlinks = NIL;
-static MemoryContext pendingOpsCxt; /* context for the above  */
+static session_local HTAB *pendingOps = NULL;
+static session_local List *pendingUnlinks = NIL;
+static session_local MemoryContext pendingOpsCxt; /* context for the above  */
 
-static CycleCtr sync_cycle_ctr = 0;
-static CycleCtr checkpoint_cycle_ctr = 0;
+static session_local CycleCtr sync_cycle_ctr = 0;
+static session_local CycleCtr checkpoint_cycle_ctr = 0;
 
 /* Intervals for calling AbsorbSyncRequests */
 #define FSYNCS_PER_ABSORB		10
@@ -92,7 +92,7 @@ typedef struct SyncOps
 /*
  * These indexes must correspond to the values of the SyncRequestHandler enum.
  */
-static const SyncOps syncsw[] = {
+static static_singleton const SyncOps syncsw[] = {
 	/* magnetic disk */
 	[SYNC_HANDLER_MD] = {
 		.sync_syncfiletag = mdsyncfiletag,

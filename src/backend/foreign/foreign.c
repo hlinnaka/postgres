@@ -562,7 +562,7 @@ struct ConnectionOption
  *
  * The list is small - don't bother with bsearch if it stays so.
  */
-static const struct ConnectionOption libpq_conninfo_options[] = {
+static static_singleton const struct ConnectionOption libpq_conninfo_options[] = {
 	{"authtype", ForeignServerRelationId},
 	{"service", ForeignServerRelationId},
 	{"user", UserMappingRelationId},

@@ -677,7 +677,7 @@ extern slock_t *ProcStructLock;
 extern PGPROC *AuxiliaryProcs;
 extern PMSignalData *PMSignalState;
 extern pg_time_t first_syslogger_file_time;
-extern struct bkend *ShmemBackendArray;
+extern global struct bkend *ShmemBackendArray;
 extern bool redirection_done;
 
 #ifndef WIN32

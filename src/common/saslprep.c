@@ -63,7 +63,7 @@ static int	pg_utf8_string_len(const char *source);
  *
  * These are all mapped to the ASCII space character (U+00A0).
  */
-static const pg_wchar non_ascii_space_ranges[] =
+static static_singleton const pg_wchar non_ascii_space_ranges[] =
 {
 	0x00A0, 0x00A0,
 	0x1680, 0x1680,
@@ -78,7 +78,7 @@ static const pg_wchar non_ascii_space_ranges[] =
  *
  * If any of these appear in the input, they are removed.
  */
-static const pg_wchar commonly_mapped_to_nothing_ranges[] =
+static static_singleton const pg_wchar commonly_mapped_to_nothing_ranges[] =
 {
 	0x00AD, 0x00AD,
 	0x034F, 0x034F,
@@ -113,7 +113,7 @@ static const pg_wchar commonly_mapped_to_nothing_ranges[] =
  * tables, so one code might originate from multiple source tables.
  * Adjacent ranges have also been merged together, to save space.
  */
-static const pg_wchar prohibited_output_ranges[] =
+static static_singleton const pg_wchar prohibited_output_ranges[] =
 {
 	0x0000, 0x001F,				/* C.2.1 */
 	0x007F, 0x00A0,				/* C.1.2, C.2.1, C.2.2 */
@@ -154,7 +154,7 @@ static const pg_wchar prohibited_output_ranges[] =
 };
 
 /* A.1 Unassigned code points in Unicode 3.2 */
-static const pg_wchar unassigned_codepoint_ranges[] =
+static static_singleton const pg_wchar unassigned_codepoint_ranges[] =
 {
 	0x0221, 0x0221,
 	0x0234, 0x024F,
@@ -555,7 +555,7 @@ static const pg_wchar unassigned_codepoint_ranges[] =
 };
 
 /* D.1 Characters with bidirectional property "R" or "AL" */
-static const pg_wchar RandALCat_codepoint_ranges[] =
+static static_singleton const pg_wchar RandALCat_codepoint_ranges[] =
 {
 	0x05BE, 0x05BE,
 	0x05C0, 0x05C0,
@@ -594,7 +594,7 @@ static const pg_wchar RandALCat_codepoint_ranges[] =
 };
 
 /* D.2 Characters with bidirectional property "L" */
-static const pg_wchar LCat_codepoint_ranges[] =
+static static_singleton const pg_wchar LCat_codepoint_ranges[] =
 {
 	0x0041, 0x005A,
 	0x0061, 0x007A,

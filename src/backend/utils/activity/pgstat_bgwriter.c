@@ -20,7 +20,7 @@
 #include "utils/pgstat_internal.h"
 
 
-PgStat_BgWriterStats PendingBgWriterStats = {0};
+global PgStat_BgWriterStats PendingBgWriterStats = {0};
 
 
 /*
@@ -30,7 +30,7 @@ void
 pgstat_report_bgwriter(void)
 {
 	PgStatShared_BgWriter *stats_shmem = &pgStatLocal.shmem->bgwriter;
-	static const PgStat_BgWriterStats all_zeroes;
+	static global const PgStat_BgWriterStats all_zeroes;
 
 	Assert(!pgStatLocal.shmem->is_shutdown);
 	pgstat_assert_is_up();

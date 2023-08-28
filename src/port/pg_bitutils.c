@@ -31,7 +31,7 @@
  * HAVE__BUILTIN_CLZ is defined, but we provide it anyway, so that
  * extensions possibly compiled with a different compiler can use it.
  */
-const uint8 pg_leftmost_one_pos[256] = {
+static_singleton const uint8 pg_leftmost_one_pos[256] = {
 	0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
 	4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
 	5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
@@ -59,7 +59,7 @@ const uint8 pg_leftmost_one_pos[256] = {
  * HAVE__BUILTIN_CTZ is defined, but we provide it anyway, so that
  * extensions possibly compiled with a different compiler can use it.
  */
-const uint8 pg_rightmost_one_pos[256] = {
+static_singleton const uint8 pg_rightmost_one_pos[256] = {
 	0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
 	4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
 	5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
@@ -84,7 +84,7 @@ const uint8 pg_rightmost_one_pos[256] = {
  * Note: we export this for use by functions in which explicit use
  * of the popcount functions seems unlikely to be a win.
  */
-const uint8 pg_number_of_ones[256] = {
+static_singleton const uint8 pg_number_of_ones[256] = {
 	0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4,
 	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
 	1, 2, 2, 3, 2, 3, 3, 4, 2, 3, 3, 4, 3, 4, 4, 5,
@@ -119,10 +119,10 @@ static inline int pg_popcount64_fast(uint64 word);
 static uint64 pg_popcount_fast(const char *buf, int bytes);
 static uint64 pg_popcount_masked_fast(const char *buf, int bytes, bits8 mask);
 
-int			(*pg_popcount32) (uint32 word) = pg_popcount32_choose;
-int			(*pg_popcount64) (uint64 word) = pg_popcount64_choose;
-uint64		(*pg_popcount_optimized) (const char *buf, int bytes) = pg_popcount_choose;
-uint64		(*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask) = pg_popcount_masked_choose;
+dynamic_singleton int			(*pg_popcount32) (uint32 word) = pg_popcount32_choose;
+dynamic_singleton int			(*pg_popcount64) (uint64 word) = pg_popcount64_choose;
+dynamic_singleton uint64		(*pg_popcount_optimized) (const char *buf, int bytes) = pg_popcount_choose;
+dynamic_singleton uint64		(*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask) = pg_popcount_masked_choose;
 #endif							/* TRY_POPCNT_FAST */
 
 #ifdef TRY_POPCNT_FAST

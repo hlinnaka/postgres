@@ -85,7 +85,7 @@ typedef struct WalSnd
 	ReplicationKind kind;
 } WalSnd;
 
-extern PGDLLIMPORT WalSnd *MyWalSnd;
+extern PGDLLIMPORT session_local WalSnd *MyWalSnd;
 
 /* There is one WalSndCtl struct for the whole database cluster */
 typedef struct
@@ -123,7 +123,7 @@ typedef struct
 	WalSnd		walsnds[FLEXIBLE_ARRAY_MEMBER];
 } WalSndCtlData;
 
-extern PGDLLIMPORT WalSndCtlData *WalSndCtl;
+extern PGDLLIMPORT global WalSndCtlData *WalSndCtl;
 
 
 extern void WalSndSetState(WalSndState state);
@@ -139,6 +139,6 @@ extern void replication_scanner_init(const char *str);
 extern void replication_scanner_finish(void);
 extern bool replication_scanner_is_replication_command(void);
 
-extern PGDLLIMPORT Node *replication_parse_result;
+extern PGDLLIMPORT session_local Node *replication_parse_result;
 
 #endif							/* _WALSENDER_PRIVATE_H */

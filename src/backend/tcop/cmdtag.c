@@ -30,7 +30,7 @@ typedef struct CommandTagBehavior
 #define PG_CMDTAG(tag, name, evtrgok, rwrok, rowcnt) \
 	{ name, (uint8) (sizeof(name) - 1), evtrgok, rwrok, rowcnt },
 
-static const CommandTagBehavior tag_behavior[] = {
+static static_singleton const CommandTagBehavior tag_behavior[] = {
 #include "tcop/cmdtaglist.h"
 };
 

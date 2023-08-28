@@ -58,14 +58,14 @@ typedef int IpcSemaphoreId;		/* semaphore ID returned by semget(2) */
 #define PGSemaMagic		537		/* must be less than SEMVMX */
 
 
-static PGSemaphore sharedSemas; /* array of PGSemaphoreData in shared memory */
-static int	numSharedSemas;		/* number of PGSemaphoreDatas used so far */
-static int	maxSharedSemas;		/* allocated size of PGSemaphoreData array */
-static IpcSemaphoreId *mySemaSets;	/* IDs of sema sets acquired so far */
-static int	numSemaSets;		/* number of sema sets acquired so far */
-static int	maxSemaSets;		/* allocated size of mySemaSets array */
-static IpcSemaphoreKey nextSemaKey; /* next key to try using */
-static int	nextSemaNumber;		/* next free sem num in last sema set */
+static global PGSemaphore sharedSemas; /* array of PGSemaphoreData in shared memory */
+static global int	numSharedSemas;		/* number of PGSemaphoreDatas used so far */
+static global int	maxSharedSemas;		/* allocated size of PGSemaphoreData array */
+static session_local IpcSemaphoreId *mySemaSets;	/* IDs of sema sets acquired so far */
+static session_local int	numSemaSets;		/* number of sema sets acquired so far */
+static session_local int	maxSemaSets;		/* allocated size of mySemaSets array */
+static session_local IpcSemaphoreKey nextSemaKey; /* next key to try using */
+static session_local int	nextSemaNumber;		/* next free sem num in last sema set */
 
 
 static IpcSemaphoreId InternalIpcSemaphoreCreate(IpcSemaphoreKey semKey,

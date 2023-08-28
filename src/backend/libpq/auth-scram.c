@@ -110,7 +110,7 @@ static int	scram_exchange(void *opaq, const char *input, int inputlen,
 						   const char **logdetail);
 
 /* Mechanism declaration */
-const pg_be_sasl_mech pg_be_scram_mech = {
+static_singleton const pg_be_sasl_mech pg_be_scram_mech = {
 	scram_get_mechanisms,
 	scram_init,
 	scram_exchange
@@ -189,7 +189,7 @@ static char *scram_mock_salt(const char *username,
 /*
  * The number of iterations to use when generating new secrets.
  */
-int			scram_sha_256_iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
+session_guc int			scram_sha_256_iterations = SCRAM_SHA_256_DEFAULT_ITERATIONS;
 
 /*
  * Get a list of SASL mechanisms that this module supports.

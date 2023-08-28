@@ -175,12 +175,12 @@ typedef struct
  * Full months
  * ----------
  */
-static const char *const months_full[] = {
+static static_singleton const char *const months_full[] = {
 	"January", "February", "March", "April", "May", "June", "July",
 	"August", "September", "October", "November", "December", NULL
 };
 
-static const char *const days_short[] = {
+static static_singleton const char *const days_short[] = {
 	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", NULL
 };
 
@@ -213,8 +213,8 @@ static const char *const days_short[] = {
  * matches for BC have an odd index.  So the boolean value for BC is given by
  * taking the array index of the match, modulo 2.
  */
-static const char *const adbc_strings[] = {ad_STR, bc_STR, AD_STR, BC_STR, NULL};
-static const char *const adbc_strings_long[] = {a_d_STR, b_c_STR, A_D_STR, B_C_STR, NULL};
+static static_singleton const char *const adbc_strings[] = {ad_STR, bc_STR, AD_STR, BC_STR, NULL};
+static static_singleton const char *const adbc_strings_long[] = {a_d_STR, b_c_STR, A_D_STR, B_C_STR, NULL};
 
 /* ----------
  * AM / PM
@@ -240,8 +240,8 @@ static const char *const adbc_strings_long[] = {a_d_STR, b_c_STR, A_D_STR, B_C_S
  * matches for PM have an odd index.  So the boolean value for PM is given by
  * taking the array index of the match, modulo 2.
  */
-static const char *const ampm_strings[] = {am_STR, pm_STR, AM_STR, PM_STR, NULL};
-static const char *const ampm_strings_long[] = {a_m_STR, p_m_STR, A_M_STR, P_M_STR, NULL};
+static static_singleton const char *const ampm_strings[] = {am_STR, pm_STR, AM_STR, PM_STR, NULL};
+static static_singleton const char *const ampm_strings_long[] = {a_m_STR, p_m_STR, A_M_STR, P_M_STR, NULL};
 
 /* ----------
  * Months in roman-numeral
@@ -249,26 +249,26 @@ static const char *const ampm_strings_long[] = {a_m_STR, p_m_STR, A_M_STR, P_M_S
  *	'VIII' must have higher precedence than 'V')
  * ----------
  */
-static const char *const rm_months_upper[] =
+static static_singleton const char *const rm_months_upper[] =
 {"XII", "XI", "X", "IX", "VIII", "VII", "VI", "V", "IV", "III", "II", "I", NULL};
 
-static const char *const rm_months_lower[] =
+static static_singleton const char *const rm_months_lower[] =
 {"xii", "xi", "x", "ix", "viii", "vii", "vi", "v", "iv", "iii", "ii", "i", NULL};
 
 /* ----------
  * Roman numbers
  * ----------
  */
-static const char *const rm1[] = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", NULL};
-static const char *const rm10[] = {"X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC", NULL};
-static const char *const rm100[] = {"C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM", NULL};
+static static_singleton const char *const rm1[] = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", NULL};
+static static_singleton const char *const rm10[] = {"X", "XX", "XXX", "XL", "L", "LX", "LXX", "LXXX", "XC", NULL};
+static static_singleton const char *const rm100[] = {"C", "CC", "CCC", "CD", "D", "DC", "DCC", "DCCC", "CM", NULL};
 
 /* ----------
  * Ordinal postfixes
  * ----------
  */
-static const char *const numTH[] = {"ST", "ND", "RD", "TH", NULL};
-static const char *const numth[] = {"st", "nd", "rd", "th", NULL};
+static static_singleton const char *const numTH[] = {"ST", "ND", "RD", "TH", NULL};
+static static_singleton const char *const numth[] = {"st", "nd", "rd", "th", NULL};
 
 /* ----------
  * Flags & Options:
@@ -384,14 +384,14 @@ typedef struct
 } NUMCacheEntry;
 
 /* global cache for date/time format pictures */
-static DCHCacheEntry *DCHCache[DCH_CACHE_ENTRIES];
-static int	n_DCHCache = 0;		/* current number of entries */
-static int	DCHCounter = 0;		/* aging-event counter */
+static session_local DCHCacheEntry *DCHCache[DCH_CACHE_ENTRIES];
+static session_local int	n_DCHCache = 0;		/* current number of entries */
+static session_local int	DCHCounter = 0;		/* aging-event counter */
 
 /* global cache for number format pictures */
-static NUMCacheEntry *NUMCache[NUM_CACHE_ENTRIES];
-static int	n_NUMCache = 0;		/* current number of entries */
-static int	NUMCounter = 0;		/* aging-event counter */
+static session_local NUMCacheEntry *NUMCache[NUM_CACHE_ENTRIES];
+static session_local int	n_NUMCache = 0;		/* current number of entries */
+static session_local int	NUMCounter = 0;		/* aging-event counter */
 
 /* ----------
  * For char->date/time conversion
@@ -565,7 +565,7 @@ do { \
  */
 #define TM_SUFFIX_LEN	2
 
-static const KeySuffix DCH_suff[] = {
+static static_singleton const KeySuffix DCH_suff[] = {
 	{"FM", 2, DCH_S_FM, SUFFTYPE_PREFIX},
 	{"fm", 2, DCH_S_FM, SUFFTYPE_PREFIX},
 	{"TM", TM_SUFFIX_LEN, DCH_S_TM, SUFFTYPE_PREFIX},
@@ -772,7 +772,7 @@ typedef enum
  * KeyWords for DATE-TIME version
  * ----------
  */
-static const KeyWord DCH_keywords[] = {
+static static_singleton const KeyWord DCH_keywords[] = {
 /*	name, len, id, is_digit, date_mode */
 	{"A.D.", 4, DCH_A_D, false, FROM_CHAR_DATE_NONE},	/* A */
 	{"A.M.", 4, DCH_A_M, false, FROM_CHAR_DATE_NONE},
@@ -897,7 +897,7 @@ static const KeyWord DCH_keywords[] = {
  * The is_digit and date_mode fields are not relevant here.
  * ----------
  */
-static const KeyWord NUM_keywords[] = {
+static static_singleton const KeyWord NUM_keywords[] = {
 /*	name, len, id			is in Index */
 	{",", 1, NUM_COMMA},		/* , */
 	{".", 1, NUM_DEC},			/* . */
@@ -945,7 +945,7 @@ static const KeyWord NUM_keywords[] = {
  * KeyWords index for DATE-TIME version
  * ----------
  */
-static const int DCH_index[KeyWord_INDEX_SIZE] = {
+static static_singleton const int DCH_index[KeyWord_INDEX_SIZE] = {
 /*
 0	1	2	3	4	5	6	7	8	9
 */
@@ -969,7 +969,7 @@ static const int DCH_index[KeyWord_INDEX_SIZE] = {
  * KeyWords index for NUMBER version
  * ----------
  */
-static const int NUM_index[KeyWord_INDEX_SIZE] = {
+static static_singleton const int NUM_index[KeyWord_INDEX_SIZE] = {
 /*
 0	1	2	3	4	5	6	7	8	9
 */

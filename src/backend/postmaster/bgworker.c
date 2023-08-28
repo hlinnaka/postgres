@@ -37,7 +37,7 @@
 /*
  * The postmaster's list of registered background workers, in private memory.
  */
-slist_head	BackgroundWorkerList = SLIST_STATIC_INIT(BackgroundWorkerList);
+global slist_head	BackgroundWorkerList = SLIST_STATIC_INIT(BackgroundWorkerList);
 
 /*
  * BackgroundWorkerSlots exist in shared memory and can be accessed (via
@@ -105,13 +105,13 @@ struct BackgroundWorkerHandle
 	uint64		generation;
 };
 
-static BackgroundWorkerArray *BackgroundWorkerData;
+static global BackgroundWorkerArray *BackgroundWorkerData;
 
 /*
  * List of internal background worker entry points.  We need this for
  * reasons explained in LookupBackgroundWorkerFunction(), below.
  */
-static const struct
+static static_singleton const struct
 {
 	const char *fn_name;
 	bgworker_main_type fn_addr;

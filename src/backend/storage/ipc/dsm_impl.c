@@ -92,7 +92,7 @@ static bool dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
 #endif
 static int	errcode_for_dynamic_shared_memory(void);
 
-const struct config_enum_entry dynamic_shared_memory_options[] = {
+static_singleton const struct config_enum_entry dynamic_shared_memory_options[] = {
 #ifdef USE_DSM_POSIX
 	{"posix", DSM_IMPL_POSIX, false},
 #endif
@@ -109,10 +109,10 @@ const struct config_enum_entry dynamic_shared_memory_options[] = {
 };
 
 /* Implementation selector. */
-int			dynamic_shared_memory_type = DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE;
+postmaster_guc int			dynamic_shared_memory_type = DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE;
 
 /* Amount of space reserved for DSM segments in the main area. */
-int			min_dynamic_shared_memory;
+postmaster_guc int			min_dynamic_shared_memory;
 
 /* Size of buffer to be used for zero-filling. */
 #define ZBUFFER_SIZE				8192

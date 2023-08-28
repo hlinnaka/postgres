@@ -21,7 +21,7 @@
 #include "utils/pgstat_internal.h"
 
 
-PgStat_PendingWalStats PendingWalStats = {0};
+session_local PgStat_PendingWalStats PendingWalStats = {0};
 
 /*
  * WAL usage counters saved from pgWalUsage at the previous call to
@@ -29,7 +29,7 @@ PgStat_PendingWalStats PendingWalStats = {0};
  * happens between pgstat_report_wal() calls, by subtracting
  * the previous counters from the current ones.
  */
-static WalUsage prevWalUsage;
+static session_local WalUsage prevWalUsage;
 
 
 /*

@@ -42,7 +42,7 @@ struct encoding_match
 	const char *system_enc_name;
 };
 
-static const struct encoding_match encoding_match_list[] = {
+static static_singleton const struct encoding_match encoding_match_list[] = {
 	{PG_EUC_JP, "EUC-JP"},
 	{PG_EUC_JP, "eucJP"},
 	{PG_EUC_JP, "IBM-eucJP"},

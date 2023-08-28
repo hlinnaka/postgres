@@ -224,12 +224,12 @@ typedef struct ReplicationSlotCtlData
 /*
  * Pointers to shared memory
  */
-extern PGDLLIMPORT ReplicationSlotCtlData *ReplicationSlotCtl;
-extern PGDLLIMPORT ReplicationSlot *MyReplicationSlot;
+extern PGDLLIMPORT global ReplicationSlotCtlData *ReplicationSlotCtl;
+extern PGDLLIMPORT session_local ReplicationSlot *MyReplicationSlot;
 
 /* GUCs */
-extern PGDLLIMPORT int max_replication_slots;
-extern PGDLLIMPORT char *standby_slot_names;
+extern PGDLLIMPORT postmaster_guc int max_replication_slots;
+extern PGDLLIMPORT sighup_guc char *standby_slot_names;
 
 /* shmem initialization functions */
 extern Size ReplicationSlotsShmemSize(void);

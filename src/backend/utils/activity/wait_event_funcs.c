@@ -22,7 +22,7 @@
  * Each wait event has one corresponding entry in this structure, fed to
  * the SQL function of this file.
  */
-static const struct
+static static_singleton const struct
 {
 	const char *type;
 	const char *name;

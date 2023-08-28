@@ -1669,7 +1669,7 @@ clause_is_strict_for(Node *clause, Node *subexpr, bool allow_false)
 /* We use "none" for 0/false to make the tables align nicely */
 #define none 0
 
-static const bool BT_implies_table[6][6] = {
+static static_singleton const bool BT_implies_table[6][6] = {
 /*
  *			The predicate operator:
  *	 LT    LE	 EQ    GE	 GT    NE
@@ -1682,7 +1682,7 @@ static const bool BT_implies_table[6][6] = {
 	{none, none, none, none, none, true}	/* NE */
 };
 
-static const bool BT_refutes_table[6][6] = {
+static static_singleton const bool BT_refutes_table[6][6] = {
 /*
  *			The predicate operator:
  *	 LT    LE	 EQ    GE	 GT    NE
@@ -1695,7 +1695,7 @@ static const bool BT_refutes_table[6][6] = {
 	{none, none, true, none, none, none}	/* NE */
 };
 
-static const StrategyNumber BT_implic_table[6][6] = {
+static static_singleton const StrategyNumber BT_implic_table[6][6] = {
 /*
  *			The predicate operator:
  *	 LT    LE	 EQ    GE	 GT    NE
@@ -1708,7 +1708,7 @@ static const StrategyNumber BT_implic_table[6][6] = {
 	{none, none, none, none, none, BTEQ}	/* NE */
 };
 
-static const StrategyNumber BT_refute_table[6][6] = {
+static static_singleton const StrategyNumber BT_refute_table[6][6] = {
 /*
  *			The predicate operator:
  *	 LT    LE	 EQ    GE	 GT    NE
@@ -2090,7 +2090,7 @@ typedef struct OprProofCacheEntry
 	Oid			refute_test_op; /* OID of the test operator, or 0 if none */
 } OprProofCacheEntry;
 
-static HTAB *OprProofCacheHash = NULL;
+static session_local HTAB *OprProofCacheHash = NULL;
 
 
 /*
