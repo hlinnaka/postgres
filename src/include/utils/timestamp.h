@@ -87,10 +87,10 @@ IntervalPGetDatum(const Interval *X)
 
 
 /* Set at postmaster start */
-extern PGDLLIMPORT TimestampTz PgStartTime;
+extern PGDLLIMPORT session_local TimestampTz PgStartTime;
 
 /* Set at configuration reload */
-extern PGDLLIMPORT TimestampTz PgReloadTime;
+extern PGDLLIMPORT session_local TimestampTz PgReloadTime;
 
 
 /* Internal routines (not fmgr-callable) */

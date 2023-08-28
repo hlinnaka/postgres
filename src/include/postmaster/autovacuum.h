@@ -27,25 +27,25 @@ typedef enum
 
 
 /* GUC variables */
-extern PGDLLIMPORT bool autovacuum_start_daemon;
-extern PGDLLIMPORT int autovacuum_max_workers;
-extern PGDLLIMPORT int autovacuum_work_mem;
-extern PGDLLIMPORT int autovacuum_naptime;
-extern PGDLLIMPORT int autovacuum_vac_thresh;
-extern PGDLLIMPORT double autovacuum_vac_scale;
-extern PGDLLIMPORT int autovacuum_vac_ins_thresh;
-extern PGDLLIMPORT double autovacuum_vac_ins_scale;
-extern PGDLLIMPORT int autovacuum_anl_thresh;
-extern PGDLLIMPORT double autovacuum_anl_scale;
-extern PGDLLIMPORT int autovacuum_freeze_max_age;
-extern PGDLLIMPORT int autovacuum_multixact_freeze_max_age;
-extern PGDLLIMPORT double autovacuum_vac_cost_delay;
-extern PGDLLIMPORT int autovacuum_vac_cost_limit;
+extern PGDLLIMPORT session_local bool autovacuum_start_daemon;
+extern PGDLLIMPORT session_local int autovacuum_max_workers;
+extern PGDLLIMPORT session_local int autovacuum_work_mem;
+extern PGDLLIMPORT session_local int autovacuum_naptime;
+extern PGDLLIMPORT session_local int autovacuum_vac_thresh;
+extern PGDLLIMPORT session_local double autovacuum_vac_scale;
+extern PGDLLIMPORT session_local int autovacuum_vac_ins_thresh;
+extern PGDLLIMPORT session_local double autovacuum_vac_ins_scale;
+extern PGDLLIMPORT session_local int autovacuum_anl_thresh;
+extern PGDLLIMPORT session_local double autovacuum_anl_scale;
+extern PGDLLIMPORT session_local int autovacuum_freeze_max_age;
+extern PGDLLIMPORT session_local int autovacuum_multixact_freeze_max_age;
+extern PGDLLIMPORT session_local double autovacuum_vac_cost_delay;
+extern PGDLLIMPORT session_local int autovacuum_vac_cost_limit;
 
 /* autovacuum launcher PID, only valid when worker is shutting down */
-extern PGDLLIMPORT int AutovacuumLauncherPid;
+extern PGDLLIMPORT session_local int AutovacuumLauncherPid;
 
-extern PGDLLIMPORT int Log_autovacuum_min_duration;
+extern PGDLLIMPORT session_local int Log_autovacuum_min_duration;
 
 /* Status inquiry functions */
 extern bool AutoVacuumingActive(void);

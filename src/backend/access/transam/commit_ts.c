@@ -80,7 +80,7 @@ TransactionIdToCTsPage(TransactionId xid)
 /*
  * Link to shared-memory data structures for CommitTs control
  */
-static SlruCtlData CommitTsCtlData;
+static global SlruCtlData CommitTsCtlData;
 
 #define CommitTsCtl (&CommitTsCtlData)
 
@@ -102,11 +102,11 @@ typedef struct CommitTimestampShared
 	bool		commitTsActive;
 } CommitTimestampShared;
 
-static CommitTimestampShared *commitTsShared;
+static global CommitTimestampShared *commitTsShared;
 
 
 /* GUC variable */
-bool		track_commit_timestamp;
+postmaster_guc bool		track_commit_timestamp;
 
 static void SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 								 TransactionId *subxids, TimestampTz ts,

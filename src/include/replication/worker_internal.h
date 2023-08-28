@@ -218,24 +218,24 @@ typedef struct ParallelApplyWorkerInfo
 } ParallelApplyWorkerInfo;
 
 /* Main memory context for apply worker. Permanent during worker lifetime. */
-extern PGDLLIMPORT MemoryContext ApplyContext;
+extern PGDLLIMPORT session_local MemoryContext ApplyContext;
 
-extern PGDLLIMPORT MemoryContext ApplyMessageContext;
+extern PGDLLIMPORT session_local MemoryContext ApplyMessageContext;
 
-extern PGDLLIMPORT ErrorContextCallback *apply_error_context_stack;
+extern PGDLLIMPORT session_local ErrorContextCallback *apply_error_context_stack;
 
-extern PGDLLIMPORT ParallelApplyWorkerShared *MyParallelShared;
+extern PGDLLIMPORT session_local ParallelApplyWorkerShared *MyParallelShared;
 
 /* libpqreceiver connection */
-extern PGDLLIMPORT struct WalReceiverConn *LogRepWorkerWalRcvConn;
+extern PGDLLIMPORT session_local struct WalReceiverConn *LogRepWorkerWalRcvConn;
 
 /* Worker and subscription objects. */
-extern PGDLLIMPORT Subscription *MySubscription;
-extern PGDLLIMPORT LogicalRepWorker *MyLogicalRepWorker;
+extern PGDLLIMPORT session_local Subscription *MySubscription;
+extern PGDLLIMPORT session_local LogicalRepWorker *MyLogicalRepWorker;
 
-extern PGDLLIMPORT bool in_remote_transaction;
+extern PGDLLIMPORT session_local bool in_remote_transaction;
 
-extern PGDLLIMPORT bool InitializingApplyWorker;
+extern PGDLLIMPORT session_local bool InitializingApplyWorker;
 
 extern void logicalrep_worker_attach(int slot);
 extern LogicalRepWorker *logicalrep_worker_find(Oid subid, Oid relid,

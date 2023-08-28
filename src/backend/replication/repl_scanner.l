@@ -39,13 +39,13 @@ fprintf_to_ereport(const char *fmt, const char *msg)
 }
 
 /* Handle to the buffer that the lexer uses internally */
-static YY_BUFFER_STATE scanbufhandle;
+static session_local YY_BUFFER_STATE scanbufhandle;
 
 /* Pushed-back token (we only handle one) */
-static int	repl_pushed_back_token;
+static session_local int	repl_pushed_back_token;
 
 /* Work area for collecting literals */
-static StringInfoData litbuf;
+static session_local StringInfoData litbuf;
 
 static void startlit(void);
 static char *litbufdup(void);

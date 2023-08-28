@@ -209,11 +209,11 @@ typedef struct ReorderBufferDiskChange
  * resource management here, but it's not entirely clear what that would look
  * like.
  */
-int			logical_decoding_work_mem;
+session_guc int			logical_decoding_work_mem;
 static const Size max_changes_in_memory = 4096; /* XXX for restore only */
 
 /* GUC variable */
-int			debug_logical_replication_streaming = DEBUG_LOGICAL_REP_STREAMING_BUFFERED;
+session_guc int			debug_logical_replication_streaming = DEBUG_LOGICAL_REP_STREAMING_BUFFERED;
 
 /* ---------------------------------------
  * primary reorderbuffer support routines

@@ -82,6 +82,7 @@
 #include "tsearch/ts_cache.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
+#include "utils/elog_gucs.h"
 #include "utils/float.h"
 #include "utils/guc_hooks.h"
 #include "utils/guc_tables.h"
@@ -486,29 +487,29 @@ extern const struct config_enum_entry dynamic_shared_memory_options[];
 /*
  * GUC option variables that are exported from this module
  */
-bool		AllowAlterSystem = true;
-bool		log_duration = false;
-bool		Debug_print_plan = false;
-bool		Debug_print_parse = false;
-bool		Debug_print_rewritten = false;
-bool		Debug_pretty_print = true;
+sighup_guc bool		AllowAlterSystem = true;
+session_guc bool		log_duration = false;
+session_guc bool		Debug_print_plan = false;
+session_guc bool		Debug_print_parse = false;
+session_guc bool		Debug_print_rewritten = false;
+session_guc bool		Debug_pretty_print = true;
 
 #ifdef DEBUG_NODE_TESTS_ENABLED
-bool		Debug_copy_parse_plan_trees;
-bool		Debug_write_read_parse_plan_trees;
-bool		Debug_raw_expression_coverage_test;
+session_guc bool		Debug_copy_parse_plan_trees;
+session_guc bool		Debug_write_read_parse_plan_trees;
+session_guc bool		Debug_raw_expression_coverage_test;
 #endif
 
-bool		log_parser_stats = false;
-bool		log_planner_stats = false;
-bool		log_executor_stats = false;
-bool		log_statement_stats = false;	/* this is sort of all three above
+session_guc bool		log_parser_stats = false;
+session_guc bool		log_planner_stats = false;
+session_guc bool		log_executor_stats = false;
+session_guc bool		log_statement_stats = false;	/* this is sort of all three above
 											 * together */
-bool		log_btree_build_stats = false;
-char	   *event_source;
+session_guc bool		log_btree_build_stats = false;
+postmaster_guc char	   *event_source;
 
-bool		row_security;
-bool		check_function_bodies = true;
+session_guc bool		row_security;
+session_guc bool		check_function_bodies = true;
 
 /*
  * This GUC exists solely for backward compatibility, check its definition for
@@ -516,36 +517,36 @@ bool		check_function_bodies = true;
  */
 static bool default_with_oids = false;
 
-bool		current_role_is_superuser;
+session_guc bool		current_role_is_superuser;
 
-int			log_min_error_statement = ERROR;
-int			log_min_messages = WARNING;
-int			client_min_messages = NOTICE;
-int			log_min_duration_sample = -1;
-int			log_min_duration_statement = -1;
-int			log_parameter_max_length = -1;
-int			log_parameter_max_length_on_error = 0;
-int			log_temp_files = -1;
-double		log_statement_sample_rate = 1.0;
-double		log_xact_sample_rate = 0;
-char	   *backtrace_functions;
+session_guc int			log_min_error_statement = ERROR;
+session_guc int			log_min_messages = WARNING;
+session_guc int			client_min_messages = NOTICE;
+session_guc int			log_min_duration_sample = -1;
+session_guc int			log_min_duration_statement = -1;
+session_guc int			log_parameter_max_length = -1;
+session_guc int			log_parameter_max_length_on_error = 0;
+session_guc int			log_temp_files = -1;
+session_guc double		log_statement_sample_rate = 1.0;
+session_guc double		log_xact_sample_rate = 0;
+session_guc char	   *backtrace_functions;
 
-int			temp_file_limit = -1;
+session_guc int			temp_file_limit = -1;
 
-int			num_temp_buffers = 1024;
+session_guc int			num_temp_buffers = 1024;
 
-char	   *cluster_name = "";
-char	   *ConfigFileName;
-char	   *HbaFileName;
-char	   *IdentFileName;
-char	   *external_pid_file;
+postmaster_guc char	   *cluster_name = "";
+postmaster_guc char	   *ConfigFileName;
+postmaster_guc char	   *HbaFileName;
+postmaster_guc char	   *IdentFileName;
+postmaster_guc char	   *external_pid_file;
 
-char	   *application_name;
+session_guc char	   *application_name;
 
-int			tcp_keepalives_idle;
-int			tcp_keepalives_interval;
-int			tcp_keepalives_count;
-int			tcp_user_timeout;
+session_guc int			tcp_keepalives_idle;
+session_guc int			tcp_keepalives_interval;
+session_guc int			tcp_keepalives_count;
+session_guc int			tcp_user_timeout;
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -553,73 +554,73 @@ int			tcp_user_timeout;
  * This avoids breaking compatibility with clients that have never supported
  * renegotiation and therefore always try to zero it.
  */
-static int	ssl_renegotiation_limit;
+static dynamic_singleton int	ssl_renegotiation_limit;
 
 /*
  * This really belongs in pg_shmem.c, but is defined here so that it doesn't
  * need to be duplicated in all the different implementations of pg_shmem.c.
  */
-int			huge_pages = HUGE_PAGES_TRY;
-int			huge_page_size;
-static int	huge_pages_status = HUGE_PAGES_UNKNOWN;
+postmaster_guc int			huge_pages = HUGE_PAGES_TRY;
+postmaster_guc int			huge_page_size;
+static postmaster_guc int	huge_pages_status = HUGE_PAGES_UNKNOWN;
 
 /*
  * These variables are all dummies that don't do anything, except in some
  * cases provide the value for SHOW to display.  The real state is elsewhere
  * and is kept in sync by assign_hooks.
  */
-static char *syslog_ident_str;
-static double phony_random_seed;
-static char *client_encoding_string;
-static char *datestyle_string;
-static char *server_encoding_string;
-static char *server_version_string;
-static int	server_version_num;
-static char *debug_io_direct_string;
-static char *restrict_nonsystem_relation_kind_string;
+static sighup_guc char *syslog_ident_str;
+static session_guc double phony_random_seed;
+static session_guc char *client_encoding_string;
+static session_guc char *datestyle_string;
+static session_local char *server_encoding_string;
+static internal_guc char *server_version_string;
+static internal_guc int	server_version_num;
+static postmaster_guc char *debug_io_direct_string;
+static session_guc char *restrict_nonsystem_relation_kind_string;
 
 #ifdef HAVE_SYSLOG
 #define	DEFAULT_SYSLOG_FACILITY LOG_LOCAL0
 #else
 #define	DEFAULT_SYSLOG_FACILITY 0
 #endif
-static int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
+static sighup_guc int	syslog_facility = DEFAULT_SYSLOG_FACILITY;
 
-static char *timezone_string;
-static char *log_timezone_string;
-static char *timezone_abbreviations_string;
-static char *data_directory;
-static char *session_authorization_string;
-static int	max_function_args;
-static int	max_index_keys;
-static int	max_identifier_length;
-static int	block_size;
-static int	segment_size;
-static int	shared_memory_size_mb;
-static int	shared_memory_size_in_huge_pages;
-static int	wal_block_size;
-static int	num_os_semaphores;
-static bool data_checksums;
-static bool integer_datetimes;
+static session_guc char *timezone_string;
+static sighup_guc char *log_timezone_string;
+static session_guc char *timezone_abbreviations_string;
+static postmaster_guc char *data_directory;
+static session_guc char *session_authorization_string;
+static internal_guc int	max_function_args;
+static internal_guc int	max_index_keys;
+static internal_guc int	max_identifier_length;
+static internal_guc int	block_size;
+static internal_guc int	segment_size;
+static internal_guc int	shared_memory_size_mb;
+static internal_guc int	shared_memory_size_in_huge_pages;
+static internal_guc int	wal_block_size;
+static internal_guc int	num_os_semaphores;
+static internal_guc bool data_checksums;
+static internal_guc bool integer_datetimes;
 
 #ifdef USE_ASSERT_CHECKING
 #define DEFAULT_ASSERT_ENABLED true
 #else
 #define DEFAULT_ASSERT_ENABLED false
 #endif
-static bool assert_enabled = DEFAULT_ASSERT_ENABLED;
+static internal_guc bool assert_enabled = DEFAULT_ASSERT_ENABLED;
 
-static char *recovery_target_timeline_string;
-static char *recovery_target_string;
-static char *recovery_target_xid_string;
-static char *recovery_target_name_string;
-static char *recovery_target_lsn_string;
+static postmaster_guc char *recovery_target_timeline_string;
+static postmaster_guc char *recovery_target_string;
+static postmaster_guc char *recovery_target_xid_string;
+static postmaster_guc char *recovery_target_name_string;
+static postmaster_guc char *recovery_target_lsn_string;
 
 /* should be static, but commands/variable.c needs to get at this */
-char	   *role_string;
+session_guc char	   *role_string;
 
 /* should be static, but guc.c needs to get at this */
-bool		in_hot_standby_guc;
+internal_guc bool		in_hot_standby_guc;
 
 
 /*
@@ -739,7 +740,6 @@ const char *const config_type_names[] =
 StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 				 "array length mismatch");
 
-
 /*
  * Contents of GUC tables
  *
@@ -767,7 +767,7 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
  *	  variable_is_guc_list_quote() in src/bin/pg_dump/dumputils.c.
  */
 
-struct config_bool ConfigureNamesBool[] =
+static_singleton struct config_bool ConfigureNamesBool[] =
 {
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,

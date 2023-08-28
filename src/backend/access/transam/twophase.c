@@ -112,7 +112,7 @@
 #define TWOPHASE_DIR "pg_twophase"
 
 /* GUC variable, can't be changed after startup */
-int			max_prepared_xacts = 0;
+postmaster_guc int			max_prepared_xacts = 0;
 
 /*
  * This struct describes one global transaction that is in prepared state
@@ -185,7 +185,7 @@ typedef struct TwoPhaseStateData
 	GlobalTransaction prepXacts[FLEXIBLE_ARRAY_MEMBER];
 } TwoPhaseStateData;
 
-static TwoPhaseStateData *TwoPhaseState;
+static global TwoPhaseStateData *TwoPhaseState;
 
 /*
  * Global transaction entry currently locked by us, if any.  Note that any
@@ -193,9 +193,9 @@ static TwoPhaseStateData *TwoPhaseState;
  * TwoPhaseStateLock, though obviously the pointer itself doesn't need to be
  * (since it's just local memory).
  */
-static GlobalTransaction MyLockedGxact = NULL;
+static session_local GlobalTransaction MyLockedGxact = NULL;
 
-static bool twophaseExitRegistered = false;
+static session_local bool twophaseExitRegistered = false;
 
 static void RecordTransactionCommitPrepared(TransactionId xid,
 											int nchildren,
@@ -802,8 +802,8 @@ TwoPhaseGetGXact(TransactionId xid, bool lock_held)
 	GlobalTransaction result = NULL;
 	int			i;
 
-	static TransactionId cached_xid = InvalidTransactionId;
-	static GlobalTransaction cached_gxact = NULL;
+	static session_local TransactionId cached_xid = InvalidTransactionId;
+	static session_local GlobalTransaction cached_gxact = NULL;
 
 	Assert(!lock_held || LWLockHeldByMe(TwoPhaseStateLock));
 
@@ -1015,7 +1015,7 @@ typedef struct StateFileChunk
 	struct StateFileChunk *next;
 } StateFileChunk;
 
-static struct xllist
+static session_local struct xllist
 {
 	StateFileChunk *head;		/* first data block in the chain */
 	StateFileChunk *tail;		/* last block in chain */

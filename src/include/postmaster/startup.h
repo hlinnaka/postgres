@@ -23,7 +23,7 @@
 			ereport(LOG, errmsg(msg, secs, (usecs / 10000),  __VA_ARGS__ )); \
 	} while(0)
 
-extern PGDLLIMPORT int log_startup_progress_interval;
+extern PGDLLIMPORT sighup_guc int log_startup_progress_interval;
 
 extern void HandleStartupProcInterrupts(void);
 extern void StartupProcessMain(char *startup_data, size_t startup_data_len) pg_attribute_noreturn();

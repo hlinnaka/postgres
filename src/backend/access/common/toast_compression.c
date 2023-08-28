@@ -23,7 +23,7 @@
 #include "varatt.h"
 
 /* GUC */
-int			default_toast_compression = TOAST_PGLZ_COMPRESSION;
+session_guc int			default_toast_compression = TOAST_PGLZ_COMPRESSION;
 
 #define NO_LZ4_SUPPORT() \
 	ereport(ERROR, \

@@ -64,12 +64,12 @@
 /*
  * GUC parameters
  */
-int			vacuum_freeze_min_age;
-int			vacuum_freeze_table_age;
-int			vacuum_multixact_freeze_min_age;
-int			vacuum_multixact_freeze_table_age;
-int			vacuum_failsafe_age;
-int			vacuum_multixact_failsafe_age;
+session_guc int			vacuum_freeze_min_age;
+session_guc int			vacuum_freeze_table_age;
+session_guc int			vacuum_multixact_freeze_min_age;
+session_guc int			vacuum_multixact_freeze_table_age;
+session_guc int			vacuum_failsafe_age;
+session_guc int			vacuum_multixact_failsafe_age;
 
 /*
  * Variables for cost-based vacuum delay. The defaults differ between
@@ -77,8 +77,8 @@ int			vacuum_multixact_failsafe_age;
  * vacuum code. They are initialized here to the defaults for client backends
  * executing VACUUM or ANALYZE.
  */
-double		vacuum_cost_delay = 0;
-int			vacuum_cost_limit = 200;
+session_guc double		vacuum_cost_delay = 0;
+session_guc int			vacuum_cost_limit = 200;
 
 /*
  * VacuumFailsafeActive is a defined as a global so that we can determine
@@ -93,15 +93,15 @@ int			vacuum_cost_limit = 200;
  * are free to set it if they desire this behavior, but it is false by default
  * and reset to false in between vacuuming each relation.
  */
-bool		VacuumFailsafeActive = false;
+session_local bool		VacuumFailsafeActive = false;
 
 /*
  * Variables for cost-based parallel vacuum.  See comments atop
  * compute_parallel_delay to understand how it works.
  */
-pg_atomic_uint32 *VacuumSharedCostBalance = NULL;
-pg_atomic_uint32 *VacuumActiveNWorkers = NULL;
-int			VacuumCostBalanceLocal = 0;
+session_local pg_atomic_uint32 *VacuumSharedCostBalance = NULL;
+session_local pg_atomic_uint32 *VacuumActiveNWorkers = NULL;
+session_local int			VacuumCostBalanceLocal = 0;
 
 /* non-export function prototypes */
 static List *expand_vacuum_rel(VacuumRelation *vrel,
@@ -478,7 +478,7 @@ void
 vacuum(List *relations, VacuumParams *params, BufferAccessStrategy bstrategy,
 	   MemoryContext vac_context, bool isTopLevel)
 {
-	static bool in_vacuum = false;
+	static session_local bool in_vacuum = false;
 
 	const char *stmttype;
 	volatile bool in_outer_xact,

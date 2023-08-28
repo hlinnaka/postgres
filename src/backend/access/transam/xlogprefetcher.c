@@ -65,7 +65,7 @@
 /* #define XLOGPREFETCHER_DEBUG_LEVEL LOG */
 
 /* GUCs */
-int			recovery_prefetch = RECOVERY_PREFETCH_TRY;
+sighup_guc int			recovery_prefetch = RECOVERY_PREFETCH_TRY;
 
 #ifdef USE_PREFETCH
 #define RecoveryPrefetchEnabled() \
@@ -75,7 +75,7 @@ int			recovery_prefetch = RECOVERY_PREFETCH_TRY;
 #define RecoveryPrefetchEnabled() false
 #endif
 
-static int	XLogPrefetchReconfigureCount = 0;
+static session_local int	XLogPrefetchReconfigureCount = 0;
 
 /*
  * Enum used to report whether an IO should be started.
@@ -196,7 +196,7 @@ static inline void XLogPrefetcherCompleteFilters(XLogPrefetcher *prefetcher,
 static LsnReadQueueNextStatus XLogPrefetcherNextBlock(uintptr_t pgsr_private,
 													  XLogRecPtr *lsn);
 
-static XLogPrefetchStats *SharedStats;
+static global XLogPrefetchStats *SharedStats;
 
 static inline LsnReadQueue *
 lrq_alloc(uint32 max_distance,

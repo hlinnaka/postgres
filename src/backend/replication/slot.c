@@ -132,20 +132,20 @@ StaticAssertDecl(lengthof(SlotInvalidationCauses) == (RS_INVAL_MAX_CAUSES + 1),
 #define SLOT_VERSION	5		/* version for new files */
 
 /* Control array for replication slot management */
-ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
+global ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
 
 /* My backend's replication slot in the shared memory array */
-ReplicationSlot *MyReplicationSlot = NULL;
+session_local ReplicationSlot *MyReplicationSlot = NULL;
 
 /* GUC variables */
-int			max_replication_slots = 10; /* the maximum number of replication
+postmaster_guc int			max_replication_slots = 10; /* the maximum number of replication
 										 * slots */
 
 /*
  * This GUC lists streaming replication standby server slot names that
  * logical WAL sender processes will wait for.
  */
-char	   *synchronized_standby_slots;
+sighup_guc char	   *synchronized_standby_slots;
 
 /* This is the parsed and cached configuration for synchronized_standby_slots */
 static SyncStandbySlotsConfigData *synchronized_standby_slots_config;

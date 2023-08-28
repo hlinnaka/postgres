@@ -29,14 +29,14 @@
 typedef struct PGPROC PGPROC;
 
 /* GUC variables */
-extern PGDLLIMPORT int max_locks_per_xact;
+extern PGDLLIMPORT postmaster_guc int max_locks_per_xact;
 
 #ifdef LOCK_DEBUG
-extern PGDLLIMPORT int Trace_lock_oidmin;
-extern PGDLLIMPORT bool Trace_locks;
-extern PGDLLIMPORT bool Trace_userlocks;
-extern PGDLLIMPORT int Trace_lock_table;
-extern PGDLLIMPORT bool Debug_deadlocks;
+extern PGDLLIMPORT session_guc int Trace_lock_oidmin;
+extern PGDLLIMPORT session_guc bool Trace_locks;
+extern PGDLLIMPORT session_guc bool Trace_userlocks;
+extern PGDLLIMPORT session_guc int Trace_lock_table;
+extern PGDLLIMPORT session_guc bool Debug_deadlocks;
 #endif							/* LOCK_DEBUG */
 
 

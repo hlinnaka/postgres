@@ -20,7 +20,7 @@
 #include "utils/pgstat_internal.h"
 
 
-PgStat_BgWriterStats PendingBgWriterStats = {0};
+global PgStat_BgWriterStats PendingBgWriterStats = {0};
 
 
 /*
@@ -29,10 +29,10 @@ PgStat_BgWriterStats PendingBgWriterStats = {0};
 void
 pgstat_report_bgwriter(void)
 {
-	PgStatShared_BgWriter *stats_shmem = &pgStatLocal.shmem->bgwriter;
+	PgStatShared_BgWriter *stats_shmem = &pgStatShared->bgwriter;
 	static const PgStat_BgWriterStats all_zeroes;
 
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(!pgStatShared->is_shutdown);
 	pgstat_assert_is_up();
 
 	/*
@@ -86,7 +86,7 @@ pgstat_bgwriter_init_shmem_cb(void *stats)
 void
 pgstat_bgwriter_reset_all_cb(TimestampTz ts)
 {
-	PgStatShared_BgWriter *stats_shmem = &pgStatLocal.shmem->bgwriter;
+	PgStatShared_BgWriter *stats_shmem = &pgStatShared->bgwriter;
 
 	/* see explanation above PgStatShared_BgWriter for the reset protocol */
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
@@ -101,7 +101,7 @@ pgstat_bgwriter_reset_all_cb(TimestampTz ts)
 void
 pgstat_bgwriter_snapshot_cb(void)
 {
-	PgStatShared_BgWriter *stats_shmem = &pgStatLocal.shmem->bgwriter;
+	PgStatShared_BgWriter *stats_shmem = &pgStatShared->bgwriter;
 	PgStat_BgWriterStats *reset_offset = &stats_shmem->reset_offset;
 	PgStat_BgWriterStats reset;
 

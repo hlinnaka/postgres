@@ -43,10 +43,10 @@
 
 
 /* Hook for plugins to get control in ExplainOneQuery() */
-ExplainOneQuery_hook_type ExplainOneQuery_hook = NULL;
+session_local ExplainOneQuery_hook_type ExplainOneQuery_hook = NULL;
 
 /* Hook for plugins to get control in explain_get_index_name() */
-explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
+session_local explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 
 
 /* Instrumentation data for SERIALIZE option */

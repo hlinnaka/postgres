@@ -40,7 +40,7 @@
 #include "utils/timeout.h"
 
 /* GUCs */
-bool		Trace_connection_negotiation = false;
+session_guc bool		Trace_connection_negotiation = false;
 
 static void BackendInitialize(ClientSocket *client_sock, CAC_state cac);
 static int	ProcessSSLStartup(Port *port);

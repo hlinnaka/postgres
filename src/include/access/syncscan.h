@@ -19,7 +19,7 @@
 
 /* GUC variables */
 #ifdef TRACE_SYNCSCAN
-extern PGDLLIMPORT bool trace_syncscan;
+extern PGDLLIMPORT session_guc bool trace_syncscan;
 #endif
 
 extern void ss_report_location(Relation rel, BlockNumber location);

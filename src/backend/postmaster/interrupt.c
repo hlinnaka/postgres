@@ -24,8 +24,8 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 
-volatile sig_atomic_t ConfigReloadPending = false;
-volatile sig_atomic_t ShutdownRequestPending = false;
+session_local volatile sig_atomic_t ConfigReloadPending = false;
+session_local volatile sig_atomic_t ShutdownRequestPending = false;
 
 /*
  * Simple interrupt handler for main loops of background processes.

@@ -310,13 +310,13 @@ struct PGPROC
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
 
 
-extern PGDLLIMPORT PGPROC *MyProc;
+extern PGDLLIMPORT session_local PGPROC *MyProc;
 
 /* Proc number of this backend. Equal to GetNumberFromPGProc(MyProc). */
-extern PGDLLIMPORT ProcNumber MyProcNumber;
+extern PGDLLIMPORT session_local ProcNumber MyProcNumber;
 
 /* Our parallel session leader, or INVALID_PROC_NUMBER if none */
-extern PGDLLIMPORT ProcNumber ParallelLeaderProcNumber;
+extern PGDLLIMPORT session_local ProcNumber ParallelLeaderProcNumber;
 
 /*
  * The proc number to use for our session's temp relations is normally our own,
@@ -423,9 +423,9 @@ typedef struct PROC_HDR
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
 
-extern PGDLLIMPORT PROC_HDR *ProcGlobal;
+extern PGDLLIMPORT global PROC_HDR *ProcGlobal;
 
-extern PGDLLIMPORT PGPROC *PreparedXactProcs;
+extern PGDLLIMPORT global PGPROC *PreparedXactProcs;
 
 /*
  * Accessors for getting PGPROC given a ProcNumber and vice versa.
@@ -445,13 +445,13 @@ extern PGDLLIMPORT PGPROC *PreparedXactProcs;
 #define NUM_AUXILIARY_PROCS		6
 
 /* configurable options */
-extern PGDLLIMPORT int DeadlockTimeout;
-extern PGDLLIMPORT int StatementTimeout;
-extern PGDLLIMPORT int LockTimeout;
-extern PGDLLIMPORT int IdleInTransactionSessionTimeout;
-extern PGDLLIMPORT int TransactionTimeout;
-extern PGDLLIMPORT int IdleSessionTimeout;
-extern PGDLLIMPORT bool log_lock_waits;
+extern PGDLLIMPORT session_guc int DeadlockTimeout;
+extern PGDLLIMPORT session_guc int StatementTimeout;
+extern PGDLLIMPORT session_guc int LockTimeout;
+extern PGDLLIMPORT session_guc int IdleInTransactionSessionTimeout;
+extern PGDLLIMPORT session_guc int TransactionTimeout;
+extern PGDLLIMPORT session_guc int IdleSessionTimeout;
+extern PGDLLIMPORT session_guc bool log_lock_waits;
 
 #ifdef EXEC_BACKEND
 extern slock_t *ProcStructLock;

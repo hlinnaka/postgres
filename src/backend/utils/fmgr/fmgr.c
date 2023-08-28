@@ -36,8 +36,8 @@
 /*
  * Hooks for function calls
  */
-PGDLLIMPORT needs_fmgr_hook_type needs_fmgr_hook = NULL;
-PGDLLIMPORT fmgr_hook_type fmgr_hook = NULL;
+PGDLLIMPORT session_local needs_fmgr_hook_type needs_fmgr_hook = NULL;
+PGDLLIMPORT session_local fmgr_hook_type fmgr_hook = NULL;
 
 /*
  * Hashtable for fast lookup of external C functions
@@ -52,7 +52,7 @@ typedef struct
 	const Pg_finfo_record *inforec; /* address of its info record */
 } CFuncHashTabEntry;
 
-static HTAB *CFuncHash = NULL;
+static session_local HTAB *CFuncHash = NULL;
 
 
 static void fmgr_info_cxt_security(Oid functionId, FmgrInfo *finfo, MemoryContext mcxt,

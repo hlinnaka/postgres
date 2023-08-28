@@ -12,9 +12,9 @@
 #include "plpy_procedure.h"
 #include "plpython.h"
 
-PyObject   *PLy_exc_error = NULL;
-PyObject   *PLy_exc_fatal = NULL;
-PyObject   *PLy_exc_spi_error = NULL;
+session_local PyObject   *PLy_exc_error = NULL;
+session_local PyObject   *PLy_exc_fatal = NULL;
+session_local PyObject   *PLy_exc_spi_error = NULL;
 
 
 static void PLy_traceback(PyObject *e, PyObject *v, PyObject *tb,

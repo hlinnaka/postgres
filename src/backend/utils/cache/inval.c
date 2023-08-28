@@ -168,7 +168,7 @@ typedef struct InvalMessageArray
 	int			maxmsgs;		/* current allocated size of array */
 } InvalMessageArray;
 
-static InvalMessageArray InvalMessageArrays[2];
+static session_local InvalMessageArray InvalMessageArrays[2];
 
 /* Control information for one logical group of messages */
 typedef struct InvalidationMsgsGroup
@@ -234,10 +234,10 @@ typedef struct TransInvalidationInfo
 	bool		RelcacheInitFileInval;
 } TransInvalidationInfo;
 
-static TransInvalidationInfo *transInvalInfo = NULL;
+static session_local TransInvalidationInfo *transInvalInfo = NULL;
 
 /* GUC storage */
-int			debug_discard_caches = 0;
+session_guc int			debug_discard_caches = 0;
 
 /*
  * Dynamically-registered callback functions.  Current implementation
@@ -252,7 +252,7 @@ int			debug_discard_caches = 0;
 #define MAX_SYSCACHE_CALLBACKS 64
 #define MAX_RELCACHE_CALLBACKS 10
 
-static struct SYSCACHECALLBACK
+static session_local struct SYSCACHECALLBACK
 {
 	int16		id;				/* cache number */
 	int16		link;			/* next callback index+1 for same cache */
@@ -260,17 +260,17 @@ static struct SYSCACHECALLBACK
 	Datum		arg;
 }			syscache_callback_list[MAX_SYSCACHE_CALLBACKS];
 
-static int16 syscache_callback_links[SysCacheSize];
+static session_local int16 syscache_callback_links[SysCacheSize];
 
-static int	syscache_callback_count = 0;
+static session_local int	syscache_callback_count = 0;
 
-static struct RELCACHECALLBACK
+static session_local struct RELCACHECALLBACK
 {
 	RelcacheCallbackFunction function;
 	Datum		arg;
 }			relcache_callback_list[MAX_RELCACHE_CALLBACKS];
 
-static int	relcache_callback_count = 0;
+static session_local int	relcache_callback_count = 0;
 
 /* ----------------------------------------------------------------
  *				Invalidation subgroup support functions

@@ -23,10 +23,10 @@
 #include "utils/guc.h"
 #include "utils/ps_status.h"
 
-extern char **environ;
+extern dynamic_singleton char **environ;
 
 /* GUC variable */
-bool		update_process_title = DEFAULT_UPDATE_PROCESS_TITLE;
+session_guc bool		update_process_title = DEFAULT_UPDATE_PROCESS_TITLE;
 
 /*
  * Alternative ways of updating ps display:
@@ -72,31 +72,31 @@ bool		update_process_title = DEFAULT_UPDATE_PROCESS_TITLE;
 #ifndef PS_USE_CLOBBER_ARGV
 /* all but one option need a buffer to write their ps line in */
 #define PS_BUFFER_SIZE 256
-static char ps_buffer[PS_BUFFER_SIZE];
+static dynamic_singleton char ps_buffer[PS_BUFFER_SIZE];
 static const size_t ps_buffer_size = PS_BUFFER_SIZE;
 #else							/* PS_USE_CLOBBER_ARGV */
-static char *ps_buffer;			/* will point to argv area */
-static size_t ps_buffer_size;	/* space determined at run time */
-static size_t last_status_len;	/* use to minimize length of clobber */
+static dynamic_singleton char *ps_buffer;			/* will point to argv area */
+static dynamic_singleton size_t ps_buffer_size;	/* space determined at run time */
+static dynamic_singleton size_t last_status_len;	/* use to minimize length of clobber */
 #endif							/* PS_USE_CLOBBER_ARGV */
 
-static size_t ps_buffer_cur_len;	/* nominal strlen(ps_buffer) */
+static dynamic_singleton size_t ps_buffer_cur_len;	/* nominal strlen(ps_buffer) */
 
-static size_t ps_buffer_fixed_size; /* size of the constant prefix */
+static dynamic_singleton size_t ps_buffer_fixed_size; /* size of the constant prefix */
 
 /*
  * Length of ps_buffer before the suffix was appended to the end, or 0 if we
  * didn't set a suffix.
  */
-static size_t ps_buffer_nosuffix_len;
+static dynamic_singleton size_t ps_buffer_nosuffix_len;
 
 static void flush_ps_display(void);
 
 #endif							/* not PS_USE_NONE */
 
 /* save the original argv[] location here */
-static int	save_argc;
-static char **save_argv;
+static dynamic_singleton int	save_argc;
+static dynamic_singleton char **save_argv;
 
 
 /*

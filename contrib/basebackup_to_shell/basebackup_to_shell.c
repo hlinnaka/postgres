@@ -61,8 +61,11 @@ static const bbsink_ops bbsink_shell_ops = {
 	.cleanup = bbsink_forward_cleanup
 };
 
-static char *shell_command = "";
-static char *shell_required_role = "";
+static sighup_guc char *shell_command = "";
+static sighup_guc char *shell_required_role = "";
+
+DEFINE_STRING_GUC_ADDR(shell_command)
+DEFINE_STRING_GUC_ADDR(shell_required_role)
 
 void
 _PG_init(void)
@@ -70,7 +73,7 @@ _PG_init(void)
 	DefineCustomStringVariable("basebackup_to_shell.command",
 							   "Shell command to be executed for each backup file.",
 							   NULL,
-							   &shell_command,
+							   GUC_ADDR(shell_command),
 							   "",
 							   PGC_SIGHUP,
 							   0,
@@ -79,7 +82,7 @@ _PG_init(void)
 	DefineCustomStringVariable("basebackup_to_shell.required_role",
 							   "Backup user must be a member of this role to use shell backup target.",
 							   NULL,
-							   &shell_required_role,
+							   GUC_ADDR(shell_required_role),
 							   "",
 							   PGC_SIGHUP,
 							   0,

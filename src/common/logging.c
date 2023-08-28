@@ -18,18 +18,18 @@
 
 #include "common/logging.h"
 
-enum pg_log_level __pg_log_level;
+dynamic_singleton enum pg_log_level __pg_log_level;
 
-static const char *progname;
-static int	log_flags;
+static dynamic_singleton const char *progname;
+static dynamic_singleton int	log_flags;
 
-static void (*log_pre_callback) (void);
-static void (*log_locus_callback) (const char **, uint64 *);
+static dynamic_singleton void (*log_pre_callback) (void);
+static dynamic_singleton void (*log_locus_callback) (const char **, uint64 *);
 
-static const char *sgr_error = NULL;
-static const char *sgr_warning = NULL;
-static const char *sgr_note = NULL;
-static const char *sgr_locus = NULL;
+static dynamic_singleton const char *sgr_error = NULL;
+static dynamic_singleton const char *sgr_warning = NULL;
+static dynamic_singleton const char *sgr_note = NULL;
+static dynamic_singleton const char *sgr_locus = NULL;
 
 #define SGR_ERROR_DEFAULT "01;31"
 #define SGR_WARNING_DEFAULT "01;35"

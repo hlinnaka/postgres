@@ -49,31 +49,31 @@
 /*
  * Flags set by interrupt handlers for later service in the redo loop.
  */
-static volatile sig_atomic_t got_SIGHUP = false;
-static volatile sig_atomic_t shutdown_requested = false;
-static volatile sig_atomic_t promote_signaled = false;
+static global volatile sig_atomic_t got_SIGHUP = false;
+static global volatile sig_atomic_t shutdown_requested = false;
+static global volatile sig_atomic_t promote_signaled = false;
 
 /*
  * Flag set when executing a restore command, to tell SIGTERM signal handler
  * that it's safe to just proc_exit.
  */
-static volatile sig_atomic_t in_restore_command = false;
+static global volatile sig_atomic_t in_restore_command = false;
 
 /*
  * Time at which the most recent startup operation started.
  */
-static TimestampTz startup_progress_phase_start_time;
+static global TimestampTz startup_progress_phase_start_time;
 
 /*
  * Indicates whether the startup progress interval mentioned by the user is
  * elapsed or not. TRUE if timeout occurred, FALSE otherwise.
  */
-static volatile sig_atomic_t startup_progress_timer_expired = false;
+static global volatile sig_atomic_t startup_progress_timer_expired = false;
 
 /*
  * Time between progress updates for long-running startup operations.
  */
-int			log_startup_progress_interval = 10000;	/* 10 sec */
+sighup_guc int			log_startup_progress_interval = 10000;	/* 10 sec */
 
 /* Signal handlers */
 static void StartupProcTriggerHandler(SIGNAL_ARGS);

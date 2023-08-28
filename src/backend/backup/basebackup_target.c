@@ -37,7 +37,7 @@ static bbsink *server_get_sink(bbsink *next_sink, void *detail_arg);
 static void *reject_target_detail(char *target, char *target_detail);
 static void *server_check_detail(char *target, char *target_detail);
 
-static BaseBackupTargetType builtin_backup_targets[] =
+static static_singleton BaseBackupTargetType builtin_backup_targets[] =
 {
 	{
 		"blackhole", reject_target_detail, blackhole_get_sink
@@ -50,7 +50,7 @@ static BaseBackupTargetType builtin_backup_targets[] =
 	}
 };
 
-static List *BaseBackupTargetTypeList = NIL;
+static session_local List *BaseBackupTargetTypeList = NIL;
 
 /*
  * Add a new base backup target type.

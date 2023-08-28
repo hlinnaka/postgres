@@ -15,7 +15,7 @@
 #include "storage/bufmgr.h"
 
 /* GUC variable */
-extern PGDLLIMPORT bool ignore_invalid_pages;
+extern PGDLLIMPORT postmaster_guc bool ignore_invalid_pages;
 
 /*
  * Prior to 8.4, all activity during recovery was carried out by the startup
@@ -24,7 +24,7 @@ extern PGDLLIMPORT bool ignore_invalid_pages;
  * potentially perform work during recovery should check RecoveryInProgress().
  * See XLogCtl notes in xlog.c.
  */
-extern PGDLLIMPORT bool InRecovery;
+extern PGDLLIMPORT global bool InRecovery;
 
 /*
  * Like InRecovery, standbyState is only valid in the startup process.
@@ -55,7 +55,7 @@ typedef enum
 	STANDBY_SNAPSHOT_READY,
 } HotStandbyState;
 
-extern PGDLLIMPORT HotStandbyState standbyState;
+extern PGDLLIMPORT global HotStandbyState standbyState;
 
 #define InHotStandby (standbyState >= STANDBY_SNAPSHOT_PENDING)
 

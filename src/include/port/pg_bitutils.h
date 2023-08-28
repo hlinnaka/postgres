@@ -300,10 +300,10 @@ pg_ceil_log2_64(uint64 num)
 
 #ifdef TRY_POPCNT_FAST
 /* Attempt to use the POPCNT instruction, but perform a runtime check first */
-extern PGDLLIMPORT int (*pg_popcount32) (uint32 word);
-extern PGDLLIMPORT int (*pg_popcount64) (uint64 word);
-extern PGDLLIMPORT uint64 (*pg_popcount_optimized) (const char *buf, int bytes);
-extern PGDLLIMPORT uint64 (*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask);
+extern PGDLLIMPORT dynamic_singleton int (*pg_popcount32) (uint32 word);
+extern PGDLLIMPORT dynamic_singleton int (*pg_popcount64) (uint64 word);
+extern PGDLLIMPORT dynamic_singleton uint64 (*pg_popcount_optimized) (const char *buf, int bytes);
+extern PGDLLIMPORT dynamic_singleton uint64 (*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask);
 
 /*
  * We can also try to use the AVX-512 popcount instruction on some systems.

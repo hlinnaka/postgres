@@ -27,7 +27,7 @@
 void
 pgstat_report_archiver(const char *xlog, bool failed)
 {
-	PgStatShared_Archiver *stats_shmem = &pgStatLocal.shmem->archiver;
+	PgStatShared_Archiver *stats_shmem = &pgStatShared->archiver;
 	TimestampTz now = GetCurrentTimestamp();
 
 	pgstat_begin_changecount_write(&stats_shmem->changecount);
@@ -73,7 +73,7 @@ pgstat_archiver_init_shmem_cb(void *stats)
 void
 pgstat_archiver_reset_all_cb(TimestampTz ts)
 {
-	PgStatShared_Archiver *stats_shmem = &pgStatLocal.shmem->archiver;
+	PgStatShared_Archiver *stats_shmem = &pgStatShared->archiver;
 
 	/* see explanation above PgStatShared_Archiver for the reset protocol */
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
@@ -88,7 +88,7 @@ pgstat_archiver_reset_all_cb(TimestampTz ts)
 void
 pgstat_archiver_snapshot_cb(void)
 {
-	PgStatShared_Archiver *stats_shmem = &pgStatLocal.shmem->archiver;
+	PgStatShared_Archiver *stats_shmem = &pgStatShared->archiver;
 	PgStat_ArchiverStats *stat_snap = &pgStatLocal.snapshot.archiver;
 	PgStat_ArchiverStats *reset_offset = &stats_shmem->reset_offset;
 	PgStat_ArchiverStats reset;

@@ -92,8 +92,8 @@ typedef struct SimpleEcontextStackEntry
 	struct SimpleEcontextStackEntry *next;	/* next stack entry up */
 } SimpleEcontextStackEntry;
 
-static EState *shared_simple_eval_estate = NULL;
-static SimpleEcontextStackEntry *simple_econtext_stack = NULL;
+static session_local EState *shared_simple_eval_estate = NULL;
+static session_local SimpleEcontextStackEntry *simple_econtext_stack = NULL;
 
 /*
  * In addition to the shared simple-eval EState, we have a shared resource
@@ -103,7 +103,7 @@ static SimpleEcontextStackEntry *simple_econtext_stack = NULL;
  * is used over and over.  (DO blocks use their own resowner, in exactly the
  * same way described above for shared_simple_eval_estate.)
  */
-static ResourceOwner shared_simple_eval_resowner = NULL;
+static session_local ResourceOwner shared_simple_eval_resowner = NULL;
 
 /*
  * Memory management within a plpgsql function generally works with three
@@ -179,8 +179,8 @@ typedef struct					/* cast_hash table entry */
 	LocalTransactionId cast_lxid;
 } plpgsql_CastHashEntry;
 
-static HTAB *cast_expr_hash = NULL;
-static HTAB *shared_cast_hash = NULL;
+static session_local HTAB *cast_expr_hash = NULL;
+static session_local HTAB *shared_cast_hash = NULL;
 
 /*
  * LOOP_RC_PROCESSING encapsulates common logic for looping statements to

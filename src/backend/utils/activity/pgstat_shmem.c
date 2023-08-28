@@ -79,16 +79,16 @@ static const dshash_parameters dsh_params = {
  * pgStatLocal.shmem->gc_request_count is incremented - which each backend
  * compares to their copy of pgStatSharedRefAge on a regular basis.
  */
-static pgstat_entry_ref_hash_hash *pgStatEntryRefHash = NULL;
-static int	pgStatSharedRefAge = 0; /* cache age of pgStatShmLookupCache */
+static session_local pgstat_entry_ref_hash_hash *pgStatEntryRefHash = NULL;
+static session_local int	pgStatSharedRefAge = 0; /* cache age of pgStatShmLookupCache */
 
 /*
  * Memory contexts containing the pgStatEntryRefHash table and the
  * pgStatSharedRef entries respectively. Kept separate to make it easier to
  * track / attribute memory usage.
  */
-static MemoryContext pgStatSharedRefContext = NULL;
-static MemoryContext pgStatEntryRefHashContext = NULL;
+static session_local MemoryContext pgStatSharedRefContext = NULL;
+static session_local MemoryContext pgStatEntryRefHashContext = NULL;
 
 
 /* ------------------------------------------------------------
@@ -159,14 +159,14 @@ StatsShmemInit(void)
 	Size		sz;
 
 	sz = StatsShmemSize();
-	pgStatLocal.shmem = (PgStat_ShmemControl *)
+	pgStatShared = (PgStat_ShmemControl *)
 		ShmemInitStruct("Shared Memory Stats", sz, &found);
 
 	if (!IsUnderPostmaster)
 	{
 		dsa_area   *dsa;
 		dshash_table *dsh;
-		PgStat_ShmemControl *ctl = pgStatLocal.shmem;
+		PgStat_ShmemControl *ctl = pgStatShared;
 		char	   *p = (char *) ctl;
 
 		Assert(!found);
@@ -250,12 +250,12 @@ pgstat_attach_shmem(void)
 	/* stats shared memory persists for the backend lifetime */
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
-	pgStatLocal.dsa = dsa_attach_in_place(pgStatLocal.shmem->raw_dsa_area,
+	pgStatLocal.dsa = dsa_attach_in_place(pgStatShared->raw_dsa_area,
 										  NULL);
 	dsa_pin_mapping(pgStatLocal.dsa);
 
 	pgStatLocal.shared_hash = dshash_attach(pgStatLocal.dsa, &dsh_params,
-											pgStatLocal.shmem->hash_handle, 0);
+											pgStatShared->hash_handle, 0);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -278,7 +278,7 @@ pgstat_detach_shmem(void)
 	 * was provided to dsa_attach_in_place(), causing no cleanup callbacks to
 	 * be registered.  Hence, release it manually now.
 	 */
-	dsa_release_in_place(pgStatLocal.shmem->raw_dsa_area);
+	dsa_release_in_place(pgStatShared->raw_dsa_area);
 
 	pgStatLocal.dsa = NULL;
 }
@@ -346,7 +346,7 @@ pgstat_setup_shared_refs(void)
 	pgStatEntryRefHash =
 		pgstat_entry_ref_hash_create(pgStatEntryRefHashContext,
 									 PGSTAT_ENTRY_REF_HASH_SIZE, NULL);
-	pgStatSharedRefAge = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	pgStatSharedRefAge = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 	Assert(pgStatSharedRefAge != 0);
 }
 
@@ -444,7 +444,7 @@ pgstat_get_entry_ref(PgStat_Kind kind, Oid dboid, Oid objoid, bool create,
 	Assert(create || created_entry == NULL);
 	pgstat_assert_is_up();
 	Assert(pgStatLocal.shared_hash != NULL);
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(!pgStatShared->is_shutdown);
 
 	pgstat_setup_memcxt();
 	pgstat_setup_shared_refs();
@@ -662,7 +662,7 @@ pgstat_get_entry_ref_locked(PgStat_Kind kind, Oid dboid, Oid objoid,
 void
 pgstat_request_entry_refs_gc(void)
 {
-	pg_atomic_fetch_add_u64(&pgStatLocal.shmem->gc_request_count, 1);
+	pg_atomic_fetch_add_u64(&pgStatShared->gc_request_count, 1);
 }
 
 static bool
@@ -676,7 +676,7 @@ pgstat_need_entry_refs_gc(void)
 	/* should have been initialized when creating pgStatEntryRefHash */
 	Assert(pgStatSharedRefAge != 0);
 
-	curage = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	curage = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 
 	return pgStatSharedRefAge != curage;
 }
@@ -688,7 +688,7 @@ pgstat_gc_entry_refs(void)
 	PgStat_EntryRefHashEntry *ent;
 	uint64		curage;
 
-	curage = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	curage = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 	Assert(curage != 0);
 
 	/*

@@ -101,9 +101,9 @@ typedef struct _SPI_plan *SPIPlanPtr;
 
 #define SPI_OPT_NONATOMIC		(1 << 0)
 
-extern PGDLLIMPORT uint64 SPI_processed;
-extern PGDLLIMPORT SPITupleTable *SPI_tuptable;
-extern PGDLLIMPORT int SPI_result;
+extern PGDLLIMPORT session_local uint64 SPI_processed;
+extern PGDLLIMPORT session_local SPITupleTable *SPI_tuptable;
+extern PGDLLIMPORT session_local int SPI_result;
 
 extern int	SPI_connect(void);
 extern int	SPI_connect_ext(int options);

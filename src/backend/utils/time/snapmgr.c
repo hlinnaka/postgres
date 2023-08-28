@@ -78,28 +78,28 @@
  * These SnapshotData structs are static to simplify memory allocation
  * (see the hack in GetSnapshotData to avoid repeated malloc/free).
  */
-static SnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};
-static SnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};
-SnapshotData CatalogSnapshotData = {SNAPSHOT_MVCC};
-SnapshotData SnapshotSelfData = {SNAPSHOT_SELF};
-SnapshotData SnapshotAnyData = {SNAPSHOT_ANY};
+static session_local SnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};
+static session_local SnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};
+session_local SnapshotData CatalogSnapshotData = {SNAPSHOT_MVCC};
+session_local SnapshotData SnapshotSelfData = {SNAPSHOT_SELF};
+session_local SnapshotData SnapshotAnyData = {SNAPSHOT_ANY};
 
 /* Pointers to valid snapshots */
-static Snapshot CurrentSnapshot = NULL;
-static Snapshot SecondarySnapshot = NULL;
-static Snapshot CatalogSnapshot = NULL;
-static Snapshot HistoricSnapshot = NULL;
+static session_local Snapshot CurrentSnapshot = NULL;
+static session_local Snapshot SecondarySnapshot = NULL;
+static session_local Snapshot CatalogSnapshot = NULL;
+static session_local Snapshot HistoricSnapshot = NULL;
 
 /*
  * These are updated by GetSnapshotData.  We initialize them this way
  * for the convenience of TransactionIdIsInProgress: even in bootstrap
  * mode, we don't want it to say that BootstrapTransactionId is in progress.
  */
-TransactionId TransactionXmin = FirstNormalTransactionId;
-TransactionId RecentXmin = FirstNormalTransactionId;
+session_local TransactionId TransactionXmin = FirstNormalTransactionId;
+session_local TransactionId RecentXmin = FirstNormalTransactionId;
 
 /* (table, ctid) => (cmin, cmax) mapping during timetravel */
-static HTAB *tuplecid_data = NULL;
+static session_local HTAB *tuplecid_data = NULL;
 
 /*
  * Elements of the active snapshot stack.
@@ -117,10 +117,10 @@ typedef struct ActiveSnapshotElt
 } ActiveSnapshotElt;
 
 /* Top of the stack of active snapshots */
-static ActiveSnapshotElt *ActiveSnapshot = NULL;
+static session_local ActiveSnapshotElt *ActiveSnapshot = NULL;
 
 /* Bottom of the stack of active snapshots */
-static ActiveSnapshotElt *OldestActiveSnapshot = NULL;
+static session_local ActiveSnapshotElt *OldestActiveSnapshot = NULL;
 
 /*
  * Currently registered Snapshots.  Ordered in a heap by xmin, so that we can
@@ -129,17 +129,17 @@ static ActiveSnapshotElt *OldestActiveSnapshot = NULL;
 static int	xmin_cmp(const pairingheap_node *a, const pairingheap_node *b,
 					 void *arg);
 
-static pairingheap RegisteredSnapshots = {&xmin_cmp, NULL, NULL};
+static session_local pairingheap RegisteredSnapshots = {&xmin_cmp, NULL, NULL};
 
 /* first GetTransactionSnapshot call in a transaction? */
-bool		FirstSnapshotSet = false;
+session_local bool		FirstSnapshotSet = false;
 
 /*
  * Remember the serializable transaction snapshot, if any.  We cannot trust
  * FirstSnapshotSet in combination with IsolationUsesXactSnapshot(), because
  * GUC may be reset before us, changing the value of IsolationUsesXactSnapshot.
  */
-static Snapshot FirstXactSnapshot = NULL;
+static session_local Snapshot FirstXactSnapshot = NULL;
 
 /* Define pathname of exported-snapshot files */
 #define SNAPSHOT_EXPORT_DIR "pg_snapshots"
@@ -152,7 +152,7 @@ typedef struct ExportedSnapshot
 } ExportedSnapshot;
 
 /* Current xact's exported snapshots (a list of ExportedSnapshot structs) */
-static List *exportedSnapshots = NIL;
+static session_local List *exportedSnapshots = NIL;
 
 /* Prototypes for local functions */
 static Snapshot CopySnapshot(Snapshot snapshot);
