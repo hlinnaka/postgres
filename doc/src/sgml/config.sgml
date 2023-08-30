@@ -11240,6 +11240,24 @@ dynamic_library_path = '/usr/local/lib/postgresql:$libdir'
    <sect1 id="runtime-config-compatible">
     <title>Version and Platform Compatibility</title>
 
+    <variablelist>
+
+     <varlistentry id="guc-multithreaded" xreflabel="multithreaded">
+      <term><varname>multithreaded</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>multithreaded</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+      <para>
+       When <literal>true</literal>, PostgreSQL will use a multithreaded model
+       instead of a process model.
+      </para>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
+
     <sect2 id="runtime-config-compatible-version">
      <title>Previous PostgreSQL Versions</title>
 

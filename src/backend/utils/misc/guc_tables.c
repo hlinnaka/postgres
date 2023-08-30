@@ -787,6 +787,7 @@ StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
  *	  variable_is_guc_list_quote() in src/bin/pg_dump/dumputils.c.
  */
 
+DEFINE_BOOL_GUC_ADDR(IsMultiThreaded)
 DEFINE_BOOL_GUC_ADDR(enable_seqscan)
 DEFINE_BOOL_GUC_ADDR(enable_indexscan)
 DEFINE_BOOL_GUC_ADDR(enable_indexonlyscan)
@@ -1221,6 +1222,16 @@ DEFINE_ENUM_GUC_ADDR(io_method)
 
 static_singleton struct config_bool ConfigureNamesBool[] =
 {
+	{
+		{"multithreaded", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Instead of a process model, use a multi-threaded model"),
+			NULL,
+			GUC_SUPERUSER_ONLY | GUC_NO_RESET_ALL | GUC_NO_RESET
+		},
+		GUC_ADDR(IsMultiThreaded),
+		false,
+		NULL, NULL, NULL
+	},
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),

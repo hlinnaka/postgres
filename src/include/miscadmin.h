@@ -179,6 +179,8 @@ extern PGDLLIMPORT pg_global bool IsBinaryUpgrade;
 
 extern PGDLLIMPORT session_guc bool ExitOnAnyError;
 
+extern PGDLLIMPORT postmaster_guc bool IsMultiThreaded;
+
 extern PGDLLIMPORT pg_global char *DataDir;
 extern PGDLLIMPORT session_local int data_directory_mode;
 
