@@ -470,6 +470,7 @@ typedef struct
 	int			namedatalen;	/* NAMEDATALEN */
 	int			float8byval;	/* FLOAT8PASSBYVAL */
 	char		abi_extra[32];	/* see pg_config_manual.h */
+	bool		reentrant;		/* Whether the extension supports reentrancy */
 } Pg_magic_struct;
 
 /* The actual data block contents */
@@ -482,6 +483,19 @@ typedef struct
 	NAMEDATALEN, \
 	FLOAT8PASSBYVAL, \
 	FMGR_ABI_EXTRA, \
+	false, \
+}
+
+#define PG_MODULE_MAGIC_REENTRANT_DATA \
+{ \
+	sizeof(Pg_magic_struct), \
+	PG_VERSION_NUM / 100, \
+	FUNC_MAX_ARGS, \
+	INDEX_MAX_KEYS, \
+	NAMEDATALEN, \
+	FLOAT8PASSBYVAL, \
+	FMGR_ABI_EXTRA, \
+	true, \
 }
 
 StaticAssertDecl(sizeof(FMGR_ABI_EXTRA) <= sizeof(((Pg_magic_struct *) 0)->abi_extra),
@@ -506,6 +520,15 @@ PG_MAGIC_FUNCTION_NAME(void) \
 } \
 extern int no_such_variable
 
+#define PG_MODULE_MAGIC_REENTRANT \
+extern PGDLLEXPORT const Pg_magic_struct *PG_MAGIC_FUNCTION_NAME(void); \
+const Pg_magic_struct * \
+PG_MAGIC_FUNCTION_NAME(void) \
+{ \
+	static const Pg_magic_struct Pg_magic_data = PG_MODULE_MAGIC_REENTRANT_DATA; \
+	return &Pg_magic_data; \
+} \
+extern int no_such_variable
 
 /*-------------------------------------------------------------------------
  *		Support routines and macros for callers of fmgr-compatible functions
