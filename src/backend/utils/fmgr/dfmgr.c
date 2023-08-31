@@ -85,7 +85,7 @@ static char *substitute_libpath_macro(const char *name);
 static char *find_in_dynamic_libpath(const char *basename);
 
 /* Magic structure that module needs to match to be accepted */
-static const Pg_magic_struct magic_data = PG_MODULE_MAGIC_DATA;
+static const Pg_magic_struct magic_data = PG_MODULE_MAGIC_REENTRANT_DATA;
 
 
 /*
@@ -255,8 +255,9 @@ internal_load_library(const char *libname)
 		{
 			const Pg_magic_struct *magic_data_ptr = (*magic_func) ();
 
+			/* We will check reentrancy later. */
 			if (magic_data_ptr->len != magic_data.len ||
-				memcmp(magic_data_ptr, &magic_data, magic_data.len) != 0)
+				memcmp(magic_data_ptr, &magic_data, offsetof(Pg_magic_struct, reentrant)) != 0)
 			{
 				/* copy data block before unlinking library */
 				Pg_magic_struct module_magic_data = *magic_data_ptr;
@@ -268,6 +269,13 @@ internal_load_library(const char *libname)
 				/* issue suitable complaint */
 				incompatible_module_error(libname, &module_magic_data);
 			}
+
+			if (IsMultiThreaded && !magic_data_ptr->reentrant)
+				ereport(ERROR,
+						(errmsg("incompatible library \"%s\": not reentrant",
+								libname),
+								errhint("Extension libraries must use the PG_MODULE_MAGIC_REENTRANT macro to be loaded "
+										"when multithreading is turned on.")));
 		}
 		else
 		{
@@ -278,7 +286,7 @@ internal_load_library(const char *libname)
 			ereport(ERROR,
 					(errmsg("incompatible library \"%s\": missing magic block",
 							libname),
-					 errhint("Extension libraries are required to use the PG_MODULE_MAGIC macro.")));
+					 errhint("Extension libraries are required to use the PG_MODULE_MAGIC or PG_MODULE_MAGIC_REENTRANT macros.")));
 		}
 
 		/*
