@@ -242,6 +242,12 @@ static session_local char plperl_opmask[MAXO];
 /* this is saved and restored by plperl_call_handler */
 static session_local plperl_call_data *current_call_data = NULL;
 
+DEFINE_BOOL_GUC_ADDR(plperl_use_strict)
+DEFINE_STRING_GUC_ADDR(plperl_on_init)
+DEFINE_STRING_GUC_ADDR(plperl_on_plperl_init)
+DEFINE_STRING_GUC_ADDR(plperl_on_plperlu_init)
+
+
 /**********************************************************************
  * Forward declarations
  **********************************************************************/
@@ -406,7 +412,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("plperl.use_strict",
 							 gettext_noop("If true, trusted and untrusted Perl code will be compiled in strict mode."),
 							 NULL,
-							 &plperl_use_strict,
+							 GUC_ADDR(plperl_use_strict),
 							 false,
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
@@ -420,7 +426,7 @@ _PG_init(void)
 	DefineCustomStringVariable("plperl.on_init",
 							   gettext_noop("Perl initialization code to execute when a Perl interpreter is initialized."),
 							   NULL,
-							   &plperl_on_init,
+							   GUC_ADDR(plperl_on_init),
 							   NULL,
 							   PGC_SIGHUP, 0,
 							   NULL, NULL, NULL);
@@ -442,7 +448,7 @@ _PG_init(void)
 	DefineCustomStringVariable("plperl.on_plperl_init",
 							   gettext_noop("Perl initialization code to execute once when plperl is first used."),
 							   NULL,
-							   &plperl_on_plperl_init,
+							   GUC_ADDR(plperl_on_plperl_init),
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
@@ -450,7 +456,7 @@ _PG_init(void)
 	DefineCustomStringVariable("plperl.on_plperlu_init",
 							   gettext_noop("Perl initialization code to execute once when plperlu is first used."),
 							   NULL,
-							   &plperl_on_plperlu_init,
+							   GUC_ADDR(plperl_on_plperlu_init),
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);

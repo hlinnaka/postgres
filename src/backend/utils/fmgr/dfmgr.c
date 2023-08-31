@@ -244,11 +244,27 @@ internal_load_library(const char *libname)
 		if (magic_func)
 		{
 			const Pg_magic_struct *magic_data_ptr = (*magic_func) ();
+			Pg_abi_values module_abi_values;
+
+			/* FIXME: check the length first */
+			memcpy(&module_abi_values, &magic_data_ptr->abi_fields, sizeof(Pg_abi_values));
+
+			if (IsMultiThreaded && (module_abi_values.backendmodel & THREAD_BACKEND) == 0)
+				ereport(ERROR,
+						(errmsg("incompatible library \"%s\": not multithread-safe", libname),
+						 errhint("Extension libraries must specify .backendmodel = THREAD_BACKEND to be loaded "
+								 "when multithreading is turned on.")));
+			if (!IsMultiThreaded && (module_abi_values.backendmodel & PROCESS_BACKEND) == 0)
+				ereport(ERROR,
+						(errmsg("incompatible library \"%s\": not multiprocess-safe", libname),
+						 errhint("Extension libraries must specify .backendmodel = PROCESS_BACKEND to be loaded "
+								 "when multithreading is turned off.")));
+			/* ignore 'backendmodel' in the comparison below */
+			module_abi_values.backendmodel = magic_data.backendmodel;
 
 			/* Check ABI compatibility fields */
 			if (magic_data_ptr->len != sizeof(Pg_magic_struct) ||
-				memcmp(&magic_data_ptr->abi_fields, &magic_data,
-					   sizeof(Pg_abi_values)) != 0)
+				memcmp(&module_abi_values, &magic_data, sizeof(Pg_abi_values)) != 0)
 			{
 				/* copy data block before unlinking library */
 				Pg_magic_struct module_magic_data = *magic_data_ptr;
