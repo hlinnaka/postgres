@@ -464,6 +464,9 @@ extern PGDLLEXPORT void _PG_init(void);
  *-------------------------------------------------------------------------
  */
 
+#define PROCESS_BACKEND		(1 << 0)
+#define THREAD_BACKEND		(1 << 1)
+
 /* Definition of the values we check to verify ABI compatibility */
 typedef struct
 {
@@ -472,6 +475,7 @@ typedef struct
 	int			indexmaxkeys;	/* INDEX_MAX_KEYS */
 	int			namedatalen;	/* NAMEDATALEN */
 	int			float8byval;	/* FLOAT8PASSBYVAL (now vestigial) */
+	int			backendmodel;	/* does the extension support multi-process model, multi-thread model, or both? */
 	char		abi_extra[32];	/* see pg_config_manual.h */
 } Pg_abi_values;
 
@@ -493,6 +497,7 @@ typedef struct
 	INDEX_MAX_KEYS, \
 	NAMEDATALEN, \
 	FLOAT8PASSBYVAL, \
+	PROCESS_BACKEND, \
 	FMGR_ABI_EXTRA, \
 }
 
