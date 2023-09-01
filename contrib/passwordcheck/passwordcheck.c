@@ -34,7 +34,10 @@ PG_MODULE_MAGIC_EXT(
 static check_password_hook_type prev_check_password_hook = NULL;
 
 /* GUC variables */
-static int	min_password_length = 8;
+static session_guc int	min_password_length = 8;
+
+DEFINE_INT_GUC_ADDR(min_password_length)
+
 
 /*
  * check_password
@@ -152,7 +155,7 @@ _PG_init(void)
 	DefineCustomIntVariable("passwordcheck.min_password_length",
 							"Minimum allowed password length.",
 							NULL,
-							&min_password_length,
+							GUC_ADDR(min_password_length),
 							8,
 							0, INT_MAX,
 							PGC_SUSET,

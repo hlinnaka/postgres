@@ -473,7 +473,6 @@ typedef struct
 	int			indexmaxkeys;	/* INDEX_MAX_KEYS */
 	int			namedatalen;	/* NAMEDATALEN */
 	int			float8byval;	/* FLOAT8PASSBYVAL */
-	int			backendmodel;	/* does the extension support multi-process model, multi-thread model, or both? */
 	char		abi_extra[32];	/* see pg_config_manual.h */
 } Pg_abi_values;
 
@@ -482,6 +481,7 @@ typedef struct
 {
 	int			len;			/* sizeof(this struct) */
 	Pg_abi_values abi_fields;	/* see above */
+	int			backendmodel;	/* does the extension support multi-process model, multi-thread model, or both? */
 	/* Remaining fields are zero unless filled via PG_MODULE_MAGIC_EXT */
 	const char *name;			/* optional module name */
 	const char *version;		/* optional module version */
@@ -495,7 +495,6 @@ typedef struct
 	INDEX_MAX_KEYS, \
 	NAMEDATALEN, \
 	FLOAT8PASSBYVAL, \
-	PROCESS_BACKEND, \
 	FMGR_ABI_EXTRA, \
 }
 
@@ -527,7 +526,10 @@ extern PGDLLEXPORT const Pg_magic_struct *PG_MAGIC_FUNCTION_NAME(void); \
 const Pg_magic_struct * \
 PG_MAGIC_FUNCTION_NAME(void) \
 { \
-	static const Pg_magic_struct Pg_magic_data = PG_MODULE_MAGIC_DATA(.name = NULL); \
+	static const Pg_magic_struct Pg_magic_data = PG_MODULE_MAGIC_DATA( \
+		.name = NULL,												   \
+		.backendmodel = PROCESS_BACKEND								   \
+		);															   \
 	return &Pg_magic_data; \
 } \
 extern int no_such_variable

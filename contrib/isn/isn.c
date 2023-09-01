@@ -44,7 +44,9 @@ enum isn_type
 static const char *const isn_names[] = {"EAN13/UPC/ISxN", "EAN13/UPC/ISxN", "EAN13", "ISBN", "ISMN", "ISSN", "UPC"};
 
 /* GUC value */
-static bool g_weak = false;
+static session_guc bool g_weak = false;
+
+DEFINE_BOOL_GUC_ADDR(g_weak)
 
 
 /***********************************************************************
@@ -939,7 +941,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("isn.weak",
 							 "Accept input with invalid ISN check digits.",
 							 NULL,
-							 &g_weak,
+							 GUC_ADDR(g_weak),
 							 false,
 							 PGC_USERSET,
 							 0,
