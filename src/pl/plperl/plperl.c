@@ -56,7 +56,8 @@ EXTERN_C void boot_PostgreSQL__InServer__SPI(pTHX_ CV *cv);
 
 PG_MODULE_MAGIC_EXT(
 					.name = "plperl",
-					.version = PG_VERSION
+					.version = PG_VERSION,
+					.backendmodel = PROCESS_BACKEND | THREAD_BACKEND
 );
 
 /**********************************************************************
@@ -247,11 +248,6 @@ static session_local char plperl_opmask[MAXO];
 
 /* this is saved and restored by plperl_call_handler */
 static session_local plperl_call_data *current_call_data = NULL;
-
-DEFINE_BOOL_GUC_ADDR(plperl_use_strict)
-DEFINE_STRING_GUC_ADDR(plperl_on_init)
-DEFINE_STRING_GUC_ADDR(plperl_on_plperl_init)
-DEFINE_STRING_GUC_ADDR(plperl_on_plperlu_init)
 
 
 /**********************************************************************
