@@ -19,6 +19,7 @@
 #include "access/xloginsert.h"
 #include "miscadmin.h"
 #include "storage/predicate.h"
+#include "utils/injection_point.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
@@ -28,6 +29,8 @@ static bool ginPlaceToPage(GinBtree btree, GinBtreeStack *stack,
 						   Buffer childbuf, GinStatsData *buildStats);
 static void ginFinishSplit(GinBtree btree, GinBtreeStack *stack,
 						   bool freestack, GinStatsData *buildStats);
+static void ginFinishOldSplit(GinBtree btree, GinBtreeStack *stack,
+							  GinStatsData *buildStats, int access);
 
 /*
  * Lock buffer by needed method for search.
@@ -108,7 +111,7 @@ ginFindLeafPage(GinBtree btree, bool searchMode,
 		 * encounter on the way.
 		 */
 		if (!searchMode && GinPageIsIncompleteSplit(page))
-			ginFinishSplit(btree, stack, false, NULL);
+			ginFinishOldSplit(btree, stack, NULL, access);
 
 		/*
 		 * ok, page is correctly locked, we should check to move right ..,
@@ -128,7 +131,7 @@ ginFindLeafPage(GinBtree btree, bool searchMode,
 			page = BufferGetPage(stack->buffer);
 
 			if (!searchMode && GinPageIsIncompleteSplit(page))
-				ginFinishSplit(btree, stack, false, NULL);
+				ginFinishOldSplit(btree, stack, NULL, access);
 		}
 
 		if (GinPageIsLeaf(page))	/* we found, return locked page */
@@ -262,7 +265,7 @@ ginFindParents(GinBtree btree, GinBtreeStack *stack)
 			ptr->parent = root;
 			ptr->off = InvalidOffsetNumber;
 
-			ginFinishSplit(btree, ptr, false, NULL);
+			ginFinishOldSplit(btree, ptr, NULL, GIN_EXCLUSIVE);
 		}
 
 		leftmostBlkno = btree->getLeftMostChild(btree, page);
@@ -291,7 +294,7 @@ ginFindParents(GinBtree btree, GinBtreeStack *stack)
 				ptr->parent = root;
 				ptr->off = InvalidOffsetNumber;
 
-				ginFinishSplit(btree, ptr, false, NULL);
+				ginFinishOldSplit(btree, ptr, NULL, GIN_EXCLUSIVE);
 			}
 		}
 
@@ -670,21 +673,23 @@ ginFinishSplit(GinBtree btree, GinBtreeStack *stack, bool freestack,
 	bool		done;
 	bool		first = true;
 
-	/*
-	 * freestack == false when we encounter an incompletely split page during
-	 * a scan, while freestack == true is used in the normal scenario that a
-	 * split is finished right after the initial insert.
-	 */
-	if (!freestack)
-		elog(DEBUG1, "finishing incomplete split of block %u in gin index \"%s\"",
-			 stack->blkno, RelationGetRelationName(btree->index));
-
 	/* this loop crawls up the stack until the insertion is complete */
 	do
 	{
 		GinBtreeStack *parent = stack->parent;
 		void	   *insertdata;
 		BlockNumber updateblkno;
+
+#ifdef USE_INJECTION_POINTS
+		{
+			Page		page = BufferGetPage(stack->buffer);
+
+			if (GinPageIsLeaf(page))
+				INJECTION_POINT("gin-leave-leaf-split-incomplete");
+			else
+				INJECTION_POINT("gin-leave-internal-split-incomplete");
+		}
+#endif
 
 		/* search parent to lock */
 		LockBuffer(parent->buffer, GIN_EXCLUSIVE);
@@ -699,7 +704,7 @@ ginFinishSplit(GinBtree btree, GinBtreeStack *stack, bool freestack,
 		 * would fail.
 		 */
 		if (GinPageIsIncompleteSplit(BufferGetPage(parent->buffer)))
-			ginFinishSplit(btree, parent, false, buildStats);
+			ginFinishOldSplit(btree, parent, buildStats, GIN_EXCLUSIVE);
 
 		/* move right if it's needed */
 		page = BufferGetPage(parent->buffer);
@@ -723,7 +728,7 @@ ginFinishSplit(GinBtree btree, GinBtreeStack *stack, bool freestack,
 			page = BufferGetPage(parent->buffer);
 
 			if (GinPageIsIncompleteSplit(BufferGetPage(parent->buffer)))
-				ginFinishSplit(btree, parent, false, buildStats);
+				ginFinishOldSplit(btree, parent, buildStats, GIN_EXCLUSIVE);
 		}
 
 		/* insert the downlink */
@@ -760,6 +765,37 @@ ginFinishSplit(GinBtree btree, GinBtreeStack *stack, bool freestack,
 }
 
 /*
+ * An entry point to ginFinishSplit() that is used we stumble upon an existing
+ * incompletely split page in the tree, as opposed to completing a split that
+ * we just made outselves. The difference is that stack->buffer may be merely
+ * share-locked on entry, and will be upgraded to exclusive mode.
+ */
+static void
+ginFinishOldSplit(GinBtree btree, GinBtreeStack *stack, GinStatsData *buildStats, int access)
+{
+	INJECTION_POINT("gin-finish-incomplete-split");
+	elog(DEBUG1, "finishing incomplete split of block %u in gin index \"%s\"",
+		 stack->blkno, RelationGetRelationName(btree->index));
+
+	if (access == GIN_SHARE)
+	{
+		LockBuffer(stack->buffer, GIN_UNLOCK);
+		LockBuffer(stack->buffer, GIN_EXCLUSIVE);
+
+		if (!GinPageIsIncompleteSplit(BufferGetPage(stack->buffer)))
+		{
+			/*
+			 * Someone else already completed the split while we were not
+			 * holding the lock.
+			 */
+			return;
+		}
+	}
+
+	ginFinishSplit(btree, stack, false, buildStats);
+}
+
+/*
  * Insert a value to tree described by stack.
  *
  * The value to be inserted is given in 'insertdata'. Its format depends
@@ -779,7 +815,7 @@ ginInsertValue(GinBtree btree, GinBtreeStack *stack, void *insertdata,
 
 	/* If the leaf page was incompletely split, finish the split first */
 	if (GinPageIsIncompleteSplit(BufferGetPage(stack->buffer)))
-		ginFinishSplit(btree, stack, false, buildStats);
+		ginFinishOldSplit(btree, stack, buildStats, GIN_EXCLUSIVE);
 
 	done = ginPlaceToPage(btree, stack,
 						  insertdata, InvalidBlockNumber,
