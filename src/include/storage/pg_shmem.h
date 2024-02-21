@@ -33,7 +33,7 @@ typedef struct PGShmemHeader	/* standard header for all Postgres shmem */
 	pid_t		creatorPID;		/* PID of creating process (set but unread) */
 	Size		totalsize;		/* total size of segment */
 	Size		freeoffset;		/* offset to first free space */
-	dsm_handle	dsm_control;	/* ID of dynamic shared memory control seg */
+	dsm_impl_handle dsm_control;	/* ID of dynamic shared memory control seg */
 	void	   *index;			/* pointer to ShmemIndex table */
 #ifndef WIN32					/* Windows doesn't have useful inode#s */
 	dev_t		device;			/* device data directory is on */

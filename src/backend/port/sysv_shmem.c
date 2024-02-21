@@ -827,7 +827,7 @@ PGSharedMemoryCreate(Size size,
 				 * if some other process creates the same shmem key before we
 				 * do, in which case we'll try the next key.
 				 */
-				if (oldhdr->dsm_control != 0)
+				if (oldhdr->dsm_control != DSM_IMPL_HANDLE_INVALID)
 					dsm_cleanup_using_control_segment(oldhdr->dsm_control);
 				if (shmctl(shmid, IPC_RMID, NULL) < 0)
 					NextShmemSegID++;
@@ -842,7 +842,7 @@ PGSharedMemoryCreate(Size size,
 	hdr = (PGShmemHeader *) memAddress;
 	hdr->creatorPID = getpid();
 	hdr->magic = PGShmemMagic;
-	hdr->dsm_control = 0;
+	hdr->dsm_control = DSM_IMPL_HANDLE_INVALID;
 
 	/* Fill in the data directory ID info, too */
 	hdr->device = statbuf.st_dev;

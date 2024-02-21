@@ -390,7 +390,7 @@ retry:
 	 */
 	hdr->totalsize = size;
 	hdr->freeoffset = MAXALIGN(sizeof(PGShmemHeader));
-	hdr->dsm_control = 0;
+	hdr->dsm_control = DSM_IMPL_HANDLE_INVALID;
 
 	/* Save info for possible future use */
 	UsedShmemSegAddr = memAddress;

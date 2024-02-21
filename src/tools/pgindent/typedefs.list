@@ -1941,6 +1941,7 @@ ParallelTableScanDesc
 ParallelTableScanDescData
 ParallelTransState
 ParallelVacuumState
+ParallelWorkerBgwExtra
 ParallelWorkerContext
 ParallelWorkerInfo
 Param
@@ -3322,6 +3323,9 @@ dshash_table_item
 dsm_control_header
 dsm_control_item
 dsm_handle
+dsm_impl_ops
+dsm_impl_private
+dsm_impl_private_pm_handle
 dsm_op
 dsm_segment
 dsm_segment_detach_callback

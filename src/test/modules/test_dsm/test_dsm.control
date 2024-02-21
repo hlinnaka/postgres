@@ -1,0 +1,4 @@
+comment = 'Test code for dynamic shared memory'
+default_version = '1.0'
+module_pathname = '$libdir/test_dsm'
+relocatable = true

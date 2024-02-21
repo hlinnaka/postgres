@@ -4885,7 +4885,7 @@ struct config_enum ConfigureNamesEnum[] =
 		},
 		&dynamic_shared_memory_type,
 		DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE, dynamic_shared_memory_options,
-		NULL, NULL, NULL
+		NULL, assign_dynamic_shared_memory_type, NULL
 	},
 
 	{

@@ -20,3 +20,15 @@ backend_sources += files(
   'standby.c',
 
 )
+
+if host_system == 'windows'
+  backend_sources += files(
+    'dsm_impl_windows.c',
+  )
+else
+  backend_sources += files(
+    'dsm_impl_posix.c',
+    'dsm_impl_sysv.c',
+    'dsm_impl_mmap.c',
+  )
+endif

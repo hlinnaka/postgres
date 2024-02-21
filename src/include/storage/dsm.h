@@ -17,11 +17,19 @@
 
 typedef struct dsm_segment dsm_segment;
 
+/*
+ * Note, must be meaningful even across restarts
+ */
+typedef uint32 dsm_handle;
+
+/* Sentinel value to use for invalid DSM handles. */
+#define DSM_HANDLE_INVALID 0
+
 #define DSM_CREATE_NULL_IF_MAXSEGMENTS			0x0001
 
 /* Startup and shutdown functions. */
 struct PGShmemHeader;			/* avoid including pg_shmem.h */
-extern void dsm_cleanup_using_control_segment(dsm_handle old_control_handle);
+extern void dsm_cleanup_using_control_segment(dsm_impl_handle old_control_handle);
 extern void dsm_postmaster_startup(struct PGShmemHeader *);
 extern void dsm_backend_shutdown(void);
 extern void dsm_detach_all(void);

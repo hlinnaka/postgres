@@ -27,4 +27,10 @@ OBJS = \
 	sinvaladt.o \
 	standby.o
 
+ifeq ($(PORTNAME), win32)
+OBJS += dsm_impl_windows.o
+else
+OBJS += dsm_impl_posix.o dsm_impl_sysv.o dsm_impl_mmap.o
+endif
+
 include $(top_srcdir)/src/backend/common.mk

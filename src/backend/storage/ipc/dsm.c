@@ -68,7 +68,10 @@ struct dsm_segment
 {
 	dlist_node	node;			/* List link in dsm_segment_list. */
 	ResourceOwner resowner;		/* Resource owner. */
-	dsm_handle	handle;			/* Segment name. */
+	dsm_handle	handle;			/* Handle for other backends to find this
+								 * segment. */
+	dsm_impl_handle impl_handle;	/* Implementation-specific handle. */
+	bool		in_main_region; /* Is this stored in the main shm region? */
 	uint32		control_slot;	/* Slot in control segment. */
 	dsm_impl_private impl_private;	/* Implementation-specific private data. */
 	void	   *mapped_address; /* Mapping address, or NULL if unmapped. */
@@ -80,10 +83,13 @@ struct dsm_segment
 typedef struct dsm_control_item
 {
 	dsm_handle	handle;
+	dsm_impl_handle impl_handle;
+	bool		in_main_region;
 	uint32		refcnt;			/* 2+ = active, 1 = moribund, 0 = gone */
 	size_t		first_page;
 	size_t		npages;
-	dsm_impl_private_pm_handle impl_private_pm_handle; /* only needed on Windows */
+	dsm_impl_private_pm_handle impl_private_pm_handle;	/* only needed on
+														 * Windows */
 	bool		pinned;
 } dsm_control_item;
 
@@ -102,8 +108,7 @@ static dsm_segment *dsm_create_descriptor(void);
 static bool dsm_control_segment_sane(dsm_control_header *control,
 									 Size mapped_size);
 static uint64 dsm_control_bytes_needed(uint32 nitems);
-static inline dsm_handle make_main_region_dsm_handle(int slot);
-static inline bool is_main_region_dsm_handle(dsm_handle handle);
+static inline dsm_handle make_dsm_handle(int slot);
 
 /* Has this backend initialized the dynamic shared memory system yet? */
 static bool dsm_init_done = false;
@@ -137,7 +142,7 @@ static dlist_head dsm_segment_list = DLIST_STATIC_INIT(dsm_segment_list);
  * reference counted; instead, it lasts for the postmaster's entire
  * life cycle.  For simplicity, it doesn't have a dsm_segment object either.
  */
-static dsm_handle dsm_control_handle;
+static dsm_impl_handle dsm_control_handle;
 static dsm_control_header *dsm_control;
 static Size dsm_control_mapped_size = 0;
 static dsm_impl_private dsm_control_impl_private = 0;
@@ -199,32 +204,19 @@ dsm_postmaster_startup(PGShmemHeader *shim)
 		 maxitems);
 	segsize = dsm_control_bytes_needed(maxitems);
 
-	/*
-	 * Loop until we find an unused identifier for the new control segment. We
-	 * sometimes use DSM_HANDLE_INVALID as a sentinel value indicating "no
-	 * control segment", so avoid generating that value for a real handle.
-	 */
-	for (;;)
-	{
-		Assert(dsm_control_address == NULL);
-		Assert(dsm_control_mapped_size == 0);
-		/* Use even numbers only */
-		dsm_control_handle = pg_prng_uint32(&pg_global_prng_state) << 1;
-		if (dsm_control_handle == DSM_HANDLE_INVALID)
-			continue;
-		if (dsm_impl_op(DSM_OP_CREATE, dsm_control_handle, segsize,
-						&dsm_control_impl_private, &dsm_control_address,
-						&dsm_control_mapped_size, ERROR))
-			break;
-	}
+	/* Create the control segment. */
+	dsm_control_handle = dsm_impl->create(segsize,
+										  &dsm_control_impl_private, &dsm_control_address,
+										  ERROR);
 	dsm_control = dsm_control_address;
+	dsm_control_mapped_size = segsize;
 	on_shmem_exit(dsm_postmaster_shutdown, PointerGetDatum(shim));
 	elog(DEBUG2,
 		 "created dynamic shared memory control segment %u (%zu bytes)",
 		 dsm_control_handle, segsize);
 	shim->dsm_control = dsm_control_handle;
 
-	/* Initialize control segment. */
+	/* Initialize it. */
 	dsm_control->magic = PG_DYNSHMEM_CONTROL_MAGIC;
 	dsm_control->nitems = 0;
 	dsm_control->maxitems = maxitems;
@@ -236,14 +228,11 @@ dsm_postmaster_startup(PGShmemHeader *shim)
  * segments to which it refers, and then the control segment itself.
  */
 void
-dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
+dsm_cleanup_using_control_segment(dsm_impl_handle old_control_handle)
 {
 	void	   *mapped_address = NULL;
-	void	   *junk_mapped_address = NULL;
 	dsm_impl_private impl_private;
-	dsm_impl_private junk_impl_private;
 	Size		mapped_size = 0;
-	Size		junk_mapped_size = 0;
 	uint32		nitems;
 	uint32		i;
 	dsm_control_header *old_control;
@@ -254,8 +243,8 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 	 * exists, or an unrelated process has used the same shm ID.  So just fall
 	 * out quietly.
 	 */
-	if (!dsm_impl_op(DSM_OP_ATTACH, old_control_handle, 0, &impl_private,
-					 &mapped_address, &mapped_size, DEBUG1))
+	if (!dsm_impl->attach(old_control_handle, &impl_private,
+						  &mapped_address, &mapped_size, DEBUG1))
 		return;
 
 	/*
@@ -265,8 +254,8 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 	old_control = (dsm_control_header *) mapped_address;
 	if (!dsm_control_segment_sane(old_control, mapped_size))
 	{
-		dsm_impl_op(DSM_OP_DETACH, old_control_handle, 0, &impl_private,
-					&mapped_address, &mapped_size, LOG);
+		dsm_impl->detach(old_control_handle, impl_private,
+						 mapped_address, mapped_size, LOG);
 		return;
 	}
 
@@ -277,7 +266,7 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 	nitems = old_control->nitems;
 	for (i = 0; i < nitems; ++i)
 	{
-		dsm_handle	handle;
+		dsm_impl_handle handle;
 		uint32		refcnt;
 
 		/* If the reference count is 0, the slot is actually unused. */
@@ -286,8 +275,8 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 			continue;
 
 		/* If it was using the main shmem area, there is nothing to do. */
-		handle = old_control->item[i].handle;
-		if (is_main_region_dsm_handle(handle))
+		handle = old_control->item[i].impl_handle;
+		if (old_control->item[i].in_main_region)
 			continue;
 
 		/* Log debugging information. */
@@ -295,16 +284,16 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 			 handle, refcnt);
 
 		/* Destroy the referenced segment. */
-		dsm_impl_op(DSM_OP_DESTROY, handle, 0, &junk_impl_private,
-					&junk_mapped_address, &junk_mapped_size, LOG);
+		dsm_impl->destroy(handle, LOG);
 	}
 
 	/* Destroy the old control segment, too. */
 	elog(DEBUG2,
 		 "cleaning up dynamic shared memory control segment with ID %u",
 		 old_control_handle);
-	dsm_impl_op(DSM_OP_DESTROY, old_control_handle, 0, &impl_private,
-				&mapped_address, &mapped_size, LOG);
+	dsm_impl->detach(old_control_handle, impl_private,
+					 mapped_address, mapped_size, LOG);
+	dsm_impl->destroy(old_control_handle, LOG);
 }
 
 /*
@@ -361,9 +350,6 @@ dsm_postmaster_shutdown(int code, Datum arg)
 	uint32		nitems;
 	uint32		i;
 	void	   *dsm_control_address;
-	void	   *junk_mapped_address = NULL;
-	dsm_impl_private junk_impl_private = 0;
-	Size		junk_mapped_size = 0;
 	PGShmemHeader *shim = (PGShmemHeader *) DatumGetPointer(arg);
 
 	/*
@@ -384,23 +370,23 @@ dsm_postmaster_shutdown(int code, Datum arg)
 	/* Remove any remaining segments. */
 	for (i = 0; i < nitems; ++i)
 	{
-		dsm_handle	handle;
+		dsm_impl_handle handle;
 
 		/* If the reference count is 0, the slot is actually unused. */
 		if (dsm_control->item[i].refcnt == 0)
 			continue;
 
-		handle = dsm_control->item[i].handle;
-		if (is_main_region_dsm_handle(handle))
+		if (dsm_control->item[i].in_main_region)
 			continue;
+
+		handle = dsm_control->item[i].impl_handle;
 
 		/* Log debugging information. */
 		elog(DEBUG2, "cleaning up orphaned dynamic shared memory with ID %u",
 			 handle);
 
 		/* Destroy the segment. */
-		dsm_impl_op(DSM_OP_DESTROY, handle, 0, &junk_impl_private,
-					&junk_mapped_address, &junk_mapped_size, LOG);
+		dsm_impl->destroy(handle, LOG);
 	}
 
 	/* Remove the control segment itself. */
@@ -408,11 +394,13 @@ dsm_postmaster_shutdown(int code, Datum arg)
 		 "cleaning up dynamic shared memory control segment with ID %u",
 		 dsm_control_handle);
 	dsm_control_address = dsm_control;
-	dsm_impl_op(DSM_OP_DESTROY, dsm_control_handle, 0,
-				&dsm_control_impl_private, &dsm_control_address,
-				&dsm_control_mapped_size, LOG);
-	dsm_control = dsm_control_address;
-	shim->dsm_control = 0;
+	dsm_impl->detach(dsm_control_handle,
+					 dsm_control_impl_private, dsm_control_address,
+					 dsm_control_mapped_size, LOG);
+	dsm_impl->destroy(dsm_control_handle, LOG);
+	dsm_control = NULL;
+	dsm_control_mapped_size = 0;
+	shim->dsm_control = DSM_IMPL_HANDLE_INVALID;
 }
 
 /*
@@ -429,17 +417,17 @@ dsm_backend_startup(void)
 		void	   *control_address = NULL;
 
 		/* Attach control segment. */
-		Assert(dsm_control_handle != 0);
-		dsm_impl_op(DSM_OP_ATTACH, dsm_control_handle, 0,
-					&dsm_control_impl_private, &control_address,
-					&dsm_control_mapped_size, ERROR);
+		Assert(dsm_control_handle != DSM_HANDLE_INVALID);
+		dsm_impl->attach(dsm_control_handle,
+						 &dsm_control_impl_private, &control_address,
+						 &dsm_control_mapped_size, ERROR);
 		dsm_control = control_address;
 		/* If control segment doesn't look sane, something is badly wrong. */
 		if (!dsm_control_segment_sane(dsm_control, dsm_control_mapped_size))
 		{
-			dsm_impl_op(DSM_OP_DETACH, dsm_control_handle, 0,
-						&dsm_control_impl_private, &control_address,
-						&dsm_control_mapped_size, WARNING);
+			dsm_impl->detach(dsm_control_handle,
+							 dsm_control_impl_private, control_address,
+							 dsm_control_mapped_size, WARNING);
 			ereport(FATAL,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("dynamic shared memory control segment is not valid")));
@@ -459,7 +447,8 @@ dsm_backend_startup(void)
 void
 dsm_set_control_handle(dsm_handle h)
 {
-	Assert(dsm_control_handle == 0 && h != 0);
+	Assert(dsm_control_handle == DSM_HANDLE_INVALID);
+	Assert(h != DSM_HANDLE_INVALID);
 	dsm_control_handle = h;
 }
 #endif
@@ -567,19 +556,15 @@ dsm_create(Size size, int flags)
 		 */
 		if (dsm_main_space_fpm)
 			LWLockRelease(DynamicSharedMemoryControlLock);
-		for (;;)
-		{
-			Assert(seg->mapped_address == NULL && seg->mapped_size == 0);
-			/* Use even numbers only */
-			seg->handle = pg_prng_uint32(&pg_global_prng_state) << 1;
-			if (seg->handle == DSM_HANDLE_INVALID)	/* Reserve sentinel */
-				continue;
-			if (dsm_impl_op(DSM_OP_CREATE, seg->handle, size, &seg->impl_private,
-							&seg->mapped_address, &seg->mapped_size, ERROR))
-				break;
-		}
+
+		seg->impl_handle = dsm_impl->create(size, &seg->impl_private,
+											&seg->mapped_address, ERROR);
+		seg->mapped_size = size;
 		LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
 	}
+	else
+		seg->impl_handle = DSM_IMPL_HANDLE_INVALID;
+	seg->in_main_region = using_main_dsm_region;
 
 	/* Search the control segment for an unused slot. */
 	nitems = dsm_control->nitems;
@@ -587,15 +572,16 @@ dsm_create(Size size, int flags)
 	{
 		if (dsm_control->item[i].refcnt == 0)
 		{
+			seg->handle = make_dsm_handle(i);
+			seg->in_main_region = using_main_dsm_region;
+			dsm_control->item[i].in_main_region = using_main_dsm_region;
+			dsm_control->item[i].handle = seg->handle;
 			if (using_main_dsm_region)
 			{
-				seg->handle = make_main_region_dsm_handle(i);
 				dsm_control->item[i].first_page = first_page;
 				dsm_control->item[i].npages = npages;
 			}
-			else
-				Assert(!is_main_region_dsm_handle(seg->handle));
-			dsm_control->item[i].handle = seg->handle;
+			dsm_control->item[i].impl_handle = seg->impl_handle;
 			/* refcnt of 1 triggers destruction, so start at 2 */
 			dsm_control->item[i].refcnt = 2;
 			dsm_control->item[i].impl_private_pm_handle = 0;
@@ -613,8 +599,13 @@ dsm_create(Size size, int flags)
 			FreePageManagerPut(dsm_main_space_fpm, first_page, npages);
 		LWLockRelease(DynamicSharedMemoryControlLock);
 		if (!using_main_dsm_region)
-			dsm_impl_op(DSM_OP_DESTROY, seg->handle, 0, &seg->impl_private,
-						&seg->mapped_address, &seg->mapped_size, WARNING);
+		{
+			dsm_impl->detach(seg->impl_handle, seg->impl_private,
+							 seg->mapped_address, seg->mapped_size, WARNING);
+			seg->mapped_address = NULL;
+			seg->mapped_size = 0;
+			dsm_impl->destroy(seg->impl_handle, WARNING);
+		}
 		if (seg->resowner != NULL)
 			ResourceOwnerForgetDSM(seg->resowner, seg);
 		dlist_delete(&seg->node);
@@ -628,13 +619,15 @@ dsm_create(Size size, int flags)
 	}
 
 	/* Enter the handle into a new array slot. */
+	seg->handle = make_dsm_handle(nitems);
+	dsm_control->item[nitems].in_main_region = using_main_dsm_region;
+	dsm_control->item[nitems].handle = seg->handle;
 	if (using_main_dsm_region)
 	{
-		seg->handle = make_main_region_dsm_handle(nitems);
-		dsm_control->item[i].first_page = first_page;
-		dsm_control->item[i].npages = npages;
+		dsm_control->item[nitems].first_page = first_page;
+		dsm_control->item[nitems].npages = npages;
 	}
-	dsm_control->item[nitems].handle = seg->handle;
+	dsm_control->item[nitems].impl_handle = seg->impl_handle;
 	/* refcnt of 1 triggers destruction, so start at 2 */
 	dsm_control->item[nitems].refcnt = 2;
 	dsm_control->item[nitems].impl_private_pm_handle = 0;
@@ -719,7 +712,9 @@ dsm_attach(dsm_handle h)
 		/* Otherwise we've found a match. */
 		dsm_control->item[i].refcnt++;
 		seg->control_slot = i;
-		if (is_main_region_dsm_handle(seg->handle))
+		seg->in_main_region = dsm_control->item[i].in_main_region;
+		seg->impl_handle = dsm_control->item[i].impl_handle;
+		if (seg->in_main_region)
 		{
 			seg->mapped_address = (char *) dsm_main_space_begin +
 				dsm_control->item[i].first_page * FPM_PAGE_SIZE;
@@ -742,9 +737,9 @@ dsm_attach(dsm_handle h)
 	}
 
 	/* Here's where we actually try to map the segment. */
-	if (!is_main_region_dsm_handle(seg->handle))
-		dsm_impl_op(DSM_OP_ATTACH, seg->handle, 0, &seg->impl_private,
-					&seg->mapped_address, &seg->mapped_size, ERROR);
+	if (!seg->in_main_region)
+		dsm_impl->attach(seg->impl_handle, &seg->impl_private,
+						 &seg->mapped_address, &seg->mapped_size, ERROR);
 
 	return seg;
 }
@@ -786,9 +781,13 @@ dsm_detach_all(void)
 	}
 
 	if (control_address != NULL)
-		dsm_impl_op(DSM_OP_DETACH, dsm_control_handle, 0,
-					&dsm_control_impl_private, &control_address,
-					&dsm_control_mapped_size, ERROR);
+	{
+		dsm_impl->detach(dsm_control_handle,
+						 dsm_control_impl_private, control_address,
+						 dsm_control_mapped_size, ERROR);
+		dsm_control = NULL;
+		dsm_control_mapped_size = 0;
+	}
 }
 
 /*
@@ -839,9 +838,9 @@ dsm_detach(dsm_segment *seg)
 	 */
 	if (seg->mapped_address != NULL)
 	{
-		if (!is_main_region_dsm_handle(seg->handle))
-			dsm_impl_op(DSM_OP_DETACH, seg->handle, 0, &seg->impl_private,
-						&seg->mapped_address, &seg->mapped_size, WARNING);
+		if (!seg->in_main_region)
+			dsm_impl->detach(seg->impl_handle, seg->impl_private,
+							 seg->mapped_address, seg->mapped_size, WARNING);
 		seg->impl_private = 0;
 		seg->mapped_address = NULL;
 		seg->mapped_size = 0;
@@ -855,6 +854,8 @@ dsm_detach(dsm_segment *seg)
 
 		LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
 		Assert(dsm_control->item[control_slot].handle == seg->handle);
+		Assert(dsm_control->item[control_slot].in_main_region == seg->in_main_region);
+		Assert(dsm_control->item[control_slot].impl_handle == seg->impl_handle);
 		Assert(dsm_control->item[control_slot].refcnt > 1);
 		refcnt = --dsm_control->item[control_slot].refcnt;
 		seg->control_slot = INVALID_CONTROL_SLOT;
@@ -881,16 +882,17 @@ dsm_detach(dsm_segment *seg)
 			 * other reason, the postmaster may not have any better luck than
 			 * we did.  There's not much we can do about that, though.
 			 */
-			if (is_main_region_dsm_handle(seg->handle) ||
-				dsm_impl_op(DSM_OP_DESTROY, seg->handle, 0, &seg->impl_private,
-							&seg->mapped_address, &seg->mapped_size, WARNING))
+			if (seg->in_main_region ||
+				dsm_impl->destroy(seg->impl_handle, WARNING))
 			{
 				LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
-				if (is_main_region_dsm_handle(seg->handle))
+				if (seg->in_main_region)
 					FreePageManagerPut((FreePageManager *) dsm_main_space_begin,
 									   dsm_control->item[control_slot].first_page,
 									   dsm_control->item[control_slot].npages);
 				Assert(dsm_control->item[control_slot].handle == seg->handle);
+				Assert(dsm_control->item[control_slot].in_main_region == seg->in_main_region);
+				Assert(dsm_control->item[control_slot].impl_handle == seg->impl_handle);
 				Assert(dsm_control->item[control_slot].refcnt == 1);
 				dsm_control->item[control_slot].refcnt = 0;
 				LWLockRelease(DynamicSharedMemoryControlLock);
@@ -966,8 +968,8 @@ dsm_pin_segment(dsm_segment *seg)
 	LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
 	if (dsm_control->item[seg->control_slot].pinned)
 		elog(ERROR, "cannot pin a segment that is already pinned");
-	if (!is_main_region_dsm_handle(seg->handle))
-		dsm_impl_pin_segment(seg->handle, seg->impl_private, &pm_handle);
+	if (!seg->in_main_region)
+		dsm_impl->pin_segment(seg->impl_handle, seg->impl_private, &pm_handle);
 	dsm_control->item[seg->control_slot].pinned = true;
 	dsm_control->item[seg->control_slot].refcnt++;
 	dsm_control->item[seg->control_slot].impl_private_pm_handle = pm_handle;
@@ -991,6 +993,8 @@ dsm_unpin_segment(dsm_handle handle)
 	uint32		control_slot = INVALID_CONTROL_SLOT;
 	bool		destroy = false;
 	uint32		i;
+	bool		in_main_region = false;
+	dsm_impl_handle impl_handle = DSM_IMPL_HANDLE_INVALID;
 
 	/* Find the control slot for the given handle. */
 	LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
@@ -1004,6 +1008,8 @@ dsm_unpin_segment(dsm_handle handle)
 		if (dsm_control->item[i].handle == handle)
 		{
 			control_slot = i;
+			in_main_region = dsm_control->item[i].in_main_region;
+			impl_handle = dsm_control->item[i].impl_handle;
 			break;
 		}
 	}
@@ -1024,9 +1030,12 @@ dsm_unpin_segment(dsm_handle handle)
 	 * releasing the lock, because impl_private_pm_handle may get modified by
 	 * dsm_impl_unpin_segment.
 	 */
-	if (!is_main_region_dsm_handle(handle))
-		dsm_impl_unpin_segment(handle,
-							   &dsm_control->item[control_slot].impl_private_pm_handle);
+	if (!in_main_region)
+	{
+		dsm_impl->unpin_segment(impl_handle,
+								dsm_control->item[control_slot].impl_private_pm_handle);
+		dsm_control->item[control_slot].impl_private_pm_handle = 0;
+	}
 
 	/* Note that 1 means no references (0 means unused slot). */
 	if (--dsm_control->item[control_slot].refcnt == 1)
@@ -1039,26 +1048,15 @@ dsm_unpin_segment(dsm_handle handle)
 	/* Clean up resources if that was the last reference. */
 	if (destroy)
 	{
-		dsm_impl_private junk_impl_private = 0;
-		void	   *junk_mapped_address = NULL;
-		Size		junk_mapped_size = 0;
-
 		/*
 		 * For an explanation of how error handling works in this case, see
-		 * comments in dsm_detach.  Note that if we reach this point, the
-		 * current process certainly does not have the segment mapped, because
-		 * if it did, the reference count would have still been greater than 1
-		 * even after releasing the reference count held by the pin.  The fact
-		 * that there can't be a dsm_segment for this handle makes it OK to
-		 * pass the mapped size, mapped address, and private data as NULL
-		 * here.
+		 * comments in dsm_detach.
 		 */
-		if (is_main_region_dsm_handle(handle) ||
-			dsm_impl_op(DSM_OP_DESTROY, handle, 0, &junk_impl_private,
-						&junk_mapped_address, &junk_mapped_size, WARNING))
+		if (in_main_region ||
+			dsm_impl->destroy(impl_handle, WARNING))
 		{
 			LWLockAcquire(DynamicSharedMemoryControlLock, LW_EXCLUSIVE);
-			if (is_main_region_dsm_handle(handle))
+			if (in_main_region)
 				FreePageManagerPut((FreePageManager *) dsm_main_space_begin,
 								   dsm_control->item[control_slot].first_page,
 								   dsm_control->item[control_slot].npages);
@@ -1209,7 +1207,10 @@ dsm_create_descriptor(void)
 	seg = MemoryContextAlloc(TopMemoryContext, sizeof(dsm_segment));
 	dlist_push_head(&dsm_segment_list, &seg->node);
 
-	/* seg->handle must be initialized by the caller */
+	/*
+	 * seg->handle, seg->in_main_region, and seg->impl_handle must be
+	 * initialized by the caller.
+	 */
 	seg->control_slot = INVALID_CONTROL_SLOT;
 	seg->impl_private = 0;
 	seg->mapped_address = NULL;
@@ -1259,29 +1260,25 @@ dsm_control_bytes_needed(uint32 nitems)
 		+ sizeof(dsm_control_item) * (uint64) nitems;
 }
 
+/*
+ * Generate a new handle that can be used by any backend process to identify a
+ * DSM segment.
+ */
 static inline dsm_handle
-make_main_region_dsm_handle(int slot)
+make_dsm_handle(int slot)
 {
 	dsm_handle	handle;
 
 	/*
-	 * We need to create a handle that doesn't collide with any existing extra
-	 * segment created by dsm_impl_op(), so we'll make it odd.  It also
-	 * mustn't collide with any other main area pseudo-segment, so we'll
-	 * include the slot number in some of the bits.  We also want to make an
-	 * effort to avoid newly created and recently destroyed handles from being
-	 * confused, so we'll make the rest of the bits random.
+	 * It mustn't collide with any other segment, so we include the slot
+	 * number in some of the bits.  We also want to make an effort to avoid
+	 * newly created and recently destroyed handles from being confused, so we
+	 * make the rest of the bits random.
 	 */
-	handle = 1;
-	handle |= slot << 1;
-	handle |= pg_prng_uint32(&pg_global_prng_state) << (pg_leftmost_one_pos32(dsm_control->maxitems) + 1);
-	return handle;
-}
+	handle = slot;
+	handle |= pg_prng_uint32(&pg_global_prng_state) << (pg_leftmost_one_pos32(dsm_control->maxitems));
 
-static inline bool
-is_main_region_dsm_handle(dsm_handle handle)
-{
-	return handle & 1;
+	return handle;
 }
 
 /* ResourceOwner callbacks */
