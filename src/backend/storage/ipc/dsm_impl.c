@@ -71,23 +71,23 @@
 
 #ifdef USE_DSM_POSIX
 static bool dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
-						   void **impl_private, void **mapped_address,
+						   dsm_impl_private *impl_private, void **mapped_address,
 						   Size *mapped_size, int elevel);
 static int	dsm_impl_posix_resize(int fd, off_t size);
 #endif
 #ifdef USE_DSM_SYSV
 static bool dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
-						  void **impl_private, void **mapped_address,
+						  dsm_impl_private *impl_private, void **mapped_address,
 						  Size *mapped_size, int elevel);
 #endif
 #ifdef USE_DSM_WINDOWS
 static bool dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
-							 void **impl_private, void **mapped_address,
+							 dsm_impl_private *impl_private, void **mapped_address,
 							 Size *mapped_size, int elevel);
 #endif
 #ifdef USE_DSM_MMAP
 static bool dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
-						  void **impl_private, void **mapped_address,
+						  dsm_impl_private *impl_private, void **mapped_address,
 						  Size *mapped_size, int elevel);
 #endif
 static int	errcode_for_dynamic_shared_memory(void);
@@ -157,7 +157,7 @@ int			min_dynamic_shared_memory;
  */
 bool
 dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
-			void **impl_private, void **mapped_address, Size *mapped_size,
+			dsm_impl_private *impl_private, void **mapped_address, Size *mapped_size,
 			int elevel)
 {
 	Assert(op == DSM_OP_CREATE || request_size == 0);
@@ -210,7 +210,7 @@ dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
  */
 static bool
 dsm_impl_posix(dsm_op op, dsm_handle handle, Size request_size,
-			   void **impl_private, void **mapped_address, Size *mapped_size,
+			   dsm_impl_private *impl_private, void **mapped_address, Size *mapped_size,
 			   int elevel)
 {
 	char		name[64];
@@ -421,7 +421,7 @@ dsm_impl_posix_resize(int fd, off_t size)
  */
 static bool
 dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
-			  void **impl_private, void **mapped_address, Size *mapped_size,
+			  dsm_impl_private *impl_private, void **mapped_address, Size *mapped_size,
 			  int elevel)
 {
 	key_t		key;
@@ -477,9 +477,9 @@ dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
 	 * the shared memory key to a shared memory identifier using shmget(). To
 	 * avoid repeated lookups, we store the key using impl_private.
 	 */
-	if (*impl_private != NULL)
+	if (*impl_private != 0)
 	{
-		ident_cache = *impl_private;
+		ident_cache = (int *) *impl_private;
 		ident = *ident_cache;
 	}
 	else
@@ -522,14 +522,14 @@ dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
 		}
 
 		*ident_cache = ident;
-		*impl_private = ident_cache;
+		*impl_private = (uintptr_t) ident_cache;
 	}
 
 	/* Handle teardown cases. */
 	if (op == DSM_OP_DETACH || op == DSM_OP_DESTROY)
 	{
 		pfree(ident_cache);
-		*impl_private = NULL;
+		*impl_private = 0;
 		if (*mapped_address != NULL && shmdt(*mapped_address) != 0)
 		{
 			ereport(elevel,
@@ -608,7 +608,7 @@ dsm_impl_sysv(dsm_op op, dsm_handle handle, Size request_size,
  */
 static bool
 dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
-				 void **impl_private, void **mapped_address,
+				 dsm_impl_private *impl_private, void **mapped_address,
 				 Size *mapped_size, int elevel)
 {
 	char	   *address;
@@ -790,7 +790,7 @@ dsm_impl_windows(dsm_op op, dsm_handle handle, Size request_size,
  */
 static bool
 dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
-			  void **impl_private, void **mapped_address, Size *mapped_size,
+			  dsm_impl_private *impl_private, void **mapped_address, Size *mapped_size,
 			  int elevel)
 {
 	char		name[64];
@@ -960,8 +960,8 @@ dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
  * do anything to receive the handle; Windows transfers it automatically.
  */
 void
-dsm_impl_pin_segment(dsm_handle handle, void *impl_private,
-					 void **impl_private_pm_handle)
+dsm_impl_pin_segment(dsm_handle handle, dsm_impl_private impl_private,
+					 dsm_impl_private_pm_handle *pm_handle)
 {
 	switch (dynamic_shared_memory_type)
 	{
@@ -992,7 +992,7 @@ dsm_impl_pin_segment(dsm_handle handle, void *impl_private,
 				 * matter.  We're just holding onto it so that, if the segment
 				 * is unpinned, dsm_impl_unpin_segment can close it.
 				 */
-				*impl_private_pm_handle = hmap;
+				*pm_handle = hmap;
 			}
 			break;
 #endif
@@ -1011,7 +1011,7 @@ dsm_impl_pin_segment(dsm_handle handle, void *impl_private,
  * postmaster's process space.
  */
 void
-dsm_impl_unpin_segment(dsm_handle handle, void **impl_private)
+dsm_impl_unpin_segment(dsm_handle handle, dsm_impl_private_pm_handle *pm_handle)
 {
 	switch (dynamic_shared_memory_type)
 	{
@@ -1034,7 +1034,7 @@ dsm_impl_unpin_segment(dsm_handle handle, void **impl_private)
 									name)));
 				}
 
-				*impl_private = NULL;
+				*pm_handle = 0;
 			}
 			break;
 #endif

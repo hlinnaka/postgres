@@ -70,7 +70,7 @@ struct dsm_segment
 	ResourceOwner resowner;		/* Resource owner. */
 	dsm_handle	handle;			/* Segment name. */
 	uint32		control_slot;	/* Slot in control segment. */
-	void	   *impl_private;	/* Implementation-specific private data. */
+	dsm_impl_private impl_private;	/* Implementation-specific private data. */
 	void	   *mapped_address; /* Mapping address, or NULL if unmapped. */
 	Size		mapped_size;	/* Size of our mapping. */
 	slist_head	on_detach;		/* On-detach callbacks. */
@@ -83,7 +83,7 @@ typedef struct dsm_control_item
 	uint32		refcnt;			/* 2+ = active, 1 = moribund, 0 = gone */
 	size_t		first_page;
 	size_t		npages;
-	void	   *impl_private_pm_handle; /* only needed on Windows */
+	dsm_impl_private_pm_handle impl_private_pm_handle; /* only needed on Windows */
 	bool		pinned;
 } dsm_control_item;
 
@@ -140,7 +140,7 @@ static dlist_head dsm_segment_list = DLIST_STATIC_INIT(dsm_segment_list);
 static dsm_handle dsm_control_handle;
 static dsm_control_header *dsm_control;
 static Size dsm_control_mapped_size = 0;
-static void *dsm_control_impl_private = NULL;
+static dsm_impl_private dsm_control_impl_private = 0;
 
 
 /* ResourceOwner callbacks to hold DSM segments */
@@ -240,8 +240,8 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 {
 	void	   *mapped_address = NULL;
 	void	   *junk_mapped_address = NULL;
-	void	   *impl_private = NULL;
-	void	   *junk_impl_private = NULL;
+	dsm_impl_private impl_private;
+	dsm_impl_private junk_impl_private;
 	Size		mapped_size = 0;
 	Size		junk_mapped_size = 0;
 	uint32		nitems;
@@ -362,7 +362,7 @@ dsm_postmaster_shutdown(int code, Datum arg)
 	uint32		i;
 	void	   *dsm_control_address;
 	void	   *junk_mapped_address = NULL;
-	void	   *junk_impl_private = NULL;
+	dsm_impl_private junk_impl_private = 0;
 	Size		junk_mapped_size = 0;
 	PGShmemHeader *shim = (PGShmemHeader *) DatumGetPointer(arg);
 
@@ -598,7 +598,7 @@ dsm_create(Size size, int flags)
 			dsm_control->item[i].handle = seg->handle;
 			/* refcnt of 1 triggers destruction, so start at 2 */
 			dsm_control->item[i].refcnt = 2;
-			dsm_control->item[i].impl_private_pm_handle = NULL;
+			dsm_control->item[i].impl_private_pm_handle = 0;
 			dsm_control->item[i].pinned = false;
 			seg->control_slot = i;
 			LWLockRelease(DynamicSharedMemoryControlLock);
@@ -637,7 +637,7 @@ dsm_create(Size size, int flags)
 	dsm_control->item[nitems].handle = seg->handle;
 	/* refcnt of 1 triggers destruction, so start at 2 */
 	dsm_control->item[nitems].refcnt = 2;
-	dsm_control->item[nitems].impl_private_pm_handle = NULL;
+	dsm_control->item[nitems].impl_private_pm_handle = 0;
 	dsm_control->item[nitems].pinned = false;
 	seg->control_slot = nitems;
 	dsm_control->nitems++;
@@ -842,7 +842,7 @@ dsm_detach(dsm_segment *seg)
 		if (!is_main_region_dsm_handle(seg->handle))
 			dsm_impl_op(DSM_OP_DETACH, seg->handle, 0, &seg->impl_private,
 						&seg->mapped_address, &seg->mapped_size, WARNING);
-		seg->impl_private = NULL;
+		seg->impl_private = 0;
 		seg->mapped_address = NULL;
 		seg->mapped_size = 0;
 	}
@@ -955,7 +955,7 @@ dsm_unpin_mapping(dsm_segment *seg)
 void
 dsm_pin_segment(dsm_segment *seg)
 {
-	void	   *handle = NULL;
+	dsm_impl_private_pm_handle pm_handle = 0;
 
 	/*
 	 * Bump reference count for this segment in shared memory. This will
@@ -967,10 +967,10 @@ dsm_pin_segment(dsm_segment *seg)
 	if (dsm_control->item[seg->control_slot].pinned)
 		elog(ERROR, "cannot pin a segment that is already pinned");
 	if (!is_main_region_dsm_handle(seg->handle))
-		dsm_impl_pin_segment(seg->handle, seg->impl_private, &handle);
+		dsm_impl_pin_segment(seg->handle, seg->impl_private, &pm_handle);
 	dsm_control->item[seg->control_slot].pinned = true;
 	dsm_control->item[seg->control_slot].refcnt++;
-	dsm_control->item[seg->control_slot].impl_private_pm_handle = handle;
+	dsm_control->item[seg->control_slot].impl_private_pm_handle = pm_handle;
 	LWLockRelease(DynamicSharedMemoryControlLock);
 }
 
@@ -1039,7 +1039,7 @@ dsm_unpin_segment(dsm_handle handle)
 	/* Clean up resources if that was the last reference. */
 	if (destroy)
 	{
-		void	   *junk_impl_private = NULL;
+		dsm_impl_private junk_impl_private = 0;
 		void	   *junk_mapped_address = NULL;
 		Size		junk_mapped_size = 0;
 
@@ -1211,7 +1211,7 @@ dsm_create_descriptor(void)
 
 	/* seg->handle must be initialized by the caller */
 	seg->control_slot = INVALID_CONTROL_SLOT;
-	seg->impl_private = NULL;
+	seg->impl_private = 0;
 	seg->mapped_address = NULL;
 	seg->mapped_size = 0;
 

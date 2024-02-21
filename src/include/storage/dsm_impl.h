@@ -66,14 +66,27 @@ typedef enum
 	DSM_OP_DESTROY,
 } dsm_op;
 
+/*
+ * When a segment is created or attached, the caller provides this space to
+ * hold implementation-specific information about the attachment. It is opaque
+ * to the caller, and is passed back to the implementation when detaching.
+ */
+typedef uintptr_t dsm_impl_private;
+
+/*
+ * Similar caller-provided space for implementation-specific information held
+ * when a segment is pinned.
+ */
+typedef uintptr_t dsm_impl_private_pm_handle;
+
 /* Create, attach to, detach from, resize, or destroy a segment. */
 extern bool dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
-						void **impl_private, void **mapped_address, Size *mapped_size,
+						dsm_impl_private *impl_private, void **mapped_address, Size *mapped_size,
 						int elevel);
 
 /* Implementation-dependent actions required to keep segment until shutdown. */
-extern void dsm_impl_pin_segment(dsm_handle handle, void *impl_private,
-								 void **impl_private_pm_handle);
-extern void dsm_impl_unpin_segment(dsm_handle handle, void **impl_private);
+extern void dsm_impl_pin_segment(dsm_handle handle, dsm_impl_private impl_private,
+								 dsm_impl_private_pm_handle *impl_private_pm_handle);
+extern void dsm_impl_unpin_segment(dsm_handle handle, dsm_impl_private_pm_handle *pm_handle);
 
 #endif							/* DSM_IMPL_H */

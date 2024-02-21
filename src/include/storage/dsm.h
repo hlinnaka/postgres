@@ -13,7 +13,7 @@
 #ifndef DSM_H
 #define DSM_H
 
-#include "storage/dsm_impl.h"
+#include "dsm_impl.h"
 
 typedef struct dsm_segment dsm_segment;
 
