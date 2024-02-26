@@ -14,6 +14,7 @@
 #ifndef BUFMGR_H
 #define BUFMGR_H
 
+#include "port/pg_iovec.h"
 #include "storage/block.h"
 #include "storage/buf.h"
 #include "storage/bufpage.h"
@@ -133,6 +134,10 @@ extern PGDLLIMPORT bool track_io_timing;
 extern PGDLLIMPORT int effective_io_concurrency;
 extern PGDLLIMPORT int maintenance_io_concurrency;
 
+#define MAX_BUFFER_IO_SIZE PG_IOV_MAX
+#define DEFAULT_BUFFER_IO_SIZE Min(MAX_BUFFER_IO_SIZE, (128 * 1024) / BLCKSZ)
+extern PGDLLIMPORT int buffer_io_size;
+
 extern PGDLLIMPORT int checkpoint_flush_after;
 extern PGDLLIMPORT int backend_flush_after;
 extern PGDLLIMPORT int bgwriter_flush_after;
@@ -158,7 +163,6 @@ extern PGDLLIMPORT int32 *LocalRefCount;
 #define BUFFER_LOCK_SHARE		1
 #define BUFFER_LOCK_EXCLUSIVE	2
 
-
 /*
  * prototypes for functions in bufmgr.c
  */
@@ -177,6 +181,42 @@ extern Buffer ReadBufferWithoutRelcache(RelFileLocator rlocator,
 										ForkNumber forkNum, BlockNumber blockNum,
 										ReadBufferMode mode, BufferAccessStrategy strategy,
 										bool permanent);
+
+#define READ_BUFFERS_ZERO_ON_ERROR 0x01
+#define READ_BUFFERS_ISSUE_ADVICE 0x02
+
+/*
+ * Private state used by StartReadBuffers() and WaitReadBuffers().  Declared
+ * in public header only to allow inclusion in other structs, but contents
+ * should not be accessed.
+ */
+struct ReadBuffersOperation
+{
+	/* Parameters passed in to StartReadBuffers(). */
+	BufferManagerRelation bmr;
+	Buffer	   *buffers;
+	ForkNumber	forknum;
+	BlockNumber blocknum;
+	int16		nblocks;
+	BufferAccessStrategy strategy;
+	int			flags;
+
+	/* Range of buffers, if we need to perform a read. */
+	int16		io_buffers_len;
+};
+
+typedef struct ReadBuffersOperation ReadBuffersOperation;
+
+extern bool StartReadBuffers(BufferManagerRelation bmr,
+							 Buffer *buffers,
+							 ForkNumber forknum,
+							 BlockNumber blocknum,
+							 int *nblocks,
+							 BufferAccessStrategy strategy,
+							 int flags,
+							 ReadBuffersOperation *operation);
+extern void WaitReadBuffers(ReadBuffersOperation *operation);
+
 extern void ReleaseBuffer(Buffer buffer);
 extern void UnlockReleaseBuffer(Buffer buffer);
 extern bool BufferIsExclusiveLocked(Buffer buffer);
@@ -249,6 +289,9 @@ extern bool IsBufferCleanupOK(Buffer buffer);
 extern bool HoldingBufferPinThatDelaysRecovery(void);
 
 extern bool BgBufferSync(struct WritebackContext *wb_context);
+
+extern void LimitAdditionalPins(uint32 *additional_pins);
+extern void LimitAdditionalLocalPins(uint32 *additional_pins);
 
 /* in buf_init.c */
 extern void InitBufferPool(void);
