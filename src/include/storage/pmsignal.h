@@ -69,11 +69,12 @@ extern QuitSignalReason GetQuitSignalReason(void);
 extern int	AssignPostmasterChildSlot(void);
 extern bool ReleasePostmasterChildSlot(int slot);
 extern bool IsPostmasterChildWalSender(int slot);
-extern void MarkPostmasterChildActive(void);
+extern void MarkPostmasterChildActive(int pid, int32 cancelAuthCode);
 extern void MarkPostmasterChildInactive(void);
 extern void MarkPostmasterChildWalSender(void);
 extern bool PostmasterIsAliveInternal(void);
 extern void PostmasterDeathSignalInit(void);
+extern void SendCancelRequest(int backendPID, int32 cancelAuthCode);
 
 
 /*

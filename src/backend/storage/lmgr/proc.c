@@ -307,6 +307,20 @@ InitProcess(void)
 	if (MyProc != NULL)
 		elog(ERROR, "you already exist");
 
+	/*
+	 * Generate a random cancel key.
+	 *
+	 * We probably don't need cancel keys for non-backend processes, but we'd
+	 * better have something random in the field to prevent unfriendly people
+	 * from sending cancels to them.
+	 */
+	if (!pg_strong_random(&MyCancelKey, sizeof(int32)))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("could not generate random cancel key")));
+	}
+
 	/* Decide which list should supply our PGPROC. */
 	if (AmAutoVacuumLauncherProcess() || AmAutoVacuumWorkerProcess())
 		procgloballist = &ProcGlobal->autovacFreeProcs;
@@ -370,7 +384,7 @@ InitProcess(void)
 	 */
 	if (IsUnderPostmaster && !AmAutoVacuumLauncherProcess() &&
 		!AmLogicalSlotSyncWorkerProcess())
-		MarkPostmasterChildActive();
+		MarkPostmasterChildActive(MyProcPid, MyCancelKey);
 
 	/*
 	 * Initialize all fields of MyProc, except for those previously

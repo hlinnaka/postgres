@@ -374,6 +374,7 @@ CatalogId
 CatalogIdMapEntry
 CatalogIndexState
 ChangeVarNodes_context
+ChildSlotData
 ReplaceVarnoContext
 CheckPoint
 CheckPointStmt
