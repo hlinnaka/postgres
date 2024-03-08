@@ -617,7 +617,12 @@ pqDropServerData(PGconn *conn)
 	free(conn->write_err_msg);
 	conn->write_err_msg = NULL;
 	conn->be_pid = 0;
-	conn->be_key = 0;
+	if (conn->be_cancel_key != NULL)
+	{
+		free(conn->be_cancel_key);
+		conn->be_cancel_key = NULL;
+	}
+	conn->be_cancel_key_len = 0;
 }
 
 
@@ -2724,7 +2729,7 @@ keep_going:						/* We will come back to here until there is
 		 * must persist across individual connection attempts, but we must
 		 * reset them when we start to consider a new server.
 		 */
-		conn->pversion = PG_PROTOCOL(3, 0);
+		conn->pversion = PG_PROTOCOL(3, 1);
 		conn->send_appname = true;
 #ifdef USE_SSL
 		/* initialize these values based on SSL mode */
@@ -3724,14 +3729,25 @@ keep_going:						/* We will come back to here until there is
 				}
 				else if (beresp == PqMsg_NegotiateProtocolVersion)
 				{
-					if (pqGetNegotiateProtocolVersion3(conn))
+					switch (pqGetNegotiateProtocolVersion3(conn))
 					{
-						libpq_append_conn_error(conn, "received invalid protocol negotiation message");
-						goto error_return;
+						case 0:
+							/* OK, we read the message; mark data consumed */
+							conn->inStart = conn->inCursor;
+							/* Stay in the CONNECTION_AWAITING_RESPONSE state */
+							goto keep_going;
+						case 1:
+							/*
+							 * Negotiation failed.  The error message was
+							 * filled in already.
+							 */
+							conn->inStart = conn->inCursor;
+							goto error_return;
+						case EOF:
+							/* We'll come back when there is more data */
+							libpq_append_conn_error(conn, "received invalid protocol negotiation message");
+							goto error_return;
 					}
-					/* OK, we read the message; mark data consumed */
-					conn->inStart = conn->inCursor;
-					goto error_return;
 				}
 
 				/* It is an authentication request. */

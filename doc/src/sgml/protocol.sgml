@@ -18,9 +18,11 @@
  </para>
 
  <para>
-  This document describes version 3.0 of the protocol, implemented in
+  This document describes version 3.1 of the protocol, introduces in
+  <productname>PostgreSQL</productname> 17. The server is compatible with
+  protocol version 3.0, implemented in
   <productname>PostgreSQL</productname> 7.4 and later.  For descriptions
-  of the earlier protocol versions, see previous releases of the
+  of earlier protocol versions, see previous releases of the
   <productname>PostgreSQL</productname> documentation.  A single server
   can support multiple protocol versions.  The initial startup-request
   message tells the server which protocol version the client is attempting to
@@ -34,6 +36,17 @@
   minor protocol version which it supports.  The client may then choose either
   to continue with the connection using the specified protocol version or
   to abort the connection.
+
+  TODO: mention that the minor version negotiation was introduced PostgreSQL 9.3
+  libpq can no longer connect to PostgreSQL 9.2. Maybe a support matrix?
+ </para>
+
+ <para>
+  The difference between protocol version 3.0 and 3.1 is that the secret key
+  used query cancellation was enlarged from 4 bytes to a variable length
+  field. The BackendKeyData message was changed to accomodate that, and a new
+  CancelRequestExtended message with variable length secret was introduced to
+  replace the old CancelRequest message.
  </para>
 
   <para>
@@ -405,8 +418,14 @@
         this message indicates the highest supported minor version.  This
         message will also be sent if the client requested unsupported protocol
         options (i.e., beginning with <literal>_pq_.</literal>) in the
-        startup packet.  This message will be followed by an ErrorResponse or
-        a message indicating the success or failure of authentication.
+        startup packet.
+       </para>
+       <para>
+        After this message, the authentication will continue using the version
+        indicated by the server.  If the client does not support the older
+        version, it should immediately close the connection. If the server
+        does not send this message, it supports the client's requested
+        protocol version and all the protocol options.
        </para>
       </listitem>
      </varlistentry>
@@ -1381,7 +1400,7 @@ SELCT 1/0;<!-- this typo is intentional -->
 
    <para>
     To issue a cancel request, the frontend opens a new connection to
-    the server and sends a CancelRequest message, rather than the
+    the server and sends a cancel request message (CancelRequestExtended or CancelRequest), rather
     StartupMessage message that would ordinarily be sent across a new
     connection.  The server will process this request and then close
     the connection.  For security reasons, no direct reply is made to
@@ -1389,7 +1408,7 @@ SELCT 1/0;<!-- this typo is intentional -->
    </para>
 
    <para>
-    A CancelRequest message will be ignored unless it contains the
+    A cancel request message will be ignored unless it contains the
     same key data (PID and secret key) passed to the frontend during
     connection start-up.  If the request matches the PID and secret
     key for a currently executing backend, the processing of the
@@ -1531,7 +1550,7 @@ SELCT 1/0;<!-- this typo is intentional -->
 
    <para>
     An initial SSLRequest can also be used in a connection that is being
-    opened to send a CancelRequest message.
+    opened to send a CancelRequest or CancelRequestExtended message.
    </para>
 
    <para>
@@ -1607,7 +1626,7 @@ SELCT 1/0;<!-- this typo is intentional -->
 
    <para>
     An initial GSSENCRequest can also be used in a connection that is being
-    opened to send a CancelRequest message.
+    opened to send a CancelRequest or CancelRequestExtended message.
    </para>
 
    <para>
@@ -3852,13 +3871,13 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
         <para>
          Identifies the message as cancellation key data.
          The frontend must save these values if it wishes to be
-         able to issue CancelRequest messages later.
+         able to issue cancel request messages later.
         </para>
        </listitem>
       </varlistentry>
 
       <varlistentry>
-       <term>Int32(12)</term>
+       <term>Int32</term>
        <listitem>
         <para>
          Length of message contents in bytes, including self.
@@ -3876,7 +3895,21 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
       </varlistentry>
 
       <varlistentry>
-       <term>Int32</term>
+       <term>Int16</term>
+       <listitem>
+        <para>
+         Length of the secret key.
+        </para>
+        <para>
+         This field was added in minor protocol version 3.1. In protocol
+         version 3.0, it is omitted, and the secret key is always 4 bytes
+         long.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Byten</term>
        <listitem>
         <para>
          The secret key of this backend.
@@ -4089,7 +4122,7 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
       </varlistentry>
 
       <varlistentry>
-       <term>Int32</term>
+       <term>Byte4</term>
        <listitem>
         <para>
          The secret key for the target backend.
@@ -4097,6 +4130,71 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
        </listitem>
       </varlistentry>
      </variablelist>
+     <para>
+      This is for the older protocol version 3.0. Starting with protocol
+      version 3.1, the secret key is longer and the new CancelRequestExtended
+      message must be used instead.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="protocol-message-formats-CancelRequestExtended">
+    <term>CancelRequestExtended (F)</term>
+    <listitem>
+     <variablelist>
+      <varlistentry>
+       <term>Int32(16)</term>
+       <listitem>
+        <para>
+         Length of message contents in bytes, including self.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Int32(80877101)</term>
+       <listitem>
+        <para>
+         The cancel request code.  The value is chosen to contain
+         <literal>1234</literal> in the most significant 16 bits,
+         and <literal>5677</literal> in the least significant 16 bits.  (To
+         avoid confusion, this code must not be the same as any protocol
+         version number.)
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Int32</term>
+       <listitem>
+        <para>
+         The process ID of the target backend.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Int16</term>
+       <listitem>
+        <para>
+         Length of the secret key.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Byten</term>
+       <listitem>
+        <para>
+         The secret key for the target backend.
+        </para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+     <para>
+      This message was added in protocol version 3.1. In protocol version 3.0,
+      use the CancelRequest message instead.
+     </para>
     </listitem>
    </varlistentry>
 

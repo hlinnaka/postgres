@@ -34,6 +34,8 @@ PGcancel *
 PQgetCancel(PGconn *conn)
 {
 	PGcancel   *cancel;
+	int			cancel_req_len;
+	bool		use_extended;
 
 	if (!conn)
 		return NULL;
@@ -41,13 +43,20 @@ PQgetCancel(PGconn *conn)
 	if (conn->sock == PGINVALID_SOCKET)
 		return NULL;
 
-	cancel = malloc(sizeof(PGcancel));
+	use_extended = conn->pversion >= PG_PROTOCOL(3, 1);
+	if (use_extended)
+		cancel_req_len = offsetof(ExtendedCancelRequestPacket, cancelAuthCode) + conn->be_cancel_key_len;
+	else
+	{
+		Assert(conn->be_cancel_key_len == 4);
+		cancel_req_len = sizeof(CancelRequestPacket);
+	}
+	cancel = malloc(offsetof(PGcancel, cancel_req) + cancel_req_len);
 	if (cancel == NULL)
 		return NULL;
 
 	memcpy(&cancel->raddr, &conn->raddr, sizeof(SockAddr));
-	cancel->be_pid = conn->be_pid;
-	cancel->be_key = conn->be_key;
+
 	/* We use -1 to indicate an unset connection option */
 	cancel->pgtcp_user_timeout = -1;
 	cancel->keepalives = -1;
@@ -89,6 +98,28 @@ PQgetCancel(PGconn *conn)
 							 conn, "keepalives_count"))
 			goto fail;
 	}
+
+	if (use_extended)
+	{
+		ExtendedCancelRequestPacket *req;
+
+		req = (ExtendedCancelRequestPacket *) &cancel->cancel_req;
+		req->cancelRequestCode = (MsgType) pg_hton32(EXTENDED_CANCEL_REQUEST_CODE);
+		req->backendPID = pg_hton32(conn->be_pid);
+		req->cancelAuthCodeLen = pg_hton16(conn->be_cancel_key_len);
+		memcpy(req->cancelAuthCode, conn->be_cancel_key, conn->be_cancel_key_len);
+	}
+	else
+	{
+		CancelRequestPacket *req;
+
+		req = (CancelRequestPacket *) &cancel->cancel_req;
+		req->cancelRequestCode = (MsgType) pg_hton32(CANCEL_REQUEST_CODE);
+		req->backendPID = pg_hton32(conn->be_pid);
+		memcpy(req->cancelAuthCode, conn->be_cancel_key, 4);
+	}
+	/* include the length field itself in the length */
+	cancel->cancel_pkt_len = pg_hton32(cancel_req_len + 4);
 
 	return cancel;
 
@@ -150,11 +181,8 @@ PQcancel(PGcancel *cancel, char *errbuf, int errbufsize)
 	int			save_errno = SOCK_ERRNO;
 	pgsocket	tmpsock = PGINVALID_SOCKET;
 	int			maxlen;
-	struct
-	{
-		uint32		packetlen;
-		CancelRequestPacket cp;
-	}			crp;
+	char		recvbuf;
+	int			cancel_pkt_len;
 
 	if (!cancel)
 	{
@@ -256,15 +284,14 @@ retry3:
 		goto cancel_errReturn;
 	}
 
-	/* Create and send the cancel request packet. */
-
-	crp.packetlen = pg_hton32((uint32) sizeof(crp));
-	crp.cp.cancelRequestCode = (MsgType) pg_hton32(CANCEL_REQUEST_CODE);
-	crp.cp.backendPID = pg_hton32(cancel->be_pid);
-	crp.cp.cancelAuthCode = pg_hton32(cancel->be_key);
+	cancel_pkt_len = pg_ntoh32(cancel->cancel_pkt_len);
 
 retry4:
-	if (send(tmpsock, (char *) &crp, sizeof(crp), 0) != (int) sizeof(crp))
+	/*
+	 * Send the cancel request packet. It starts with the message length at
+	 * cancel_pkt_len, followed by the actual packet.
+	 */
+	if (send(tmpsock, (char *) &cancel->cancel_pkt_len, cancel_pkt_len, 0) != cancel_pkt_len)
 	{
 		if (SOCK_ERRNO == EINTR)
 			/* Interrupted system call - we'll just try again */
@@ -281,7 +308,7 @@ retry4:
 	 * read to obtain any data, we are just waiting for EOF to be signaled.
 	 */
 retry5:
-	if (recv(tmpsock, (char *) &crp, 1, 0) < 0)
+	if (recv(tmpsock, &recvbuf, 1, 0) < 0)
 	{
 		if (SOCK_ERRNO == EINTR)
 			/* Interrupted system call - we'll just try again */

@@ -420,7 +420,8 @@ static int	ServerLoop(void);
 static int	BackendStartup(Port *port);
 static int	ProcessStartupPacket(Port *port, bool ssl_done, bool gss_done);
 static void SendNegotiateProtocolVersion(List *unrecognized_protocol_options);
-static void processCancelRequest(Port *port, void *pkt);
+static void processExtendedCancelRequestPacket(Port *port, void *pkt, int pktlen);
+static void processCancelRequestPacket(Port *port, void *pkt, int pktlen);
 static void report_fork_failure_to_client(Port *port, int errnum);
 static CAC_state canAcceptConnections(int backend_type);
 static void signal_child(pid_t pid, int signal);
@@ -2005,16 +2006,15 @@ ProcessStartupPacket(Port *port, bool ssl_done, bool gss_done)
 	 */
 	port->proto = proto = pg_ntoh32(*((ProtocolVersion *) buf));
 
+	if (proto == EXTENDED_CANCEL_REQUEST_CODE)
+	{
+		processExtendedCancelRequestPacket(port, buf, len);
+		/* Not really an error, but we don't want to proceed further */
+		return STATUS_ERROR;
+	}
 	if (proto == CANCEL_REQUEST_CODE)
 	{
-		if (len != sizeof(CancelRequestPacket))
-		{
-			ereport(COMMERROR,
-					(errcode(ERRCODE_PROTOCOL_VIOLATION),
-					 errmsg("invalid length of startup packet")));
-			return STATUS_ERROR;
-		}
-		processCancelRequest(port, buf);
+		processCancelRequestPacket(port, buf, len);
 		/* Not really an error, but we don't want to proceed further */
 		return STATUS_ERROR;
 	}
@@ -2311,21 +2311,51 @@ SendNegotiateProtocolVersion(List *unrecognized_protocol_options)
 }
 
 /*
- * The client has sent a cancel request packet, not a normal
- * start-a-new-connection packet.  Perform the necessary processing.
- * Nothing is sent back to the client.
+ * The client has sent an ExtendedCancelRequest cancel request packet, not a normal
+ * start-a-new-connection packet.  Perform the necessary processing.  Nothing
+ * is sent back to the client.
  */
 static void
-processCancelRequest(Port *port, void *pkt)
+processExtendedCancelRequestPacket(Port *port, void *pkt, int pktlen)
 {
-	CancelRequestPacket *canc = (CancelRequestPacket *) pkt;
-	int			backendPID;
-	int32		cancelAuthCode;
+	ExtendedCancelRequestPacket *canc;
+	int			len;
 
-	backendPID = (int) pg_ntoh32(canc->backendPID);
-	cancelAuthCode = (int32) pg_ntoh32(canc->cancelAuthCode);
+	if (pktlen < offsetof(ExtendedCancelRequestPacket, cancelAuthCode))
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid length of extended query cancel packet")));
+		return;
+	}
+	canc = (ExtendedCancelRequestPacket *) pkt;
+	len = canc->cancelAuthCodeLen;
+	if (pktlen !=  offsetof(ExtendedCancelRequestPacket, cancelAuthCode) + len)
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid length of extended cancel request packet")));
 
-	SendCancelRequest(backendPID, cancelAuthCode);
+	ProcessCancelRequest(pg_ntoh32(canc->backendPID), canc->cancelAuthCode, len);
+}
+
+/*
+ * like processExtendedCancelRequestPacket, but for the old protocol version
+ * 3.0 CancelRequest message
+ */
+static void
+processCancelRequestPacket(Port *port, void *pkt, int pktlen)
+{
+	CancelRequestPacket *canc;
+
+	if (pktlen != sizeof(CancelRequestPacket))
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid length of query cancel packet")));
+		return;
+	}
+	canc = (CancelRequestPacket *) pkt;
+	ProcessCancelRequest(pg_ntoh32(canc->backendPID), canc->cancelAuthCode, 4);
 }
 
 /*

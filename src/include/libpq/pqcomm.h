@@ -94,7 +94,7 @@ is_unixsock_path(const char *path)
  */
 
 #define PG_PROTOCOL_EARLIEST	PG_PROTOCOL(3,0)
-#define PG_PROTOCOL_LATEST		PG_PROTOCOL(3,0)
+#define PG_PROTOCOL_LATEST		PG_PROTOCOL(3,1)
 
 typedef uint32 ProtocolVersion; /* FE/BE protocol version number */
 
@@ -129,6 +129,18 @@ typedef uint32 AuthRequest;
  * The cancel request code must not match any protocol version number
  * we're ever likely to use.  This random choice should do.
  */
+#define EXTENDED_CANCEL_REQUEST_CODE PG_PROTOCOL(1234,5677)
+
+typedef struct ExtendedCancelRequestPacket
+{
+	/* Note that each field is stored in network byte order! */
+	MsgType		cancelRequestCode;	/* code to identify a cancel request */
+	uint32		backendPID;		/* PID of client's backend */
+	uint16		cancelAuthCodeLen;	/* length of cancelAuthCode */
+	char		cancelAuthCode[FLEXIBLE_ARRAY_MEMBER];	/* secret key to
+														 * authorize cancel */
+} ExtendedCancelRequestPacket;
+
 #define CANCEL_REQUEST_CODE PG_PROTOCOL(1234,5678)
 
 typedef struct CancelRequestPacket
@@ -136,7 +148,7 @@ typedef struct CancelRequestPacket
 	/* Note that each field is stored in network byte order! */
 	MsgType		cancelRequestCode;	/* code to identify a cancel request */
 	uint32		backendPID;		/* PID of client's backend */
-	uint32		cancelAuthCode; /* secret key to authorize cancel */
+	char		cancelAuthCode[4];	/* secret key to authorize cancel */
 } CancelRequestPacket;
 
 

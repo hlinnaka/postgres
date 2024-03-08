@@ -46,7 +46,6 @@ int			MyProcPid;
 pg_time_t	MyStartTime;
 TimestampTz MyStartTimestamp;
 struct Port *MyProcPort;
-int32		MyCancelKey;
 int			MyPMChildSlot;
 
 /*

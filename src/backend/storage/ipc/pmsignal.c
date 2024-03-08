@@ -72,7 +72,8 @@ typedef struct ChildSlotData
 	pg_atomic_uint32 state;
 
 	int			pid;
-	int32		cancel_key;
+	int			cancel_key_len;
+	char		cancel_key[MAX_CANCEL_KEY_LENGTH];
 } ChildSlotData;
 
 /* "typedef struct PMSignalData PMSignalData" appears in pmsignal.h */
@@ -328,16 +329,18 @@ IsPostmasterChildWalSender(int slot)
  * actively using shared memory.  This is called in the child process.
  */
 void
-MarkPostmasterChildActive(int pid, int32 cancelAuthCode)
+MarkPostmasterChildActive(int pid, char *cancelKey, int len)
 {
 	int			slot = MyPMChildSlot;
 
+	Assert(len <= MAX_CANCEL_KEY_LENGTH);
 	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
 	slot--;
 	Assert(pg_atomic_read_u32(&PMSignalState->child_slots[slot].state) == PM_CHILD_ASSIGNED);
 	PMSignalState->child_slots[slot].pid = pid;
-	PMSignalState->child_slots[slot].cancel_key = cancelAuthCode;
-	pg_memory_barrier();
+	memcpy(PMSignalState->child_slots[slot].cancel_key, cancelKey, len);
+	PMSignalState->child_slots[slot].cancel_key_len = len;
+	pg_write_barrier();
 	pg_atomic_write_u32(&PMSignalState->child_slots[slot].state, PM_CHILD_ACTIVE);
 }
 
@@ -478,8 +481,22 @@ PostmasterDeathSignalInit(void)
 #endif							/* USE_POSTMASTER_DEATH_SIGNAL */
 }
 
+static int
+pg_const_time_memcmp(const void *a, const void *b, size_t len)
+{
+	/*
+	 * FIXME: need a constant time implementation. Implement one somewhere in
+	 * src/port.
+	 */
+	return memcmp(a, b, len);
+}
+
+/*
+ * Find the backend with given PID, and send SIGINT to it if the cancel key
+ * matches.
+ */
 void
-SendCancelRequest(int backendPID, int32 cancelAuthCode)
+ProcessCancelRequest(int backendPID, char *cancelKey, int len)
 {
 	/*
 	 * See if we have a matching backend.  In the EXEC_BACKEND case, we can no
@@ -497,18 +514,23 @@ SendCancelRequest(int backendPID, int32 cancelAuthCode)
 		pg_read_barrier();
 		if (slot->pid == backendPID)
 		{
-			if (slot->cancel_key == cancelAuthCode)
+			/*
+			 * Use pg_const_time_memcmp() to prevent an attacker from using
+			 * timing to reveal the cancel key.
+			 */
+			if (len == slot->cancel_key_len && pg_const_time_memcmp(slot->cancel_key, cancelKey, len) == 0)
 			{
 				/* Found a match; signal that backend to cancel current op */
 				ereport(DEBUG2,
 						(errmsg_internal("processing cancel request: sending SIGINT to process %d",
 										 backendPID)));
 
-				/*
-				 * FIXME: we used to use signal_child. I believe kill() is
-				 * maybe even more correct, but verify that.
-				 */
+				/* If we have setsid(), signal the backend's whole process group */
+#ifdef HAVE_SETSID
+				kill(-backendPID, SIGINT);
+#else
 				kill(backendPID, SIGINT);
+#endif
 			}
 			else
 				/* Right PID, wrong key: no way, Jose */

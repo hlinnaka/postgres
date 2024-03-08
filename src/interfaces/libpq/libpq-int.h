@@ -492,7 +492,8 @@ struct pg_conn
 
 	/* Miscellaneous stuff */
 	int			be_pid;			/* PID of backend --- needed for cancels */
-	int			be_key;			/* key of backend --- needed for cancels */
+	char	   *be_cancel_key;
+	uint16		be_cancel_key_len;
 	pgParameterStatus *pstatus; /* ParameterStatus data */
 	int			client_encoding;	/* encoding id */
 	bool		std_strings;	/* standard_conforming_strings */
@@ -629,7 +630,6 @@ struct pg_cancel
 {
 	SockAddr	raddr;			/* Remote address */
 	int			be_pid;			/* PID of backend --- needed for cancels */
-	int			be_key;			/* key of backend --- needed for cancels */
 	int			pgtcp_user_timeout; /* tcp user timeout */
 	int			keepalives;		/* use TCP keepalives? */
 	int			keepalives_idle;	/* time between TCP keepalives */
@@ -637,6 +637,10 @@ struct pg_cancel
 										 * retransmits */
 	int			keepalives_count;	/* maximum number of TCP keepalive
 									 * retransmits */
+
+	/* Pre-constructed cancel request packet starts here */
+	int32		cancel_pkt_len; /* in network-byte-order */
+	char		cancel_req[FLEXIBLE_ARRAY_MEMBER];	/* CancelRequestPacket */
 };
 
 

@@ -4274,7 +4274,17 @@ PostgresMain(const char *dbname, const char *username)
 
 		pq_beginmessage(&buf, PqMsg_BackendKeyData);
 		pq_sendint32(&buf, (int32) MyProcPid);
-		pq_sendint32(&buf, (int32) MyCancelKey);
+
+		if (MyProcPort->proto >= PG_PROTOCOL(3, 1))
+		{
+			pq_sendint16(&buf, MyCancelKeyLength);
+			pq_sendbytes(&buf, MyCancelKey, MyCancelKeyLength);
+		}
+		else
+		{
+			Assert(MyCancelKeyLength == 4);
+			pq_sendbytes(&buf, MyCancelKey, 4);
+		}
 		pq_endmessage(&buf);
 		/* Need not flush since ReadyForQuery will do it. */
 	}
