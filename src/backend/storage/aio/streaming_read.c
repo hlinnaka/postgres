@@ -48,7 +48,7 @@
  * WaitReadBuffers() must be called before returning the buffer, and if so,
  * points to the relevant ReadBuffersOperation object.
  *
- * For example, if the callback return block numbers 10, 42, 43, 60 in
+ * For example, if the callback returns block numbers 10, 42, 43, 44, 60 in
  * successive calls, then these data structures might appear as follows:
  *
  *                          buffers buf/data buf/io       ios
@@ -136,7 +136,7 @@ struct StreamingRead
 	void	   *per_buffer_data;
 	int16	   *buffer_io_indexes;
 
-	/* Read operations that have been started by not waited for yet. */
+	/* Read operations that have been started but not waited for yet. */
 	ReadBuffersOperation *ios;
 	int16		next_io_index;
 
