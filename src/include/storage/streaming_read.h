@@ -15,8 +15,6 @@
 #define STREAMING_READ_H
 
 #include "storage/bufmgr.h"
-#include "storage/fd.h"
-#include "storage/smgr.h"
 
 /* Default tuning, reasonable for many users. */
 #define STREAMING_READ_DEFAULT 0x00

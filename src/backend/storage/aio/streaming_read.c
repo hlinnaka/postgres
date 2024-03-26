@@ -87,6 +87,8 @@
 
 #include "catalog/pg_tablespace.h"
 #include "miscadmin.h"
+#include "storage/fd.h"
+#include "storage/smgr.h"
 #include "storage/streaming_read.h"
 #include "utils/rel.h"
 #include "utils/spccache.h"
