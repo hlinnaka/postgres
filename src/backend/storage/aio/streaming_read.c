@@ -90,6 +90,7 @@
 #include "storage/fd.h"
 #include "storage/smgr.h"
 #include "storage/streaming_read.h"
+#include "utils/memdebug.h"
 #include "utils/rel.h"
 #include "utils/spccache.h"
 
@@ -618,13 +619,12 @@ streaming_read_buffer_next(StreamingRead *stream, void **per_buffer_data)
 	}
 
 	/* Advance the oldest buffer, but clobber it first for debugging. */
-#ifdef USE_ASSERT_CHECKING
+#ifdef CLOBBER_FREED_MEMORY
 	stream->buffers[oldest_buffer_index] = InvalidBuffer;
 	stream->buffer_io_indexes[oldest_buffer_index] = -1;
 	if (stream->per_buffer_data)
-		memset(get_per_buffer_data(stream, oldest_buffer_index),
-			   0xff,
-			   stream->per_buffer_data_size);
+		wipe_mem(get_per_buffer_data(stream, oldest_buffer_index),
+				 stream->per_buffer_data_size);
 #endif
 	if (++stream->oldest_buffer_index == stream->max_pinned_buffers)
 		stream->oldest_buffer_index = 0;
