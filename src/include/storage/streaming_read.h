@@ -1,3 +1,16 @@
+/*-------------------------------------------------------------------------
+ *
+ * streaming_read.h
+ *	  Mechanism for buffer access with look-ahead
+ *
+ *
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
+ * src/include/storage/streaming_read.h
+ *
+ *-------------------------------------------------------------------------
+ */
 #ifndef STREAMING_READ_H
 #define STREAMING_READ_H
 
@@ -47,4 +60,4 @@ extern StreamingRead *streaming_read_buffer_begin(int flags,
 extern Buffer streaming_read_buffer_next(StreamingRead *stream, void **per_buffer_private);
 extern void streaming_read_buffer_end(StreamingRead *stream);
 
-#endif
+#endif							/* STREAMING_READ_H */

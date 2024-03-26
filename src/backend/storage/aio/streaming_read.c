@@ -3,9 +3,6 @@
  * streaming_read.c
  *	  Mechanism for buffer access with look-ahead
  *
- * Portions Copyright (c) 2024, PostgreSQL Global Development Group
- * Portions Copyright (c) 1994, Regents of the University of California
- *
  * Code that needs to access relation data typically pins blocks one at a
  * time, often in a predictable order that might be sequential or data-driven.
  * Calling the simple ReadBuffer() function for each block is inefficient,
@@ -77,8 +74,12 @@
  * the range 42..44 requires an I/O wait before its buffers are returned, as
  * does block 60.
  *
+ *
+ * Portions Copyright (c) 2024, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1994, Regents of the University of California
+ *
  * IDENTIFICATION
- *	  src/backend/storage/storage/aio/streaming_read.c
+ *	  src/backend/storage/aio/streaming_read.c
  *
  *-------------------------------------------------------------------------
  */
