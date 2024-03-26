@@ -21,7 +21,7 @@
 
 /*
  * I/O streams that are performing maintenance work on behalf of potentially
- * many users.
+ * many users.  For example, VACUUM or CREATE INDEX.
  */
 #define STREAMING_READ_MAINTENANCE 0x01
 
