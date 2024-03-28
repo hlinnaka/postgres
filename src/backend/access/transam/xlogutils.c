@@ -472,6 +472,7 @@ XLogReadBufferExtended(RelFileLocator rlocator, ForkNumber forknum,
 					   BlockNumber blkno, ReadBufferMode mode,
 					   Buffer recent_buffer)
 {
+	BufferManagerRelation bmr;
 	BlockNumber lastblock;
 	Buffer		buffer;
 	SMgrRelation smgr;
@@ -502,11 +503,11 @@ XLogReadBufferExtended(RelFileLocator rlocator, ForkNumber forknum,
 
 	lastblock = smgrnblocks(smgr, forknum);
 
+	InitBMRForSMgr(&bmr, smgr, RELPERSISTENCE_PERMANENT, forknum, NULL);
 	if (blkno < lastblock)
 	{
 		/* page exists in file */
-		buffer = ReadBufferWithoutRelcache(rlocator, forknum, blkno,
-										   mode, NULL, true);
+		buffer = ReadBufferBMR(&bmr, blkno, mode);
 	}
 	else
 	{
@@ -521,9 +522,8 @@ XLogReadBufferExtended(RelFileLocator rlocator, ForkNumber forknum,
 		/* OK to extend the file */
 		/* we do this in recovery only - no rel-extension lock needed */
 		Assert(InRecovery);
-		buffer = ExtendBufferedRelTo(BMR_SMGR(smgr, RELPERSISTENCE_PERMANENT),
-									 forknum,
-									 NULL,
+
+		buffer = ExtendBufferedRelTo(&bmr,
 									 EB_PERFORMING_RECOVERY |
 									 EB_SKIP_EXTENSION_LOCK,
 									 blkno + 1,

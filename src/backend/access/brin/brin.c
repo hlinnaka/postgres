@@ -1088,6 +1088,7 @@ brinbuildCallbackParallel(Relation index,
 IndexBuildResult *
 brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 {
+	BufferManagerRelation bmr;
 	IndexBuildResult *result;
 	double		reltuples;
 	double		idxtuples;
@@ -1108,8 +1109,8 @@ brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 	 * whole relation will be rolled back.
 	 */
 
-	meta = ExtendBufferedRel(BMR_REL(index), MAIN_FORKNUM, NULL,
-							 EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+	InitBMRForRel(&bmr, index, MAIN_FORKNUM, NULL);
+	meta = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
 	Assert(BufferGetBlockNumber(meta) == BRIN_METAPAGE_BLKNO);
 
 	brin_metapage_init(BufferGetPage(meta), BrinGetPagesPerRange(index),
@@ -1258,11 +1259,12 @@ brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 void
 brinbuildempty(Relation index)
 {
+	BufferManagerRelation bmr;
 	Buffer		metabuf;
 
 	/* An empty BRIN index has a metapage only. */
-	metabuf = ExtendBufferedRel(BMR_REL(index), INIT_FORKNUM, NULL,
-								EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+	InitBMRForRel(&bmr, index, INIT_FORKNUM, NULL);
+	metabuf = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
 
 	/* Initialize and xlog metabuffer. */
 	START_CRIT_SECTION();

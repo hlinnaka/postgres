@@ -868,11 +868,14 @@ _bt_getbuf(Relation rel, BlockNumber blkno, int access)
 Buffer
 _bt_allocbuf(Relation rel, Relation heaprel)
 {
+	BufferManagerRelation bmr;
 	Buffer		buf;
 	BlockNumber blkno;
 	Page		page;
 
 	Assert(heaprel != NULL);
+
+	InitBMRForRel(&bmr, rel, MAIN_FORKNUM, NULL);
 
 	/*
 	 * First see if the FSM knows of any free pages.
@@ -903,7 +906,7 @@ _bt_allocbuf(Relation rel, Relation heaprel)
 		blkno = GetFreeIndexPage(rel);
 		if (blkno == InvalidBlockNumber)
 			break;
-		buf = ReadBuffer(rel, blkno);
+		buf = ReadBufferBMR(&bmr, blkno, RBM_NORMAL);
 		if (_bt_conditionallockbuf(rel, buf))
 		{
 			page = BufferGetPage(buf);
@@ -975,7 +978,7 @@ _bt_allocbuf(Relation rel, Relation heaprel)
 	 * otherwise would make, as we can't use _bt_lockbuf() without introducing
 	 * a race.
 	 */
-	buf = ExtendBufferedRel(BMR_REL(rel), MAIN_FORKNUM, NULL, EB_LOCK_FIRST);
+	buf = ExtendBufferedRel(&bmr, EB_LOCK_FIRST);
 	if (!RelationUsesLocalBuffers(rel))
 		VALGRIND_MAKE_MEM_DEFINED(BufferGetPage(buf), BLCKSZ);
 

@@ -528,6 +528,9 @@ revmap_physical_extend(BrinRevmap *revmap)
 	BlockNumber mapBlk;
 	BlockNumber nblocks;
 	Relation	irel = revmap->rm_irel;
+	BufferManagerRelation bmr;
+
+	InitBMRForRel(&bmr, irel, MAIN_FORKNUM, NULL);
 
 	/*
 	 * Lock the metapage. This locks out concurrent extensions of the revmap,
@@ -553,14 +556,13 @@ revmap_physical_extend(BrinRevmap *revmap)
 	nblocks = RelationGetNumberOfBlocks(irel);
 	if (mapBlk < nblocks)
 	{
-		buf = ReadBuffer(irel, mapBlk);
+		buf = ReadBufferBMR(&bmr, mapBlk, RBM_NORMAL);
 		LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
 		page = BufferGetPage(buf);
 	}
 	else
 	{
-		buf = ExtendBufferedRel(BMR_REL(irel), MAIN_FORKNUM, NULL,
-								EB_LOCK_FIRST);
+		buf = ExtendBufferedRel(&bmr, EB_LOCK_FIRST);
 		if (BufferGetBlockNumber(buf) != mapBlk)
 		{
 			/*

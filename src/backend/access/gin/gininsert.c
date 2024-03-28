@@ -433,14 +433,15 @@ ginbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 void
 ginbuildempty(Relation index)
 {
+	BufferManagerRelation bmr;
 	Buffer		RootBuffer,
 				MetaBuffer;
 
+	InitBMRForRel(&bmr, index, INIT_FORKNUM, NULL);
+
 	/* An empty GIN index has two pages. */
-	MetaBuffer = ExtendBufferedRel(BMR_REL(index), INIT_FORKNUM, NULL,
-								   EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
-	RootBuffer = ExtendBufferedRel(BMR_REL(index), INIT_FORKNUM, NULL,
-								   EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+	MetaBuffer = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+	RootBuffer = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
 
 	/* Initialize and xlog metabuffer and root buffer. */
 	START_CRIT_SECTION();

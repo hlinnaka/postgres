@@ -205,6 +205,9 @@ pg_prewarm(PG_FUNCTION_ARGS)
 	{
 		struct pg_prewarm_read_stream_private p;
 		ReadStream *stream;
+		BufferManagerRelation bmr;
+
+		InitBMRForRel(&bmr, rel, forkNumber, NULL);
 
 		/*
 		 * In buffer mode, we actually pull the data into shared_buffers.
@@ -215,9 +218,7 @@ pg_prewarm(PG_FUNCTION_ARGS)
 		p.last_block = last_block;
 
 		stream = read_stream_begin_relation(READ_STREAM_FULL,
-											NULL,
-											BMR_REL(rel),
-											forkNumber,
+											&bmr,
 											pg_prewarm_read_stream_next_block,
 											&p,
 											0);

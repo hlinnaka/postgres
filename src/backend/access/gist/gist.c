@@ -132,11 +132,12 @@ createTempGistContext(void)
 void
 gistbuildempty(Relation index)
 {
+	BufferManagerRelation bmr;
 	Buffer		buffer;
 
 	/* Initialize the root page */
-	buffer = ExtendBufferedRel(BMR_REL(index), INIT_FORKNUM, NULL,
-							   EB_SKIP_EXTENSION_LOCK | EB_LOCK_FIRST);
+	InitBMRForRel(&bmr, index, INIT_FORKNUM, NULL);
+	buffer = ExtendBufferedRel(&bmr, EB_SKIP_EXTENSION_LOCK | EB_LOCK_FIRST);
 
 	/* Initialize and xlog buffer */
 	START_CRIT_SECTION();

@@ -299,6 +299,7 @@ gintuple_get_key(GinState *ginstate, IndexTuple tuple,
 Buffer
 GinNewBuffer(Relation index)
 {
+	BufferManagerRelation bmr;
 	Buffer		buffer;
 
 	/* First, try to get a page from FSM */
@@ -328,8 +329,8 @@ GinNewBuffer(Relation index)
 	}
 
 	/* Must extend the file */
-	buffer = ExtendBufferedRel(BMR_REL(index), MAIN_FORKNUM, NULL,
-							   EB_LOCK_FIRST);
+	InitBMRForRel(&bmr, index, MAIN_FORKNUM, NULL);
+	buffer = ExtendBufferedRel(&bmr, EB_LOCK_FIRST);
 
 	return buffer;
 }

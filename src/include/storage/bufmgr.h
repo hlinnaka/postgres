@@ -14,6 +14,7 @@
 #ifndef BUFMGR_H
 #define BUFMGR_H
 
+#include "pgstat.h"
 #include "port/pg_iovec.h"
 #include "storage/block.h"
 #include "storage/buf.h"
@@ -92,22 +93,6 @@ typedef enum ExtendBufferedFlags
 	EB_LOCK_TARGET = (1 << 5),
 }			ExtendBufferedFlags;
 
-/*
- * Some functions identify relations either by relation or smgr +
- * relpersistence.  Used via the BMR_REL()/BMR_SMGR() macros below.  This
- * allows us to use the same function for both recovery and normal operation.
- */
-typedef struct BufferManagerRelation
-{
-	Relation	rel;
-	struct SMgrRelationData *smgr;
-	char		relpersistence;
-} BufferManagerRelation;
-
-#define BMR_REL(p_rel) ((BufferManagerRelation){.rel = p_rel})
-#define BMR_SMGR(p_smgr, p_relpersistence) ((BufferManagerRelation){.smgr = p_smgr, .relpersistence = p_relpersistence})
-
-
 /* forward declared, to avoid having to expose buf_internals.h here */
 struct WritebackContext;
 
@@ -164,8 +149,35 @@ extern PGDLLIMPORT int32 *LocalRefCount;
 #define BUFFER_LOCK_EXCLUSIVE	2
 
 /*
+ * BufferManagerRelation encapsulates what the buffer manager functions like
+ * ReadBuffer() need to know about a relation.
+ *
+ * Initialize with InitBMRForRel() if you have access to the relcache, or
+ * InitBMRForSMgr() for raw access to the underlying smgr. This allows us to
+ * use the same functions for both recovery and normal operation.
+ */
+typedef struct BufferManagerRelation
+{
+	Relation	rel;
+	struct SMgrRelationData *smgr;
+	char		relpersistence;
+	ForkNumber	forkNum;
+	/* admittedly 'strategy' isn't really a property of the relation */
+	BufferAccessStrategy strategy;
+
+	/* private data initialized by InitBMR functions */
+	struct PgStat_TableStatus *pgstat_info; /* statistics collection area */
+	IOContext	io_context;
+	IOObject	io_object;
+} BufferManagerRelation;
+
+extern void InitBMRForRel(BufferManagerRelation *bmr, Relation rel, ForkNumber forkNum, BufferAccessStrategy strategy);
+extern void InitBMRForSMgr(BufferManagerRelation *bmr, struct SMgrRelationData *srel, char relpersistence, ForkNumber forkNum, BufferAccessStrategy strategy);
+
+/*
  * prototypes for functions in bufmgr.c
  */
+
 extern PrefetchBufferResult PrefetchSharedBuffer(struct SMgrRelationData *smgr_reln,
 												 ForkNumber forkNum,
 												 BlockNumber blockNum);
@@ -173,6 +185,13 @@ extern PrefetchBufferResult PrefetchBuffer(Relation reln, ForkNumber forkNum,
 										   BlockNumber blockNum);
 extern bool ReadRecentBuffer(RelFileLocator rlocator, ForkNumber forkNum,
 							 BlockNumber blockNum, Buffer recent_buffer);
+
+extern Buffer ReadBufferBMR(BufferManagerRelation *bmr, BlockNumber blockNum, ReadBufferMode mode);
+
+/*
+ * compatibility and convenience wrappers which call InitBMRForRel or
+ * InitBMRForSmgr, followed by ReadBufferBMR.
+ */
 extern Buffer ReadBuffer(Relation reln, BlockNumber blockNum);
 extern Buffer ReadBufferExtended(Relation reln, ForkNumber forkNum,
 								 BlockNumber blockNum, ReadBufferMode mode,
@@ -188,9 +207,7 @@ extern Buffer ReadBufferWithoutRelcache(RelFileLocator rlocator,
 struct ReadBuffersOperation
 {
 	/* The following members should be set by the caller. */
-	BufferManagerRelation bmr;
-	ForkNumber	forknum;
-	BufferAccessStrategy strategy;
+	BufferManagerRelation *bmr;
 
 	/* The following private members should not be accessed directly. */
 	Buffer	   *buffers;
@@ -223,20 +240,14 @@ extern void CheckBufferIsPinnedOnce(Buffer buffer);
 extern Buffer ReleaseAndReadBuffer(Buffer buffer, Relation relation,
 								   BlockNumber blockNum);
 
-extern Buffer ExtendBufferedRel(BufferManagerRelation bmr,
-								ForkNumber forkNum,
-								BufferAccessStrategy strategy,
+extern Buffer ExtendBufferedRel(BufferManagerRelation *bmr,
 								uint32 flags);
-extern BlockNumber ExtendBufferedRelBy(BufferManagerRelation bmr,
-									   ForkNumber fork,
-									   BufferAccessStrategy strategy,
+extern BlockNumber ExtendBufferedRelBy(BufferManagerRelation *bmr,
 									   uint32 flags,
 									   uint32 extend_by,
 									   Buffer *buffers,
 									   uint32 *extended_by);
-extern Buffer ExtendBufferedRelTo(BufferManagerRelation bmr,
-								  ForkNumber fork,
-								  BufferAccessStrategy strategy,
+extern Buffer ExtendBufferedRelTo(BufferManagerRelation *bmr,
 								  uint32 flags,
 								  BlockNumber extend_to,
 								  ReadBufferMode mode);
