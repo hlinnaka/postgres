@@ -479,20 +479,13 @@ ForgetPrivateRefCountEntry(PrivateRefCountEntry *ref)
 )
 
 
-static Buffer ReadBuffer_common(BufferManagerRelation bmr,
-								ForkNumber forkNum, BlockNumber blockNum,
-								ReadBufferMode mode, BufferAccessStrategy strategy);
-static BlockNumber ExtendBufferedRelCommon(BufferManagerRelation bmr,
-										   ForkNumber fork,
-										   BufferAccessStrategy strategy,
+static BlockNumber ExtendBufferedRelCommon(BufferManagerRelation *bmr,
 										   uint32 flags,
 										   uint32 extend_by,
 										   BlockNumber extend_upto,
 										   Buffer *buffers,
 										   uint32 *extended_by);
-static BlockNumber ExtendBufferedRelShared(BufferManagerRelation bmr,
-										   ForkNumber fork,
-										   BufferAccessStrategy strategy,
+static BlockNumber ExtendBufferedRelShared(BufferManagerRelation *bmr,
 										   uint32 flags,
 										   uint32 extend_by,
 										   BlockNumber extend_upto,
@@ -788,6 +781,7 @@ Buffer
 ReadBufferExtended(Relation reln, ForkNumber forkNum, BlockNumber blockNum,
 				   ReadBufferMode mode, BufferAccessStrategy strategy)
 {
+	BufferManagerRelation bmr;
 	Buffer		buf;
 
 	/*
@@ -800,8 +794,8 @@ ReadBufferExtended(Relation reln, ForkNumber forkNum, BlockNumber blockNum,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("cannot access temporary tables of other sessions")));
 
-	buf = ReadBuffer_common(BMR_REL(reln),
-							forkNum, blockNum, mode, strategy);
+	InitBMRForRel(&bmr, reln, forkNum, strategy);
+	buf = ReadBufferBMR(&bmr, blockNum, mode);
 
 	return buf;
 }
@@ -822,27 +816,86 @@ ReadBufferWithoutRelcache(RelFileLocator rlocator, ForkNumber forkNum,
 						  BlockNumber blockNum, ReadBufferMode mode,
 						  BufferAccessStrategy strategy, bool permanent)
 {
+	BufferManagerRelation bmr;
 	SMgrRelation smgr = smgropen(rlocator, INVALID_PROC_NUMBER);
 
-	return ReadBuffer_common(BMR_SMGR(smgr, permanent ? RELPERSISTENCE_PERMANENT :
-									  RELPERSISTENCE_UNLOGGED),
-							 forkNum, blockNum,
-							 mode, strategy);
+	InitBMRForSMgr(&bmr, smgr,
+				   permanent ? RELPERSISTENCE_PERMANENT : RELPERSISTENCE_UNLOGGED,
+				   forkNum,
+				   strategy);
+
+	return ReadBufferBMR(&bmr, blockNum, mode);
+}
+
+void
+InitBMRForRel(BufferManagerRelation *bmr, Relation rel, ForkNumber forkNum, BufferAccessStrategy strategy)
+{
+	bool		isLocalBuf;
+
+	bmr->rel = rel;
+	bmr->smgr = RelationGetSmgr(rel);
+	bmr->relpersistence = rel->rd_rel->relpersistence;
+	bmr->forkNum = forkNum;
+	bmr->strategy = strategy;
+
+	/*
+	 * Look up some further information that's needed in ReadBufferBMR
+	 * upfront.
+	 */
+	isLocalBuf = bmr->relpersistence == RELPERSISTENCE_TEMP;
+	if (isLocalBuf)
+	{
+		bmr->io_context = IOCONTEXT_NORMAL;
+		bmr->io_object = IOOBJECT_TEMP_RELATION;
+	}
+	else
+	{
+		bmr->io_context = IOContextForStrategy(strategy);
+		bmr->io_object = IOOBJECT_RELATION;
+	}
+
+	if (pgstat_should_count_relation(rel))
+		bmr->pgstat_info = rel->pgstat_info;
+	else
+		bmr->pgstat_info = NULL;
+}
+
+void
+InitBMRForSMgr(BufferManagerRelation *bmr, struct SMgrRelationData *srel, char relpersistence, ForkNumber forkNum, BufferAccessStrategy strategy)
+{
+	bool		isLocalBuf;
+
+	bmr->rel = NULL;
+	bmr->smgr = srel;
+	bmr->relpersistence = relpersistence;
+	bmr->forkNum = forkNum;
+	bmr->strategy = strategy;
+
+	isLocalBuf = relpersistence == RELPERSISTENCE_TEMP;
+	if (isLocalBuf)
+	{
+		bmr->io_context = IOCONTEXT_NORMAL;
+		bmr->io_object = IOOBJECT_TEMP_RELATION;
+	}
+	else
+	{
+		bmr->io_context = IOContextForStrategy(strategy);
+		bmr->io_object = IOOBJECT_RELATION;
+	}
+
+	bmr->pgstat_info = NULL;
 }
 
 /*
  * Convenience wrapper around ExtendBufferedRelBy() extending by one block.
  */
 Buffer
-ExtendBufferedRel(BufferManagerRelation bmr,
-				  ForkNumber forkNum,
-				  BufferAccessStrategy strategy,
-				  uint32 flags)
+ExtendBufferedRel(BufferManagerRelation *bmr, uint32 flags)
 {
 	Buffer		buf;
 	uint32		extend_by = 1;
 
-	ExtendBufferedRelBy(bmr, forkNum, strategy, flags, extend_by,
+	ExtendBufferedRelBy(bmr, flags, extend_by,
 						&buf, &extend_by);
 
 	return buf;
@@ -866,25 +919,16 @@ ExtendBufferedRel(BufferManagerRelation bmr,
  * be empty.
  */
 BlockNumber
-ExtendBufferedRelBy(BufferManagerRelation bmr,
-					ForkNumber fork,
-					BufferAccessStrategy strategy,
+ExtendBufferedRelBy(BufferManagerRelation *bmr,
 					uint32 flags,
 					uint32 extend_by,
 					Buffer *buffers,
 					uint32 *extended_by)
 {
-	Assert((bmr.rel != NULL) != (bmr.smgr != NULL));
-	Assert(bmr.smgr == NULL || bmr.relpersistence != 0);
+	Assert(bmr->smgr != NULL);
 	Assert(extend_by > 0);
 
-	if (bmr.smgr == NULL)
-	{
-		bmr.smgr = RelationGetSmgr(bmr.rel);
-		bmr.relpersistence = bmr.rel->rd_rel->relpersistence;
-	}
-
-	return ExtendBufferedRelCommon(bmr, fork, strategy, flags,
+	return ExtendBufferedRelCommon(bmr, flags,
 								   extend_by, InvalidBlockNumber,
 								   buffers, extended_by);
 }
@@ -898,9 +942,7 @@ ExtendBufferedRelBy(BufferManagerRelation bmr,
  * crash recovery).
  */
 Buffer
-ExtendBufferedRelTo(BufferManagerRelation bmr,
-					ForkNumber fork,
-					BufferAccessStrategy strategy,
+ExtendBufferedRelTo(BufferManagerRelation *bmr,
 					uint32 flags,
 					BlockNumber extend_to,
 					ReadBufferMode mode)
@@ -910,15 +952,8 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	Buffer		buffer = InvalidBuffer;
 	Buffer		buffers[64];
 
-	Assert((bmr.rel != NULL) != (bmr.smgr != NULL));
-	Assert(bmr.smgr == NULL || bmr.relpersistence != 0);
+	Assert(bmr->smgr != NULL);
 	Assert(extend_to != InvalidBlockNumber && extend_to > 0);
-
-	if (bmr.smgr == NULL)
-	{
-		bmr.smgr = RelationGetSmgr(bmr.rel);
-		bmr.relpersistence = bmr.rel->rd_rel->relpersistence;
-	}
 
 	/*
 	 * If desired, create the file if it doesn't exist.  If
@@ -926,17 +961,18 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	 * an smgrexists call.
 	 */
 	if ((flags & EB_CREATE_FORK_IF_NEEDED) &&
-		(bmr.smgr->smgr_cached_nblocks[fork] == 0 ||
-		 bmr.smgr->smgr_cached_nblocks[fork] == InvalidBlockNumber) &&
-		!smgrexists(bmr.smgr, fork))
+		(bmr->smgr->smgr_cached_nblocks[bmr->forkNum] == 0 ||
+		 bmr->smgr->smgr_cached_nblocks[bmr->forkNum] == InvalidBlockNumber) &&
+		!smgrexists(bmr->smgr, bmr->forkNum))
 	{
-		LockRelationForExtension(bmr.rel, ExclusiveLock);
+		Assert(bmr->rel);
+		LockRelationForExtension(bmr->rel, ExclusiveLock);
 
 		/* recheck, fork might have been created concurrently */
-		if (!smgrexists(bmr.smgr, fork))
-			smgrcreate(bmr.smgr, fork, flags & EB_PERFORMING_RECOVERY);
+		if (!smgrexists(bmr->smgr, bmr->forkNum))
+			smgrcreate(bmr->smgr, bmr->forkNum, flags & EB_PERFORMING_RECOVERY);
 
-		UnlockRelationForExtension(bmr.rel, ExclusiveLock);
+		UnlockRelationForExtension(bmr->rel, ExclusiveLock);
 	}
 
 	/*
@@ -944,13 +980,13 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	 * kernel.
 	 */
 	if (flags & EB_CLEAR_SIZE_CACHE)
-		bmr.smgr->smgr_cached_nblocks[fork] = InvalidBlockNumber;
+		bmr->smgr->smgr_cached_nblocks[bmr->forkNum] = InvalidBlockNumber;
 
 	/*
 	 * Estimate how many pages we'll need to extend by. This avoids acquiring
 	 * unnecessarily many victim buffers.
 	 */
-	current_size = smgrnblocks(bmr.smgr, fork);
+	current_size = smgrnblocks(bmr->smgr, bmr->forkNum);
 
 	/*
 	 * Since no-one else can be looking at the page contents yet, there is no
@@ -969,7 +1005,7 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 		if ((uint64) current_size + num_pages > extend_to)
 			num_pages = extend_to - current_size;
 
-		first_block = ExtendBufferedRelCommon(bmr, fork, strategy, flags,
+		first_block = ExtendBufferedRelCommon(bmr, flags,
 											  num_pages, extend_to,
 											  buffers, &extended_by);
 
@@ -994,7 +1030,7 @@ ExtendBufferedRelTo(BufferManagerRelation bmr,
 	if (buffer == InvalidBuffer)
 	{
 		Assert(extended_by == 0);
-		buffer = ReadBuffer_common(bmr, fork, extend_to - 1, mode, strategy);
+		buffer = ReadBufferBMR(bmr, extend_to - 1, mode);
 	}
 
 	return buffer;
@@ -1047,75 +1083,59 @@ ZeroBuffer(Buffer buffer, ReadBufferMode mode)
  * zero it.
  */
 static inline Buffer
-PinBufferForBlock(BufferManagerRelation bmr,
-				  ForkNumber forkNum,
+PinBufferForBlock(BufferManagerRelation *const bmr,
 				  BlockNumber blockNum,
-				  BufferAccessStrategy strategy,
 				  bool *foundPtr)
 {
 	BufferDesc *bufHdr;
 	bool		isLocalBuf;
-	IOContext	io_context;
-	IOObject	io_object;
 
 	Assert(blockNum != P_NEW);
+	Assert(bmr->smgr);
 
-	Assert(bmr.smgr);
+	TRACE_POSTGRESQL_BUFFER_READ_START(bmr->forkNum, blockNum,
+									   bmr->smgr->smgr_rlocator.locator.spcOid,
+									   bmr->smgr->smgr_rlocator.locator.dbOid,
+									   bmr->smgr->smgr_rlocator.locator.relNumber,
+									   bmr->smgr->smgr_rlocator.backend);
 
-	isLocalBuf = bmr.relpersistence == RELPERSISTENCE_TEMP;
+	isLocalBuf = bmr->relpersistence == RELPERSISTENCE_TEMP;
 	if (isLocalBuf)
 	{
-		io_context = IOCONTEXT_NORMAL;
-		io_object = IOOBJECT_TEMP_RELATION;
-	}
-	else
-	{
-		io_context = IOContextForStrategy(strategy);
-		io_object = IOOBJECT_RELATION;
-	}
-
-	TRACE_POSTGRESQL_BUFFER_READ_START(forkNum, blockNum,
-									   bmr.smgr->smgr_rlocator.locator.spcOid,
-									   bmr.smgr->smgr_rlocator.locator.dbOid,
-									   bmr.smgr->smgr_rlocator.locator.relNumber,
-									   bmr.smgr->smgr_rlocator.backend);
-
-	if (isLocalBuf)
-	{
-		bufHdr = LocalBufferAlloc(bmr.smgr, forkNum, blockNum, foundPtr);
+		bufHdr = LocalBufferAlloc(bmr->smgr, bmr->forkNum, blockNum, foundPtr);
 		if (*foundPtr)
 			pgBufferUsage.local_blks_hit++;
 	}
 	else
 	{
-		bufHdr = BufferAlloc(bmr.smgr, bmr.relpersistence, forkNum, blockNum,
-							 strategy, foundPtr, io_context);
+		bufHdr = BufferAlloc(bmr->smgr, bmr->relpersistence, bmr->forkNum, blockNum,
+							 bmr->strategy, foundPtr, bmr->io_context);
 		if (*foundPtr)
 			pgBufferUsage.shared_blks_hit++;
 	}
-	if (bmr.rel)
+	if (bmr->pgstat_info)
 	{
 		/*
 		 * While pgBufferUsage's "read" counter isn't bumped unless we reach
 		 * WaitReadBuffers() (so, not for hits, and not for buffers that are
 		 * zeroed instead), the per-relation stats always count them.
 		 */
-		pgstat_count_buffer_read(bmr.rel);
+		bmr->pgstat_info->counts.blocks_fetched++;
 		if (*foundPtr)
-			pgstat_count_buffer_hit(bmr.rel);
+			bmr->pgstat_info->counts.blocks_hit++;
 	}
 	if (*foundPtr)
 	{
 		VacuumPageHit++;
-		pgstat_count_io_op(io_object, io_context, IOOP_HIT);
+		pgstat_count_io_op(bmr->io_object, bmr->io_context, IOOP_HIT);
 		if (VacuumCostActive)
 			VacuumCostBalance += VacuumCostPageHit;
 
-		TRACE_POSTGRESQL_BUFFER_READ_DONE(forkNum, blockNum,
-										  bmr.smgr->smgr_rlocator.locator.spcOid,
-										  bmr.smgr->smgr_rlocator.locator.dbOid,
-										  bmr.smgr->smgr_rlocator.locator.relNumber,
-										  bmr.smgr->smgr_rlocator.backend,
+		TRACE_POSTGRESQL_BUFFER_READ_DONE(bmr->forkNum, blockNum,
+										  bmr->smgr->smgr_rlocator.locator.spcOid,
+										  bmr->smgr->smgr_rlocator.locator.dbOid,
+										  bmr->smgr->smgr_rlocator.locator.relNumber,
+										  bmr->smgr->smgr_rlocator.backend,
 										  true);
 	}
 
@@ -1125,14 +1145,12 @@ PinBufferForBlock(BufferManagerRelation bmr,
 /*
  * ReadBuffer_common -- common logic for all ReadBuffer variants
  */
-static inline Buffer
-ReadBuffer_common(BufferManagerRelation bmr, ForkNumber forkNum,
-				  BlockNumber blockNum, ReadBufferMode mode,
-				  BufferAccessStrategy strategy)
+Buffer
+ReadBufferBMR(BufferManagerRelation *bmr,
+			  BlockNumber blockNum, ReadBufferMode mode)
 {
-	ReadBuffersOperation operation;
 	Buffer		buffer;
-	int			flags;
+	bool		found;
 
 	/*
 	 * Backward compatibility path, most code should use ExtendBufferedRel()
@@ -1151,37 +1169,32 @@ ReadBuffer_common(BufferManagerRelation bmr, ForkNumber forkNum,
 		if (mode == RBM_ZERO_AND_LOCK || mode == RBM_ZERO_AND_CLEANUP_LOCK)
 			flags |= EB_LOCK_FIRST;
 
-		return ExtendBufferedRel(bmr, forkNum, strategy, flags);
+		return ExtendBufferedRel(bmr, flags);
 	}
 
+	buffer = PinBufferForBlock(bmr, blockNum, &found);
 	if (unlikely(mode == RBM_ZERO_AND_CLEANUP_LOCK ||
 				 mode == RBM_ZERO_AND_LOCK))
 	{
-		bool		found;
-
-		if (bmr.smgr == NULL)
-		{
-			bmr.smgr = RelationGetSmgr(bmr.rel);
-			bmr.relpersistence = bmr.rel->rd_rel->relpersistence;
-		}
-
-		buffer = PinBufferForBlock(bmr, forkNum, blockNum, strategy, &found);
 		ZeroBuffer(buffer, mode);
-		return buffer;
 	}
+	else if (!found)
+	{
+		ReadBuffersOperation operation;
 
-	if (mode == RBM_ZERO_ON_ERROR)
-		flags = READ_BUFFERS_ZERO_ON_ERROR;
-	else
-		flags = 0;
-	operation.bmr = bmr;
-	operation.forknum = forkNum;
-	operation.strategy = strategy;
-	if (StartReadBuffer(&operation,
-						&buffer,
-						blockNum,
-						flags))
+		if (mode == RBM_ZERO_ON_ERROR)
+			operation.flags = READ_BUFFERS_ZERO_ON_ERROR;
+		else
+			operation.flags = 0;
+
+		operation.bmr = bmr;
+		operation.buffers = &buffer;
+		operation.blocknum = blockNum;
+		operation.nblocks = 1;
+		operation.io_buffers_len = 1;
+
 		WaitReadBuffers(&operation);
+	}
 
 	return buffer;
 }
@@ -1223,33 +1236,26 @@ StartReadBuffer(ReadBuffersOperation *operation,
  * and the real I/O happens in WaitReadBuffers().  In future work, true I/O
  * could be initiated here.
  */
-inline bool
+bool
 StartReadBuffers(ReadBuffersOperation *operation,
 				 Buffer *buffers,
 				 BlockNumber blockNum,
 				 int *nblocks,
 				 int flags)
 {
+	BufferManagerRelation *bmr = operation->bmr;
 	int			actual_nblocks = *nblocks;
 	int			io_buffers_len = 0;
 
 	Assert(*nblocks > 0);
 	Assert(*nblocks <= MAX_IO_COMBINE_LIMIT);
 
-	if (!operation->bmr.smgr)
-	{
-		operation->bmr.smgr = RelationGetSmgr(operation->bmr.rel);
-		operation->bmr.relpersistence = operation->bmr.rel->rd_rel->relpersistence;
-	}
-
 	for (int i = 0; i < actual_nblocks; ++i)
 	{
 		bool		found;
 
-		buffers[i] = PinBufferForBlock(operation->bmr,
-									   operation->forknum,
+		buffers[i] = PinBufferForBlock(bmr,
 									   blockNum + i,
-									   operation->strategy,
 									   &found);
 
 		if (found)
@@ -1294,8 +1300,8 @@ StartReadBuffers(ReadBuffersOperation *operation,
 			 * true asynchronous version we might choose to process only one
 			 * real I/O at a time in that case.
 			 */
-			smgrprefetch(operation->bmr.smgr,
-						 operation->forknum,
+			smgrprefetch(bmr->smgr,
+						 bmr->forkNum,
 						 blockNum,
 						 operation->io_buffers_len);
 		}
@@ -1328,10 +1334,7 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 	Buffer	   *buffers;
 	int			nblocks;
 	BlockNumber blocknum;
-	ForkNumber	forknum;
 	bool		isLocalBuf;
-	IOContext	io_context;
-	IOObject	io_object;
 
 	/*
 	 * Currently operations are only allowed to include a read of some range,
@@ -1348,19 +1351,6 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 
 	buffers = &operation->buffers[0];
 	blocknum = operation->blocknum;
-	forknum = operation->forknum;
-
-	isLocalBuf = operation->bmr.relpersistence == RELPERSISTENCE_TEMP;
-	if (isLocalBuf)
-	{
-		io_context = IOCONTEXT_NORMAL;
-		io_object = IOOBJECT_TEMP_RELATION;
-	}
-	else
-	{
-		io_context = IOContextForStrategy(operation->strategy);
-		io_object = IOOBJECT_RELATION;
-	}
 
 	/*
 	 * We count all these blocks as read by this backend.  This is traditional
@@ -1370,6 +1360,7 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 	 * count this as a "hit", and we don't have a separate counter for "miss,
 	 * but another backend completed the read".
 	 */
+	isLocalBuf = operation->bmr->relpersistence == RELPERSISTENCE_TEMP;
 	if (isLocalBuf)
 		pgBufferUsage.local_blks_read += nblocks;
 	else
@@ -1395,11 +1386,11 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 			 * Report this as a 'hit' for this backend, even though it must
 			 * have started out as a miss in PinBufferForBlock().
 			 */
-			TRACE_POSTGRESQL_BUFFER_READ_DONE(forknum, blocknum + i,
-											  operation->bmr.smgr->smgr_rlocator.locator.spcOid,
-											  operation->bmr.smgr->smgr_rlocator.locator.dbOid,
-											  operation->bmr.smgr->smgr_rlocator.locator.relNumber,
-											  operation->bmr.smgr->smgr_rlocator.backend,
+			TRACE_POSTGRESQL_BUFFER_READ_DONE(operation->bmr->forkNum, blocknum + i,
+											  operation->bmr->smgr->smgr_rlocator.locator.spcOid,
+											  operation->bmr->smgr->smgr_rlocator.locator.dbOid,
+											  operation->bmr->smgr->smgr_rlocator.locator.relNumber,
+											  operation->bmr->smgr->smgr_rlocator.backend,
 											  true);
 			continue;
 		}
@@ -1429,9 +1420,9 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 		}
 
 		io_start = pgstat_prepare_io_time(track_io_timing);
-		smgrreadv(operation->bmr.smgr, forknum, io_first_block, io_pages, io_buffers_len);
-		pgstat_count_io_op_time(io_object, io_context, IOOP_READ, io_start,
-								io_buffers_len);
+		smgrreadv(operation->bmr->smgr, operation->bmr->forkNum, io_first_block, io_pages, io_buffers_len);
+		pgstat_count_io_op_time(operation->bmr->io_object, operation->bmr->io_context,
+								IOOP_READ, io_start, io_buffers_len);
 
 		/* Verify each block we read, and terminate the I/O. */
 		for (int j = 0; j < io_buffers_len; ++j)
@@ -1460,7 +1451,7 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 							(errcode(ERRCODE_DATA_CORRUPTED),
 							 errmsg("invalid page in block %u of relation %s; zeroing out page",
 									io_first_block + j,
-									relpath(operation->bmr.smgr->smgr_rlocator, forknum))));
+									relpath(operation->bmr->smgr->smgr_rlocator, operation->bmr->forkNum))));
 					memset(bufBlock, 0, BLCKSZ);
 				}
 				else
@@ -1468,7 +1459,7 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 							(errcode(ERRCODE_DATA_CORRUPTED),
 							 errmsg("invalid page in block %u of relation %s",
 									io_first_block + j,
-									relpath(operation->bmr.smgr->smgr_rlocator, forknum))));
+									relpath(operation->bmr->smgr->smgr_rlocator, operation->bmr->forkNum))));
 			}
 
 			/* Terminate I/O and set BM_VALID. */
@@ -1486,11 +1477,11 @@ WaitReadBuffers(ReadBuffersOperation *operation)
 			}
 
 			/* Report I/Os as completing individually. */
-			TRACE_POSTGRESQL_BUFFER_READ_DONE(forknum, io_first_block + j,
-											  operation->bmr.smgr->smgr_rlocator.locator.spcOid,
-											  operation->bmr.smgr->smgr_rlocator.locator.dbOid,
-											  operation->bmr.smgr->smgr_rlocator.locator.relNumber,
-											  operation->bmr.smgr->smgr_rlocator.backend,
+			TRACE_POSTGRESQL_BUFFER_READ_DONE(operation->bmr->forkNum, io_first_block + j,
+											  operation->bmr->smgr->smgr_rlocator.locator.spcOid,
+											  operation->bmr->smgr->smgr_rlocator.locator.dbOid,
+											  operation->bmr->smgr->smgr_rlocator.locator.relNumber,
+											  operation->bmr->smgr->smgr_rlocator.backend,
 											  false);
 		}
 
@@ -2061,9 +2052,7 @@ LimitAdditionalPins(uint32 *additional_pins)
  * avoid duplicating the tracing and relpersistence related logic.
  */
 static BlockNumber
-ExtendBufferedRelCommon(BufferManagerRelation bmr,
-						ForkNumber fork,
-						BufferAccessStrategy strategy,
+ExtendBufferedRelCommon(BufferManagerRelation *bmr,
 						uint32 flags,
 						uint32 extend_by,
 						BlockNumber extend_upto,
@@ -2072,28 +2061,28 @@ ExtendBufferedRelCommon(BufferManagerRelation bmr,
 {
 	BlockNumber first_block;
 
-	TRACE_POSTGRESQL_BUFFER_EXTEND_START(fork,
-										 bmr.smgr->smgr_rlocator.locator.spcOid,
-										 bmr.smgr->smgr_rlocator.locator.dbOid,
-										 bmr.smgr->smgr_rlocator.locator.relNumber,
-										 bmr.smgr->smgr_rlocator.backend,
+	TRACE_POSTGRESQL_BUFFER_EXTEND_START(bmr->forkNum,
+										 bmr->smgr->smgr_rlocator.locator.spcOid,
+										 bmr->smgr->smgr_rlocator.locator.dbOid,
+										 bmr->smgr->smgr_rlocator.locator.relNumber,
+										 bmr->smgr->smgr_rlocator.backend,
 										 extend_by);
 
-	if (bmr.relpersistence == RELPERSISTENCE_TEMP)
-		first_block = ExtendBufferedRelLocal(bmr, fork, flags,
+	if (bmr->relpersistence == RELPERSISTENCE_TEMP)
+		first_block = ExtendBufferedRelLocal(bmr, flags,
 											 extend_by, extend_upto,
 											 buffers, &extend_by);
 	else
-		first_block = ExtendBufferedRelShared(bmr, fork, strategy, flags,
+		first_block = ExtendBufferedRelShared(bmr, flags,
 											  extend_by, extend_upto,
 											  buffers, &extend_by);
 	*extended_by = extend_by;
 
-	TRACE_POSTGRESQL_BUFFER_EXTEND_DONE(fork,
-										bmr.smgr->smgr_rlocator.locator.spcOid,
-										bmr.smgr->smgr_rlocator.locator.dbOid,
-										bmr.smgr->smgr_rlocator.locator.relNumber,
-										bmr.smgr->smgr_rlocator.backend,
+	TRACE_POSTGRESQL_BUFFER_EXTEND_DONE(bmr->forkNum,
+										bmr->smgr->smgr_rlocator.locator.spcOid,
+										bmr->smgr->smgr_rlocator.locator.dbOid,
+										bmr->smgr->smgr_rlocator.locator.relNumber,
+										bmr->smgr->smgr_rlocator.backend,
 										*extended_by,
 										first_block);
 
@@ -2105,9 +2094,7 @@ ExtendBufferedRelCommon(BufferManagerRelation bmr,
  * shared buffers.
  */
 static BlockNumber
-ExtendBufferedRelShared(BufferManagerRelation bmr,
-						ForkNumber fork,
-						BufferAccessStrategy strategy,
+ExtendBufferedRelShared(BufferManagerRelation *bmr,
 						uint32 flags,
 						uint32 extend_by,
 						BlockNumber extend_upto,
@@ -2115,7 +2102,6 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 						uint32 *extended_by)
 {
 	BlockNumber first_block;
-	IOContext	io_context = IOContextForStrategy(strategy);
 	instr_time	io_start;
 
 	LimitAdditionalPins(&extend_by);
@@ -2134,7 +2120,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 	{
 		Block		buf_block;
 
-		buffers[i] = GetVictimBuffer(strategy, io_context);
+		buffers[i] = GetVictimBuffer(bmr->strategy, bmr->io_context);
 		buf_block = BufHdrGetBlock(GetBufferDescriptor(buffers[i] - 1));
 
 		/* new buffers are zero-filled */
@@ -2152,16 +2138,16 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 	 * we get the lock.
 	 */
 	if (!(flags & EB_SKIP_EXTENSION_LOCK))
-		LockRelationForExtension(bmr.rel, ExclusiveLock);
+		LockRelationForExtension(bmr->rel, ExclusiveLock);
 
 	/*
 	 * If requested, invalidate size cache, so that smgrnblocks asks the
 	 * kernel.
 	 */
 	if (flags & EB_CLEAR_SIZE_CACHE)
-		bmr.smgr->smgr_cached_nblocks[fork] = InvalidBlockNumber;
+		bmr->smgr->smgr_cached_nblocks[bmr->forkNum] = InvalidBlockNumber;
 
-	first_block = smgrnblocks(bmr.smgr, fork);
+	first_block = smgrnblocks(bmr->smgr, bmr->forkNum);
 
 	/*
 	 * Now that we have the accurate relation size, check if the caller wants
@@ -2193,7 +2179,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 		if (extend_by == 0)
 		{
 			if (!(flags & EB_SKIP_EXTENSION_LOCK))
-				UnlockRelationForExtension(bmr.rel, ExclusiveLock);
+				UnlockRelationForExtension(bmr->rel, ExclusiveLock);
 			*extended_by = extend_by;
 			return first_block;
 		}
@@ -2204,7 +2190,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 				 errmsg("cannot extend relation %s beyond %u blocks",
-						relpath(bmr.smgr->smgr_rlocator, fork),
+						relpath(bmr->smgr->smgr_rlocator, bmr->forkNum),
 						MaxBlockNumber)));
 
 	/*
@@ -2226,7 +2212,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 		ResourceOwnerEnlarge(CurrentResourceOwner);
 		ReservePrivateRefCountEntry();
 
-		InitBufferTag(&tag, &bmr.smgr->smgr_rlocator.locator, fork, first_block + i);
+		InitBufferTag(&tag, &bmr->smgr->smgr_rlocator.locator, bmr->forkNum, first_block + i);
 		hash = BufTableHashCode(&tag);
 		partition_lock = BufMappingPartitionLock(hash);
 
@@ -2258,7 +2244,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 			 * Pin the existing buffer before releasing the partition lock,
 			 * preventing it from being evicted.
 			 */
-			valid = PinBuffer(existing_hdr, strategy);
+			valid = PinBuffer(existing_hdr, bmr->strategy);
 
 			LWLockRelease(partition_lock);
 
@@ -2275,7 +2261,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 			if (valid && !PageIsNew((Page) buf_block))
 				ereport(ERROR,
 						(errmsg("unexpected data beyond EOF in block %u of relation %s",
-								existing_hdr->tag.blockNum, relpath(bmr.smgr->smgr_rlocator, fork)),
+								existing_hdr->tag.blockNum, relpath(bmr->smgr->smgr_rlocator, bmr->forkNum)),
 						 errhint("This has been seen to occur with buggy kernels; consider updating your system.")));
 
 			/*
@@ -2309,7 +2295,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 			victim_buf_hdr->tag = tag;
 
 			buf_state |= BM_TAG_VALID | BUF_USAGECOUNT_ONE;
-			if (bmr.relpersistence == RELPERSISTENCE_PERMANENT || fork == INIT_FORKNUM)
+			if (bmr->relpersistence == RELPERSISTENCE_PERMANENT || bmr->forkNum == INIT_FORKNUM)
 				buf_state |= BM_PERMANENT;
 
 			UnlockBufHdr(victim_buf_hdr, buf_state);
@@ -2333,7 +2319,7 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 	 *
 	 * We don't need to set checksum for all-zero pages.
 	 */
-	smgrzeroextend(bmr.smgr, fork, first_block, extend_by, false);
+	smgrzeroextend(bmr->smgr, bmr->forkNum, first_block, extend_by, false);
 
 	/*
 	 * Release the file-extension lock; it's now OK for someone else to extend
@@ -2343,9 +2329,9 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
 	 * take noticeable time.
 	 */
 	if (!(flags & EB_SKIP_EXTENSION_LOCK))
-		UnlockRelationForExtension(bmr.rel, ExclusiveLock);
+		UnlockRelationForExtension(bmr->rel, ExclusiveLock);
 
-	pgstat_count_io_op_time(IOOBJECT_RELATION, io_context, IOOP_EXTEND,
+	pgstat_count_io_op_time(IOOBJECT_RELATION, bmr->io_context, IOOP_EXTEND,
 							io_start, extend_by);
 
 	/* Set BM_VALID, terminate IO, and wake up any waiters */

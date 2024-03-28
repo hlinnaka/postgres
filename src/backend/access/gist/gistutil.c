@@ -823,6 +823,7 @@ gistcheckpage(Relation rel, Buffer buf)
 Buffer
 gistNewBuffer(Relation r, Relation heaprel)
 {
+	BufferManagerRelation bmr;
 	Buffer		buffer;
 
 	/* First, try to get a page from FSM */
@@ -877,8 +878,8 @@ gistNewBuffer(Relation r, Relation heaprel)
 	}
 
 	/* Must extend the file */
-	buffer = ExtendBufferedRel(BMR_REL(r), MAIN_FORKNUM, NULL,
-							   EB_LOCK_FIRST);
+	InitBMRForRel(&bmr, r, MAIN_FORKNUM, NULL);
+	buffer = ExtendBufferedRel(&bmr, EB_LOCK_FIRST);
 
 	return buffer;
 }

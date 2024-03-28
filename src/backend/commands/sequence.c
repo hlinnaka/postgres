@@ -362,11 +362,13 @@ fill_seq_fork_with_data(Relation rel, HeapTuple tuple, ForkNumber forkNum)
 	Page		page;
 	sequence_magic *sm;
 	OffsetNumber offnum;
+	BufferManagerRelation bmr;
+
+	InitBMRForRel(&bmr, rel, forkNum, NULL);
 
 	/* Initialize first page of relation with special magic number */
 
-	buf = ExtendBufferedRel(BMR_REL(rel), forkNum, NULL,
-							EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+	buf = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
 	Assert(BufferGetBlockNumber(buf) == 0);
 
 	page = BufferGetPage(buf);

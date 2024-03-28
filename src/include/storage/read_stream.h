@@ -50,9 +50,7 @@ typedef BlockNumber (*ReadStreamBlockNumberCB) (ReadStream *stream,
 												void *per_buffer_data);
 
 extern ReadStream *read_stream_begin_relation(int flags,
-											  BufferAccessStrategy strategy,
-											  BufferManagerRelation bmr,
-											  ForkNumber forknum,
+											  BufferManagerRelation *bmr,
 											  ReadStreamBlockNumberCB callback,
 											  void *callback_private_data,
 											  size_t per_buffer_data_size);

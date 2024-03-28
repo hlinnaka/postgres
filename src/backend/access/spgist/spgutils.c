@@ -374,7 +374,10 @@ initSpGistState(SpGistState *state, Relation index)
 Buffer
 SpGistNewBuffer(Relation index)
 {
+	BufferManagerRelation bmr;
 	Buffer		buffer;
+
+	InitBMRForRel(&bmr, index, MAIN_FORKNUM, NULL);
 
 	/* First, try to get a page from FSM */
 	for (;;)
@@ -391,7 +394,7 @@ SpGistNewBuffer(Relation index)
 		if (SpGistBlockIsFixed(blkno))
 			continue;
 
-		buffer = ReadBuffer(index, blkno);
+		buffer = ReadBufferBMR(&bmr, blkno, RBM_NORMAL);
 
 		/*
 		 * We have to guard against the possibility that someone else already
@@ -414,8 +417,7 @@ SpGistNewBuffer(Relation index)
 		ReleaseBuffer(buffer);
 	}
 
-	buffer = ExtendBufferedRel(BMR_REL(index), MAIN_FORKNUM, NULL,
-							   EB_LOCK_FIRST);
+	buffer = ExtendBufferedRel(&bmr, EB_LOCK_FIRST);
 
 	return buffer;
 }

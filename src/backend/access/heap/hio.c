@@ -246,6 +246,7 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 	uint32		not_in_fsm_pages;
 	Buffer		buffer;
 	Page		page;
+	BufferManagerRelation bmr;
 
 	/*
 	 * Determine by how many pages to try to extend by.
@@ -338,8 +339,8 @@ RelationAddBlocks(Relation relation, BulkInsertState bistate,
 	 * [auto]vacuum trying to truncate later pages as REL_TRUNCATE_MINIMUM is
 	 * way larger.
 	 */
-	first_block = ExtendBufferedRelBy(BMR_REL(relation), MAIN_FORKNUM,
-									  bistate ? bistate->strategy : NULL,
+	InitBMRForRel(&bmr, relation, MAIN_FORKNUM, bistate ? bistate->strategy : NULL);
+	first_block = ExtendBufferedRelBy(&bmr,
 									  EB_LOCK_FIRST,
 									  extend_by_pages,
 									  victim_buffers,

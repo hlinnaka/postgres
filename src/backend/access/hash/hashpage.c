@@ -197,6 +197,7 @@ _hash_initbuf(Buffer buf, uint32 max_bucket, uint32 num_bucket, uint32 flag,
 Buffer
 _hash_getnewbuf(Relation rel, BlockNumber blkno, ForkNumber forkNum)
 {
+	BufferManagerRelation bmr;
 	BlockNumber nblocks = RelationGetNumberOfBlocksInFork(rel, forkNum);
 	Buffer		buf;
 
@@ -206,19 +207,19 @@ _hash_getnewbuf(Relation rel, BlockNumber blkno, ForkNumber forkNum)
 		elog(ERROR, "access to noncontiguous page in hash index \"%s\"",
 			 RelationGetRelationName(rel));
 
+	InitBMRForRel(&bmr, rel, forkNum, NULL);
+
 	/* smgr insists we explicitly extend the relation */
 	if (blkno == nblocks)
 	{
-		buf = ExtendBufferedRel(BMR_REL(rel), forkNum, NULL,
-								EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
+		buf = ExtendBufferedRel(&bmr, EB_LOCK_FIRST | EB_SKIP_EXTENSION_LOCK);
 		if (BufferGetBlockNumber(buf) != blkno)
 			elog(ERROR, "unexpected hash relation size: %u, should be %u",
 				 BufferGetBlockNumber(buf), blkno);
 	}
 	else
 	{
-		buf = ReadBufferExtended(rel, forkNum, blkno, RBM_ZERO_AND_LOCK,
-								 NULL);
+		buf = ReadBufferBMR(&bmr, blkno, RBM_ZERO_AND_LOCK);
 	}
 
 	/* ref count and lock type are correct */

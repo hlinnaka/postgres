@@ -116,6 +116,8 @@ struct ReadStream
 	int16		distance;
 	bool		advice_enabled;
 
+	BufferManagerRelation bmr;
+
 	/*
 	 * Sometimes we need to be able to 'unget' a block number to resolve a
 	 * flow control problem when I/Os are split.
@@ -375,9 +377,7 @@ read_stream_look_ahead(ReadStream *stream, bool suppress_advice)
  */
 ReadStream *
 read_stream_begin_relation(int flags,
-						   BufferAccessStrategy strategy,
-						   BufferManagerRelation bmr,
-						   ForkNumber forknum,
+						   BufferManagerRelation *bmr,
 						   ReadStreamBlockNumberCB callback,
 						   void *callback_private_data,
 						   size_t per_buffer_data_size)
@@ -389,23 +389,16 @@ read_stream_begin_relation(int flags,
 	uint32		max_pinned_buffers;
 	Oid			tablespace_id;
 
-	/* Make sure our bmr's smgr and persistent are populated. */
-	if (bmr.smgr == NULL)
-	{
-		bmr.smgr = RelationGetSmgr(bmr.rel);
-		bmr.relpersistence = bmr.rel->rd_rel->relpersistence;
-	}
-
 	/*
 	 * Decide how many I/Os we will allow to run at the same time.  That
 	 * currently means advice to the kernel to tell it that we will soon read.
 	 * This number also affects how far we look ahead for opportunities to
 	 * start more I/Os.
 	 */
-	tablespace_id = bmr.smgr->smgr_rlocator.locator.spcOid;
+	tablespace_id = bmr->smgr->smgr_rlocator.locator.spcOid;
 	if (!OidIsValid(MyDatabaseId) ||
-		(bmr.rel && IsCatalogRelation(bmr.rel)) ||
-		IsCatalogRelationOid(bmr.smgr->smgr_rlocator.locator.relNumber))
+		(bmr->rel && IsCatalogRelation(bmr->rel)) ||
+		IsCatalogRelationOid(bmr->smgr->smgr_rlocator.locator.relNumber))
 	{
 		/*
 		 * Avoid circularity while trying to look up tablespace settings or
@@ -432,7 +425,7 @@ read_stream_begin_relation(int flags,
 							 PG_INT16_MAX - io_combine_limit - 1);
 
 	/* Don't allow this backend to pin more than its share of buffers. */
-	if (SmgrIsTemp(bmr.smgr))
+	if (SmgrIsTemp(bmr->smgr))
 		LimitAdditionalLocalPins(&max_pinned_buffers);
 	else
 		LimitAdditionalPins(&max_pinned_buffers);
@@ -493,12 +486,6 @@ read_stream_begin_relation(int flags,
 	stream->per_buffer_data_size = per_buffer_data_size;
 	stream->max_pinned_buffers = max_pinned_buffers;
 	stream->queue_size = queue_size;
-
-	if (!bmr.smgr)
-	{
-		bmr.smgr = RelationGetSmgr(bmr.rel);
-		bmr.relpersistence = bmr.rel->rd_rel->relpersistence;
-	}
 	stream->callback = callback;
 	stream->callback_private_data = callback_private_data;
 
@@ -517,11 +504,10 @@ read_stream_begin_relation(int flags,
 	 * initialize parts of the ReadBuffersOperation objects and leave them
 	 * that way, to avoid wasting CPU cycles writing to them for each read.
 	 */
+	memcpy(&stream->bmr, bmr, sizeof(BufferManagerRelation));
 	for (int i = 0; i < max_ios; ++i)
 	{
-		stream->ios[i].op.bmr = bmr;
-		stream->ios[i].op.forknum = forknum;
-		stream->ios[i].op.strategy = strategy;
+		stream->ios[i].op.bmr = &stream->bmr;
 	}
 
 	return stream;
