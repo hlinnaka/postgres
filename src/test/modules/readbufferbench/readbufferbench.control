@@ -1,0 +1,4 @@
+comment = 'Micro-benchmark of ReadBuffer and friends'
+default_version = '1.0'
+module_pathname = '$libdir/readbufferbench'
+relocatable = true
