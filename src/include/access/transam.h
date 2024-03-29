@@ -238,6 +238,9 @@ typedef struct TransamVariablesData
 	FullTransactionId latestCompletedXid;	/* newest full XID that has
 											 * committed or aborted */
 
+	/* During recovery, LSN of latest replayed commit record */
+	XLogRecPtr latestCommitLSN;
+
 	/*
 	 * Number of top-level transactions with xids (i.e. which may have
 	 * modified the database) that completed in some form since the start of

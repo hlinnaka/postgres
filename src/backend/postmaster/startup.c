@@ -203,7 +203,7 @@ static void
 StartupProcExit(int code, Datum arg)
 {
 	/* Shutdown the recovery environment */
-	if (standbyState != STANDBY_DISABLED)
+	if (InHotStandby)
 		ShutdownRecoveryTransactionEnvironment();
 }
 

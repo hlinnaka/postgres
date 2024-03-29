@@ -171,7 +171,7 @@ typedef struct SavedTransactionCharacteristics
 #define XLOG_XACT_ABORT				0x20
 #define XLOG_XACT_COMMIT_PREPARED	0x30
 #define XLOG_XACT_ABORT_PREPARED	0x40
-#define XLOG_XACT_ASSIGNMENT		0x50
+/* 0x50 is unused, was XLOG_XACT_ASSIGNMENT */
 #define XLOG_XACT_INVALIDATIONS		0x60
 /* free opcode 0x70 */
 
@@ -214,15 +214,6 @@ typedef struct SavedTransactionCharacteristics
 	((xinfo & XACT_COMPLETION_UPDATE_RELCACHE_FILE) != 0)
 #define XactCompletionForceSyncCommit(xinfo) \
 	((xinfo & XACT_COMPLETION_FORCE_SYNC_COMMIT) != 0)
-
-typedef struct xl_xact_assignment
-{
-	TransactionId xtop;			/* assigned XID's top-level XID */
-	int			nsubxacts;		/* number of subtransaction XIDs */
-	TransactionId xsub[FLEXIBLE_ARRAY_MEMBER];	/* assigned subxids */
-} xl_xact_assignment;
-
-#define MinSizeOfXactAssignment offsetof(xl_xact_assignment, xsub)
 
 /*
  * Commit and abort records can contain a lot of information. But a large
@@ -442,7 +433,6 @@ extern FullTransactionId GetTopFullTransactionId(void);
 extern FullTransactionId GetTopFullTransactionIdIfAny(void);
 extern FullTransactionId GetCurrentFullTransactionId(void);
 extern FullTransactionId GetCurrentFullTransactionIdIfAny(void);
-extern void MarkCurrentTransactionIdLoggedIfAny(void);
 extern bool SubTransactionIsActive(SubTransactionId subxid);
 extern CommandId GetCurrentCommandId(bool used);
 extern void SetParallelStartTimestamps(TimestampTz xact_ts, TimestampTz stmt_ts);

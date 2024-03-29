@@ -27,7 +27,7 @@
  * removed. This is achieved by using the replication slot mechanism.
  *
  * As the percentage of transactions modifying the catalog normally is fairly
- * small in comparisons to ones only manipulating user data, we keep track of
+ * small in comparison to ones only manipulating user data, we keep track of
  * the committed catalog modifying ones inside [xmin, xmax) instead of keeping
  * track of all running transactions like it's done in a normal snapshot. Note
  * that we're generally only looking at transactions that have acquired an

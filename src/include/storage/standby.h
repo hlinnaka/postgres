@@ -47,19 +47,6 @@ extern void LogRecoveryConflict(ProcSignalReason reason, TimestampTz wait_start,
 								TimestampTz now, VirtualTransactionId *wait_list,
 								bool still_waiting);
 
-/*
- * Standby Rmgr (RM_STANDBY_ID)
- *
- * Standby recovery manager exists to perform actions that are required
- * to make hot standby work. That includes logging AccessExclusiveLocks taken
- * by transactions and running-xacts snapshots.
- */
-extern void StandbyAcquireAccessExclusiveLock(TransactionId xid, Oid dbOid, Oid relOid);
-extern void StandbyReleaseLockTree(TransactionId xid,
-								   int nsubxids, TransactionId *subxids);
-extern void StandbyReleaseAllLocks(void);
-extern void StandbyReleaseOldLocks(TransactionId oldxid);
-
 #define MinSizeOfXactRunningXacts offsetof(xl_running_xacts, xids)
 
 
@@ -90,6 +77,19 @@ typedef struct RunningTransactionsData
 } RunningTransactionsData;
 
 typedef RunningTransactionsData *RunningTransactions;
+
+/*
+ * Standby Rmgr (RM_STANDBY_ID)
+ *
+ * Standby recovery manager exists to perform actions that are required
+ * to make hot standby work. That includes logging AccessExclusiveLocks taken
+ * by transactions and running-xacts snapshots.
+ */
+extern void StandbyAcquireAccessExclusiveLock(TransactionId xid, Oid dbOid, Oid relOid);
+extern void StandbyReleaseLockTree(TransactionId xid,
+								   int nsubxids, TransactionId *subxids);
+extern void StandbyReleaseAllLocks(void);
+extern void StandbyReleaseOldLocks(TransactionId oldxid);
 
 extern void LogAccessExclusiveLock(Oid dbOid, Oid relOid);
 extern void LogAccessExclusiveLockPrepare(void);

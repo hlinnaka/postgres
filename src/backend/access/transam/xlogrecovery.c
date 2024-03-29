@@ -1985,10 +1985,9 @@ ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *repl
 	SpinLockRelease(&XLogRecoveryCtl->info_lck);
 
 	/*
-	 * If we are attempting to enter Hot Standby mode, process XIDs we see
+	 * In Hot Standby mode, process XIDs we see
 	 */
-	if (standbyState >= STANDBY_INITIALIZED &&
-		TransactionIdIsValid(record->xl_xid))
+	if (InHotStandby && TransactionIdIsValid(record->xl_xid))
 		RecordKnownAssignedTransactionIds(record->xl_xid);
 
 	/*
@@ -2264,7 +2263,7 @@ CheckRecoveryConsistency(void)
 	 * run? If so, we can tell postmaster that the database is consistent now,
 	 * enabling connections.
 	 */
-	if (standbyState == STANDBY_SNAPSHOT_READY &&
+	if (InHotStandby &&
 		!LocalHotStandbyActive &&
 		reachedConsistency &&
 		IsUnderPostmaster)
@@ -3709,9 +3708,6 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						elog(LOG, "waiting for WAL to become available at %X/%X",
 							 LSN_FORMAT_ARGS(RecPtr));
 
-						/* Do background tasks that might benefit us later. */
-						KnownAssignedTransactionIdsIdleMaintenance();
-
 						(void) WaitLatch(&XLogRecoveryCtl->recoveryWakeupLatch,
 										 WL_LATCH_SET | WL_TIMEOUT |
 										 WL_EXIT_ON_PM_DEATH,
@@ -3977,9 +3973,6 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						WalRcvForceReply();
 						streaming_reply_sent = true;
 					}
-
-					/* Do any background tasks that might benefit us later. */
-					KnownAssignedTransactionIdsIdleMaintenance();
 
 					/* Update pg_stat_recovery_prefetch before sleeping. */
 					XLogPrefetcherComputeStats(xlogprefetcher);

@@ -139,8 +139,6 @@ InitRecoveryTransactionEnvironment(void)
 	vxid.procNumber = MyProcNumber;
 	vxid.localTransactionId = GetNextLocalTransactionId();
 	VirtualXactLockTableInsert(vxid);
-
-	standbyState = STANDBY_INITIALIZED;
 }
 
 /*
@@ -167,9 +165,6 @@ ShutdownRecoveryTransactionEnvironment(void)
 	 */
 	if (RecoveryLockHash == NULL)
 		return;
-
-	/* Mark all tracked in-progress transactions as finished. */
-	ExpireAllKnownAssignedTransactionIds();
 
 	/* Release all locks the tracked transactions were holding */
 	StandbyReleaseAllLocks();
@@ -487,6 +482,19 @@ ResolveRecoveryConflictWithSnapshot(TransactionId snapshotConflictHorizon,
 	Assert(TransactionIdIsNormal(snapshotConflictHorizon));
 	backends = GetConflictingVirtualXIDs(snapshotConflictHorizon,
 										 locator.dbOid);
+	{
+		StringInfoData buf;
+		VirtualTransactionId *vxid;
+
+		initStringInfo(&buf);
+		for (vxid = backends; vxid->procNumber != INVALID_PROC_NUMBER; vxid++)
+		{
+			appendStringInfo(&buf, " %d", GetPGProcByNumber(vxid->procNumber)->pid);
+		}
+
+		elog(LOG, "ResolveRecoveryConflictWithSnapshot called for xid %u isCatalogRel %d, conflicts with: [%s ]",
+		 snapshotConflictHorizon, isCatalogRel, buf.data);
+	}
 	ResolveRecoveryConflictWithVirtualXIDs(backends,
 										   PROCSIG_RECOVERY_CONFLICT_SNAPSHOT,
 										   WAIT_EVENT_RECOVERY_CONFLICT_SNAPSHOT,
@@ -1164,7 +1172,7 @@ standby_redo(XLogReaderState *record)
 	Assert(!XLogRecHasAnyBlockRefs(record));
 
 	/* Do nothing if we're not in hot standby mode */
-	if (standbyState == STANDBY_DISABLED)
+	if (!InHotStandby)
 		return;
 
 	if (info == XLOG_STANDBY_LOCK)
@@ -1179,18 +1187,16 @@ standby_redo(XLogReaderState *record)
 	}
 	else if (info == XLOG_RUNNING_XACTS)
 	{
+		/*
+		 * XXX: running xacts records were previously used to update
+		 * known-assigned xids, but now we only need it for the logical
+		 * replication snapbuilder stuff. And for the
+		 * pg_stat_report_stat(true) call below.
+		 */
 		xl_running_xacts *xlrec = (xl_running_xacts *) XLogRecGetData(record);
-		RunningTransactionsData running;
 
-		running.xcnt = xlrec->xcnt;
-		running.subxcnt = xlrec->subxcnt;
-		running.subxid_overflow = xlrec->subxid_overflow;
-		running.nextXid = xlrec->nextXid;
-		running.latestCompletedXid = xlrec->latestCompletedXid;
-		running.oldestRunningXid = xlrec->oldestRunningXid;
-		running.xids = xlrec->xids;
-
-		ProcArrayApplyRecoveryInfo(&running);
+		/* not strictly required, but update oldestRunningXid because we can */
+		ProcArrayUpdateOldestRunningXid(xlrec->oldestRunningXid);
 
 		/*
 		 * The startup process currently has no convenient way to schedule
@@ -1280,6 +1286,10 @@ standby_redo(XLogReaderState *record)
  *
  *
  * Returns the RecPtr of the last inserted record.
+ *
+ * XXX: We only need to the running-xacts record for logical replication
+ * snapshot builder stuff now. If we stop emitting it here, will the callers
+ * be happy if we return InvalidXLogRecPtr?
  */
 XLogRecPtr
 LogStandbySnapshot(void)

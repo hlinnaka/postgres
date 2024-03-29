@@ -558,15 +558,10 @@ collect_visibility_data(Oid relid, bool include_pd)
 static TransactionId
 GetStrictOldestNonRemovableTransactionId(Relation rel)
 {
-	RunningTransactions runningTransactions;
-
 	if (rel == NULL || rel->rd_rel->relisshared || RecoveryInProgress())
 	{
 		/* Shared relation: take into account all running xids */
-		runningTransactions = GetRunningTransactionData();
-		LWLockRelease(ProcArrayLock);
-		LWLockRelease(XidGenLock);
-		return runningTransactions->oldestRunningXid;
+		return GetOldestActiveTransactionId(true);
 	}
 	else if (!RELATION_IS_LOCAL(rel))
 	{
@@ -574,10 +569,7 @@ GetStrictOldestNonRemovableTransactionId(Relation rel)
 		 * Normal relation: take into account xids running within the current
 		 * database
 		 */
-		runningTransactions = GetRunningTransactionData();
-		LWLockRelease(ProcArrayLock);
-		LWLockRelease(XidGenLock);
-		return runningTransactions->oldestDatabaseRunningXid;
+		return GetOldestActiveTransactionId(false);
 	}
 	else
 	{

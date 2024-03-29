@@ -28,18 +28,11 @@ extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
+extern void ProcArrayUpdateOldestRunningXid(TransactionId oldestRunningXID);
 extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);
-extern void ProcArrayApplyRecoveryInfo(RunningTransactions running);
-extern void ProcArrayApplyXidAssignment(TransactionId topxid,
-										int nsubxids, TransactionId *subxids);
 
 extern void RecordKnownAssignedTransactionIds(TransactionId xid);
-extern void ExpireTreeKnownAssignedTransactionIds(TransactionId xid,
-												  int nsubxids, TransactionId *subxids,
-												  TransactionId max_xid);
-extern void ExpireAllKnownAssignedTransactionIds(void);
-extern void ExpireOldKnownAssignedTransactionIds(TransactionId xid);
-extern void KnownAssignedTransactionIdsIdleMaintenance(void);
+extern void ExpireTreeKnownAssignedTransactionIds(TransactionId max_xid, XLogRecPtr lsn);
 
 extern int	GetMaxSnapshotXidCount(void);
 extern int	GetMaxSnapshotSubxidCount(void);
@@ -56,7 +49,7 @@ extern bool TransactionIdIsInProgress(TransactionId xid);
 extern bool TransactionIdIsActive(TransactionId xid);
 extern TransactionId GetOldestNonRemovableTransactionId(Relation rel);
 extern TransactionId GetOldestTransactionIdConsideredRunning(void);
-extern TransactionId GetOldestActiveTransactionId(void);
+extern TransactionId GetOldestActiveTransactionId(bool allDbs);
 extern TransactionId GetOldestSafeDecodingTransactionId(bool catalogOnly);
 extern void GetReplicationHorizons(TransactionId *xmin, TransactionId *catalog_xmin);
 

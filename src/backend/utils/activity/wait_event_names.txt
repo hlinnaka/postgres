@@ -342,6 +342,7 @@ SerialControl	"Waiting to read or update shared <filename>pg_serial</filename> s
 XactBuffer	"Waiting for I/O on a transaction status SLRU buffer."
 CommitTsBuffer	"Waiting for I/O on a commit timestamp SLRU buffer."
 SubtransBuffer	"Waiting for I/O on a sub-transaction SLRU buffer."
+CsnlogBuffer	"Waiting for I/O on a sub-transaction SLRU buffer."
 MultiXactOffsetBuffer	"Waiting for I/O on a multixact offset SLRU buffer."
 MultiXactMemberBuffer	"Waiting for I/O on a multixact member SLRU buffer."
 NotifyBuffer	"Waiting for I/O on a <command>NOTIFY</command> message SLRU buffer."
