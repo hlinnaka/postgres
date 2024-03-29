@@ -181,6 +181,13 @@ typedef struct SnapshotData
 	int32		subxcnt;		/* # of xact ids in subxip[] */
 	bool		suboverflowed;	/* has the subxip array overflowed? */
 
+	/*
+	 * MVCC snapshots taken during recovery use this CSN instead of the xip
+	 * and subxip arrays. Any transactions that committed at or before this
+	 * LSN are considered as visible.
+	 */
+	XLogRecPtr	snapshotCsn;
+
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 	bool		copied;			/* false if it's a static snapshot */
 

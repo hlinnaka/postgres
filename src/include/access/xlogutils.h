@@ -24,37 +24,10 @@
 extern PGDLLIMPORT bool InRecovery;
 
 /*
- * Like InRecovery, standbyState is only valid in the startup process.
- * In all other processes it will have the value STANDBY_DISABLED (so
- * InHotStandby will read as false).
- *
- * In DISABLED state, we're performing crash recovery or hot standby was
- * disabled in postgresql.conf.
- *
- * In INITIALIZED state, we've run InitRecoveryTransactionEnvironment, but
- * we haven't yet processed a RUNNING_XACTS or shutdown-checkpoint WAL record
- * to initialize our primary-transaction tracking system.
- *
- * When the transaction tracking is initialized, we enter the SNAPSHOT_PENDING
- * state. The tracked information might still be incomplete, so we can't allow
- * connections yet, but redo functions must update the in-memory state when
- * appropriate.
- *
- * In SNAPSHOT_READY mode, we have full knowledge of transactions that are
- * (or were) running on the primary at the current WAL location. Snapshots
- * can be taken, and read-only queries can be run.
+ * Like InRecovery, InHotStandby is only valid in the startup process.
+ * In all other processes it will be false.
  */
-typedef enum
-{
-	STANDBY_DISABLED,
-	STANDBY_INITIALIZED,
-	STANDBY_SNAPSHOT_PENDING,
-	STANDBY_SNAPSHOT_READY,
-} HotStandbyState;
-
-extern PGDLLIMPORT HotStandbyState standbyState;
-
-#define InHotStandby (standbyState >= STANDBY_SNAPSHOT_PENDING)
+extern PGDLLIMPORT bool InHotStandby;
 
 
 extern bool XLogHaveInvalidPages(void);

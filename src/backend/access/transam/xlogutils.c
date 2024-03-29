@@ -50,7 +50,7 @@ bool		ignore_invalid_pages = false;
 bool		InRecovery = false;
 
 /* Are we in Hot Standby mode? Only valid in startup process, see xlogutils.h */
-HotStandbyState standbyState = STANDBY_DISABLED;
+bool		InHotStandby = false;
 
 /*
  * During XLOG replay, we may see XLOG records for incremental updates of

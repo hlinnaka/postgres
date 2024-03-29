@@ -77,6 +77,7 @@
 #include <unistd.h>
 
 #include "access/commit_ts.h"
+#include "access/csn_log.h"
 #include "access/htup_details.h"
 #include "access/subtrans.h"
 #include "access/transam.h"
@@ -1953,20 +1954,13 @@ restoreTwoPhaseData(void)
  * Our other responsibility is to determine and return the oldest valid XID
  * among the prepared xacts (if none, return TransamVariables->nextXid).
  * This is needed to synchronize pg_subtrans startup properly.
- *
- * If xids_p and nxids_p are not NULL, pointer to a palloc'd array of all
- * top-level xids is stored in *xids_p. The number of entries in the array
- * is returned in *nxids_p.
  */
 TransactionId
-PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
+PrescanPreparedTransactions(void)
 {
 	FullTransactionId nextXid = TransamVariables->nextXid;
 	TransactionId origNextXid = XidFromFullTransactionId(nextXid);
 	TransactionId result = origNextXid;
-	TransactionId *xids = NULL;
-	int			nxids = 0;
-	int			allocsize = 0;
 	int			i;
 
 	LWLockAcquire(TwoPhaseStateLock, LW_EXCLUSIVE);
@@ -1994,33 +1988,9 @@ PrescanPreparedTransactions(TransactionId **xids_p, int *nxids_p)
 		if (TransactionIdPrecedes(xid, result))
 			result = xid;
 
-		if (xids_p)
-		{
-			if (nxids == allocsize)
-			{
-				if (nxids == 0)
-				{
-					allocsize = 10;
-					xids = palloc(allocsize * sizeof(TransactionId));
-				}
-				else
-				{
-					allocsize = allocsize * 2;
-					xids = repalloc(xids, allocsize * sizeof(TransactionId));
-				}
-			}
-			xids[nxids++] = xid;
-		}
-
 		pfree(buf);
 	}
 	LWLockRelease(TwoPhaseStateLock);
-
-	if (xids_p)
-	{
-		*xids_p = xids;
-		*nxids_p = nxids;
-	}
 
 	return result;
 }

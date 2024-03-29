@@ -377,6 +377,9 @@ TransactionIdLatest(TransactionId mainxid,
  * Also, because we group transactions on the same clog page to conserve
  * storage, we might return the LSN of a later transaction that falls into
  * the same group.
+ *
+ * XXX: Now that we have CSN-log, should we use that during recovery? Or
+ * rename this function to reduce confusion.
  */
 XLogRecPtr
 TransactionIdGetCommitLSN(TransactionId xid)
