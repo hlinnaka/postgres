@@ -36,6 +36,7 @@ static userset_guc int	post_planning_lock_id = 0;
 /* Save previous planner hook user to be a good citizen */
 static planner_hook_type prev_planner_hook = NULL;
 
+DEFINE_INT_GUC_ADDR(post_planning_lock_id)
 
 /* planner_hook function to provide the desired delay */
 static PlannedStmt *
@@ -78,7 +79,7 @@ _PG_init(void)
 	DefineCustomIntVariable("delay_execution.post_planning_lock_id",
 							"Sets the advisory lock ID to be locked/unlocked after planning.",
 							"Zero disables the delay.",
-							&post_planning_lock_id,
+							GUC_ADDR(post_planning_lock_id),
 							0,
 							0, INT_MAX,
 							PGC_USERSET,
