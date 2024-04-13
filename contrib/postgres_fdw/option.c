@@ -60,6 +60,8 @@ static bool is_libpq_option(const char *keyword);
 
 #include "miscadmin.h"
 
+DEFINE_STRING_GUC_ADDR(pgfdw_application_name)
+
 /*
  * Validate the generic options given to a FOREIGN DATA WRAPPER, SERVER,
  * USER MAPPING or FOREIGN TABLE that uses postgres_fdw.
@@ -578,7 +580,7 @@ _PG_init(void)
 	DefineCustomStringVariable("postgres_fdw.application_name",
 							   "Sets the application name to be used on the remote server.",
 							   NULL,
-							   &pgfdw_application_name,
+							   GUC_ADDR(pgfdw_application_name),
 							   NULL,
 							   PGC_USERSET,
 							   0,
