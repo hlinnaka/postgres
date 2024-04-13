@@ -26,6 +26,8 @@ static sighup_guc int	auth_delay_milliseconds = 0;
 /* Original Hook */
 static ClientAuthentication_hook_type original_client_auth_hook = NULL;
 
+DEFINE_INT_GUC_ADDR(auth_delay_milliseconds)
+
 /*
  * Check authentication
  */
@@ -57,7 +59,7 @@ _PG_init(void)
 	DefineCustomIntVariable("auth_delay.milliseconds",
 							"Milliseconds to delay before reporting authentication failure",
 							NULL,
-							&auth_delay_milliseconds,
+							GUC_ADDR(auth_delay_milliseconds),
 							0,
 							0, INT_MAX / 1000,
 							PGC_SIGHUP,
