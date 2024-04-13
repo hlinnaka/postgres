@@ -34,6 +34,8 @@ typedef struct dsa_area dsa_area;
  * For testing purposes, USE_SMALL_DSA_POINTER can be defined to force the use
  * of 32-bit dsa_pointer even on systems capable of supporting a 64-bit
  * dsa_pointer.
+ *
+ * FIXME: with multithreading, it better be a least sizeof(void *)
  */
 #if SIZEOF_SIZE_T == 4 || !defined(PG_HAVE_ATOMIC_U64_SUPPORT) || \
 	defined(USE_SMALL_DSA_POINTER)
