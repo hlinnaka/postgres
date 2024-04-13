@@ -52,6 +52,11 @@ static int	worker_spi_total_workers = 2;
 static char *worker_spi_database = NULL;
 static char *worker_spi_role = NULL;
 
+DEFINE_INT_GUC_ADDR(worker_spi_naptime)
+DEFINE_INT_GUC_ADDR(worker_spi_total_workers)
+DEFINE_STRING_GUC_ADDR(worker_spi_database)
+DEFINE_STRING_GUC_ADDR(worker_spi_role)
+
 /* value cached, fetched from shared memory */
 static uint32 worker_spi_wait_event_main = 0;
 
@@ -311,7 +316,7 @@ _PG_init(void)
 	DefineCustomIntVariable("worker_spi.naptime",
 							"Duration between each check (in seconds).",
 							NULL,
-							&worker_spi_naptime,
+							GUC_ADDR(worker_spi_naptime),
 							10,
 							1,
 							INT_MAX,
@@ -324,7 +329,7 @@ _PG_init(void)
 	DefineCustomStringVariable("worker_spi.database",
 							   "Database to connect to.",
 							   NULL,
-							   &worker_spi_database,
+							   GUC_ADDR(worker_spi_database),
 							   "postgres",
 							   PGC_SIGHUP,
 							   0,
@@ -333,7 +338,7 @@ _PG_init(void)
 	DefineCustomStringVariable("worker_spi.role",
 							   "Role to connect with.",
 							   NULL,
-							   &worker_spi_role,
+							   GUC_ADDR(worker_spi_role),
 							   NULL,
 							   PGC_SIGHUP,
 							   0,
@@ -345,7 +350,7 @@ _PG_init(void)
 	DefineCustomIntVariable("worker_spi.total_workers",
 							"Number of workers.",
 							NULL,
-							&worker_spi_total_workers,
+							GUC_ADDR(worker_spi_total_workers),
 							2,
 							1,
 							100,

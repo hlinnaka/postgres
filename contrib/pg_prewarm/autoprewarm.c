@@ -118,6 +118,9 @@ static AutoPrewarmSharedState *apw_state = NULL;
 static postmaster_guc bool autoprewarm = true; /* start worker? */
 static sighup_guc int	autoprewarm_interval = 300; /* dump interval */
 
+DEFINE_BOOL_GUC_ADDR(autoprewarm)
+DEFINE_INT_GUC_ADDR(autoprewarm_interval)
+
 /*
  * Module load callback.
  */
@@ -127,7 +130,7 @@ _PG_init(void)
 	DefineCustomIntVariable("pg_prewarm.autoprewarm_interval",
 							"Sets the interval between dumps of shared buffers",
 							"If set to zero, time-based dumping is disabled.",
-							&autoprewarm_interval,
+							GUC_ADDR(autoprewarm_interval),
 							300,
 							0, INT_MAX / 1000,
 							PGC_SIGHUP,
@@ -143,7 +146,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_prewarm.autoprewarm",
 							 "Starts the autoprewarm worker.",
 							 NULL,
-							 &autoprewarm,
+							 GUC_ADDR(autoprewarm),
 							 true,
 							 PGC_POSTMASTER,
 							 0,

@@ -28,6 +28,10 @@ userset_guc double		similarity_threshold = 0.3f;
 userset_guc double		word_similarity_threshold = 0.6f;
 userset_guc double		strict_word_similarity_threshold = 0.5f;
 
+DEFINE_REAL_GUC_ADDR(similarity_threshold)
+DEFINE_REAL_GUC_ADDR(word_similarity_threshold)
+DEFINE_REAL_GUC_ADDR(strict_word_similarity_threshold)
+
 PG_FUNCTION_INFO_V1(set_limit);
 PG_FUNCTION_INFO_V1(show_limit);
 PG_FUNCTION_INFO_V1(show_trgm);
@@ -76,7 +80,7 @@ _PG_init(void)
 	DefineCustomRealVariable("pg_trgm.similarity_threshold",
 							 "Sets the threshold used by the % operator.",
 							 "Valid range is 0.0 .. 1.0.",
-							 &similarity_threshold,
+							 GUC_ADDR(similarity_threshold),
 							 0.3f,
 							 0.0,
 							 1.0,
@@ -88,7 +92,7 @@ _PG_init(void)
 	DefineCustomRealVariable("pg_trgm.word_similarity_threshold",
 							 "Sets the threshold used by the <% operator.",
 							 "Valid range is 0.0 .. 1.0.",
-							 &word_similarity_threshold,
+							 GUC_ADDR(word_similarity_threshold),
 							 0.6f,
 							 0.0,
 							 1.0,
@@ -100,7 +104,7 @@ _PG_init(void)
 	DefineCustomRealVariable("pg_trgm.strict_word_similarity_threshold",
 							 "Sets the threshold used by the <<% operator.",
 							 "Valid range is 0.0 .. 1.0.",
-							 &strict_word_similarity_threshold,
+							 GUC_ADDR(strict_word_similarity_threshold),
 							 0.5f,
 							 0.0,
 							 1.0,

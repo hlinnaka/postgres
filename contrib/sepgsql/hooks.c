@@ -61,6 +61,7 @@ static sepgsql_context_info_t sepgsql_context_info;
  * GUC: sepgsql.permissive = (on|off)
  */
 static sighup_guc bool sepgsql_permissive = false;
+DEFINE_BOOL_GUC_ADDR(sepgsql_permissive)
 
 bool
 sepgsql_get_permissive(void)
@@ -72,6 +73,7 @@ sepgsql_get_permissive(void)
  * GUC: sepgsql.debug_audit = (on|off)
  */
 static session_guc bool sepgsql_debug_audit = false;
+DEFINE_BOOL_GUC_ADDR(sepgsql_debug_audit)
 
 bool
 sepgsql_get_debug_audit(void)
@@ -431,7 +433,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("sepgsql.permissive",
 							 "Turn on/off permissive mode in SE-PostgreSQL",
 							 NULL,
-							 &sepgsql_permissive,
+							 GUC_ADDR(sepgsql_permissive),
 							 false,
 							 PGC_SIGHUP,
 							 GUC_NOT_IN_SAMPLE,
@@ -449,7 +451,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("sepgsql.debug_audit",
 							 "Turn on/off debug audit messages",
 							 NULL,
-							 &sepgsql_debug_audit,
+							 GUC_ADDR(sepgsql_debug_audit),
 							 false,
 							 PGC_USERSET,
 							 GUC_NOT_IN_SAMPLE,
