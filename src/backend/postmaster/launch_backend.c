@@ -310,7 +310,7 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 		}
 
 		/* Read in remaining GUC variables. */
-		read_nondefault_variables();
+		read_nondefault_variables(false);
 
 		/*
 		 * Enter the Main function with TopMemoryContext.  The startup data is
@@ -351,6 +351,9 @@ backend_thread_main(void *arg)
 	/* FIXME: careful not to leak 'sinfo', which is malloc'd, on failure below */
 
 	IsUnderPostmaster = true;
+
+	/* FIXME: use linux thread id for now. Should switch to using pthread_t */
+	MyProcPid = gettid();
 
 	/*
 	 * Set reference point for stack-depth checking.

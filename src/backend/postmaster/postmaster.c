@@ -3581,7 +3581,7 @@ BackendStartup(ClientSocket *client_sock)
 	pid = postmaster_child_launch(bn->bkend_type, bn->child_slot,
 								  &startup_data, sizeof(startup_data),
 								  client_sock);
-	if (pid < 0)
+	if (pid == -1)
 	{
 		/* in parent, fork failed */
 		int			save_errno = errno;
