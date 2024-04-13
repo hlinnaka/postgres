@@ -207,7 +207,7 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	InitStandaloneProcess(argv[0]);
 
 	/* Set defaults, to be overridden by explicit options below */
-	InitializeGUCOptions();
+	InitializeGUCOptions(false);
 
 	/* an initial --boot or --check should be present */
 	Assert(argc > 1

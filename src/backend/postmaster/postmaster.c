@@ -510,7 +510,7 @@ PostmasterMain(int argc, char *argv[])
 	/*
 	 * Options setup
 	 */
-	InitializeGUCOptions();
+	InitializeGUCOptions(false);
 
 	opterr = 1;
 

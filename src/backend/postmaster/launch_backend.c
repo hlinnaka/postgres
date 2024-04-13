@@ -333,14 +333,31 @@ backend_thread_main(void *arg)
 	char	   *startup_data;
 	size_t		startup_data_len;
 
+	/* TODO: Detach from postmaster thread. Initialize MemoryContexts and other basic stuff */
+	/* See 'main', PostmasterMain, InitStandaloneProcess functions for ideas on what might need to be handled here */
+
 	/* FIXME: careful not to leak 'sinfo', which is malloc'd, on failure below */
 
-	/* TODO: Detach from postmaster thread. Initialize MemoryContexts and other basic stuff */
-	/* See 'main' function for ideas on what might need to be handled here */
+	IsUnderPostmaster = true;
+
+	/*
+	 * Set reference point for stack-depth checking.
+	 */
+	(void) set_stack_base();
+
 	MemoryContextInit();
 
+	InitializeLatchSupport();
+	InitProcessLocalLatch();
+	InitializeLatchWaitSet();
+
+	InitializeGUCOptions(true);
+	
 	/* Read in remaining GUC variables. */
-	read_nondefault_variables();
+	/* FIXME: Make sure this doesn't modify PGC_INTERNAL or PGC_POSTMASTER GUCs, they're
+	 * not thread-local
+	 */
+	read_nondefault_variables(true);
 
 	/* Enter the Main function with TopMemoryContext. */
 	MemoryContextSwitchTo(TopMemoryContext);
