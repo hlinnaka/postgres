@@ -211,6 +211,7 @@ session_guc int			pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_CACHE;
  */
 
 session_local PgStat_LocalState pgStatLocal;
+global PgStat_ShmemControl *pgStatShared;
 
 global PgStat_ShmemControl *pgStatShared;
 
