@@ -156,7 +156,7 @@ extern JsonParseErrorType pg_parse_json(JsonLexContext *lex,
 										const JsonSemAction *sem);
 
 extern JsonParseErrorType pg_parse_json_incremental(JsonLexContext *lex,
-													JsonSemAction *sem,
+													const JsonSemAction *sem,
 													char *json,
 													int len,
 													bool is_last);

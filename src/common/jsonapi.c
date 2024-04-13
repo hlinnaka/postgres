@@ -648,7 +648,7 @@ json_count_array_elements(JsonLexContext *lex, int *elements)
  */
 JsonParseErrorType
 pg_parse_json_incremental(JsonLexContext *lex,
-						  JsonSemAction *sem,
+						  const JsonSemAction *sem,
 						  char *json,
 						  int len,
 						  bool is_last)
