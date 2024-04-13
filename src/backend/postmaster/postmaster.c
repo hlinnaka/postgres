@@ -591,7 +591,7 @@ PostmasterMain(int argc, char *argv[])
 	/*
 	 * Options setup
 	 */
-	InitializeGUCOptions();
+	InitializeGUCOptions(false);
 
 	/*
 	 * Parse command-line options.  CAUTION: keep this in sync with
