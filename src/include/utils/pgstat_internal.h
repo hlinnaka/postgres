@@ -471,7 +471,6 @@ typedef struct PgStat_Snapshot
  */
 typedef struct PgStat_LocalState
 {
-	PgStat_ShmemControl *shmem;
 	dsa_area   *dsa;
 	dshash_table *shared_hash;
 
@@ -664,6 +663,8 @@ extern void pgstat_create_transactional(PgStat_Kind kind, Oid dboid, Oid objoid)
  */
 
 extern PGDLLIMPORT session_local PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT global PgStat_ShmemControl *pgStatShared;
+
 
 
 /*

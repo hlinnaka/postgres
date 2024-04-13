@@ -31,9 +31,9 @@ pgstat_report_checkpointer(void)
 {
 	/* We assume this initializes to zeroes */
 	static global const PgStat_CheckpointerStats all_zeroes;
-	PgStatShared_Checkpointer *stats_shmem = &pgStatLocal.shmem->checkpointer;
+	PgStatShared_Checkpointer *stats_shmem = &pgStatShared->checkpointer;
 
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(!pgStatShared->is_shutdown);
 	pgstat_assert_is_up();
 
 	/*
@@ -87,7 +87,7 @@ pgstat_fetch_stat_checkpointer(void)
 void
 pgstat_checkpointer_reset_all_cb(TimestampTz ts)
 {
-	PgStatShared_Checkpointer *stats_shmem = &pgStatLocal.shmem->checkpointer;
+	PgStatShared_Checkpointer *stats_shmem = &pgStatShared->checkpointer;
 
 	/* see explanation above PgStatShared_Checkpointer for the reset protocol */
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
@@ -102,7 +102,7 @@ pgstat_checkpointer_reset_all_cb(TimestampTz ts)
 void
 pgstat_checkpointer_snapshot_cb(void)
 {
-	PgStatShared_Checkpointer *stats_shmem = &pgStatLocal.shmem->checkpointer;
+	PgStatShared_Checkpointer *stats_shmem = &pgStatShared->checkpointer;
 	PgStat_CheckpointerStats *reset_offset = &stats_shmem->reset_offset;
 	PgStat_CheckpointerStats reset;
 
