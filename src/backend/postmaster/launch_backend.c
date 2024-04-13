@@ -167,6 +167,8 @@ static pid_t internal_forkexec(BackendType child_kind, int child_slot,
 
 #endif							/* EXEC_BACKEND */
 
+static void *backend_thread_main(void *arg);
+
 /*
  * Information needed to launch different kinds of child processes.
  */
@@ -189,6 +191,15 @@ PostmasterChildName(BackendType child_type)
 {
 	return child_process_kinds[child_type].name;
 }
+
+typedef struct {
+	BackendType child_type;
+	int			child_slot;
+	bool		has_client_sock;
+	ClientSocket client_sock;
+	size_t	startup_data_len;
+	char	startup_data[FLEXIBLE_ARRAY_MEMBER];
+} thread_startup_info;
 
 /*
  * Start a new postmaster child process.
@@ -214,6 +225,33 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 	/* Capture time Postmaster initiates process creation for logging */
 	if (IsExternalConnectionBackend(child_type))
 		((BackendStartupData *) startup_data)->fork_started = GetCurrentTimestamp();
+
+	if (IsMultiThreaded)
+	{
+		/* TODO: support windows threads, see pgbench.c */
+		pthread_t thread_id;
+		thread_startup_info *sinfo;
+
+		sinfo = malloc(offsetof(thread_startup_info, startup_data) + startup_data_len);
+		if (sinfo == NULL)
+			return -1;
+		sinfo->child_type = child_type;
+		sinfo->child_slot = child_slot;
+		if (client_sock)
+		{
+			sinfo->has_client_sock = true;
+			memcpy(&sinfo->client_sock, client_sock, sizeof(ClientSocket));
+		}
+		else
+			sinfo->has_client_sock = false;
+		sinfo->startup_data_len = startup_data_len;
+		if (startup_data_len > 0)
+			memcpy(&sinfo->startup_data, startup_data, startup_data_len);
+
+		if (pthread_create(&thread_id, NULL, backend_thread_main, sinfo) < 0)
+			return -1;
+		return (pid_t) thread_id;
+	}
 
 #ifdef EXEC_BACKEND
 	pid = internal_forkexec(child_type, child_slot,
@@ -274,6 +312,46 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 	}
 #endif							/* EXEC_BACKEND */
 	return pid;
+}
+
+static void *
+backend_thread_main(void *arg)
+{
+	thread_startup_info *sinfo = (thread_startup_info *) arg;
+	char	   *startup_data;
+	size_t		startup_data_len;
+
+	/* FIXME: careful not to leak 'sinfo', which is malloc'd, on failure below */
+
+	/* TODO: Detach from postmaster thread. Initialize MemoryContexts and other basic stuff */
+	/* See 'main' function for ideas on what might need to be handled here */
+	MemoryContextInit();
+
+	/* Read in remaining GUC variables. */
+	read_nondefault_variables();
+
+	/* Enter the Main function with TopMemoryContext. */
+	MemoryContextSwitchTo(TopMemoryContext);
+
+	MyPMChildSlot = sinfo->child_slot;
+	MyBackendType = sinfo->child_type;
+	if (sinfo->has_client_sock)
+	{
+		MyClientSocket = palloc(sizeof(ClientSocket));
+		memcpy(MyClientSocket, &sinfo->client_sock, sizeof(ClientSocket));
+	}
+
+	startup_data_len = sinfo->startup_data_len;
+	startup_data = palloc(startup_data_len);
+	memcpy(startup_data, sinfo->startup_data, startup_data_len);
+
+	free(sinfo);
+
+	/*
+	 * Run the appropriate Main function
+	 */
+	child_process_kinds[MyBackendType].main_fn(startup_data, startup_data_len);
+	pg_unreachable();		/* main_fn never returns */
 }
 
 #ifdef EXEC_BACKEND
