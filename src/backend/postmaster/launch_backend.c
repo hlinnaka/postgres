@@ -320,6 +320,9 @@ backend_thread_main(void *arg)
 
 	IsUnderPostmaster = true;
 
+	/* FIXME: use linux thread id for now. Should switch to using pthread_t */
+	MyProcPid = gettid();
+
 	/*
 	 * Set reference point for stack-depth checking.
 	 */
