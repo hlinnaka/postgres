@@ -1524,9 +1524,12 @@ check_GUC_init(struct config_generic *gconf)
  *
  * Note that we cannot read the config file yet, since we have not yet
  * processed command-line switches.
+ *
+ * If 'thread_local_gucs_only' is true, only initialize GUCs that are
+ * backed by thread-local variables.
  */
 void
-InitializeGUCOptions(void)
+InitializeGUCOptions(bool thread_locals_only)
 {
 	HASH_SEQ_STATUS status;
 	GUCHashEntry *hentry;
@@ -1549,6 +1552,10 @@ InitializeGUCOptions(void)
 	hash_seq_init(&status, guc_hashtab);
 	while ((hentry = (GUCHashEntry *) hash_seq_search(&status)) != NULL)
 	{
+		if (thread_locals_only &&
+			(hentry->gucvar->context == PGC_INTERNAL || hentry->gucvar->context == PGC_POSTMASTER))
+			continue;
+
 		/* Check mapping between initial and default value */
 		Assert(check_GUC_init(hentry->gucvar));
 
@@ -5736,7 +5743,7 @@ read_string_with_null(FILE *fp)
  *	settings.
  */
 void
-read_nondefault_variables(void)
+read_nondefault_variables(bool thread_locals_only)
 {
 	FILE	   *fp;
 	char	   *varname,
@@ -5764,10 +5771,13 @@ read_nondefault_variables(void)
 
 	for (;;)
 	{
+		struct config_generic *record;
+
 		if ((varname = read_string_with_null(fp)) == NULL)
 			break;
 
-		if (find_option(varname, true, false, FATAL) == NULL)
+		record = find_option(varname, true, false, FATAL);
+		if (record == NULL)
 			elog(FATAL, "failed to locate variable \"%s\" in exec config params file", varname);
 
 		if ((varvalue = read_string_with_null(fp)) == NULL)
@@ -5783,11 +5793,19 @@ read_nondefault_variables(void)
 		if (fread(&varsrole, 1, sizeof(varsrole), fp) != sizeof(varsrole))
 			elog(FATAL, "invalid format of exec config params file");
 
-		(void) set_config_option_ext(varname, varvalue,
-									 varscontext, varsource, varsrole,
-									 GUC_ACTION_SET, true, 0, true);
-		if (varsourcefile[0])
-			set_config_sourcefile(varname, varsourcefile, varsourceline);
+		if (thread_locals_only &&
+			(record->context == PGC_INTERNAL || record->context == PGC_POSTMASTER))
+		{
+			/* skip it */
+		}
+		else
+		{
+			(void) set_config_option_ext(varname, varvalue,
+										 varscontext, varsource, varsrole,
+										 GUC_ACTION_SET, true, 0, true);
+			if (varsourcefile[0])
+				set_config_sourcefile(varname, varsourcefile, varsourceline);
+		}
 
 		guc_free(varname);
 		guc_free(varvalue);

@@ -174,7 +174,7 @@ static session_local volatile sig_atomic_t waiting = false;
 
 #ifdef WAIT_USE_SIGNALFD
 /* On Linux, we'll receive SIGURG via a signalfd file descriptor. */
-static session_local int	signal_fd = -1; /* This will require some additional changes. See comment in InitializeLatchSupport */
+static session_local int	signal_fd = -1; /* This will require some additional changes. See comment in InitializeWaitEventSupport */
 #endif
 
 #ifdef WAIT_USE_SELF_PIPE
