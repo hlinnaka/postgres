@@ -4052,7 +4052,7 @@ PostgresSingleUserMain(int argc, char *argv[],
 	/*
 	 * Set default values for command-line options.
 	 */
-	InitializeGUCOptions();
+	InitializeGUCOptions(false);
 
 	/*
 	 * Parse command-line options.
