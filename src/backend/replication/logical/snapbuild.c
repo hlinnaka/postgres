@@ -1523,13 +1523,25 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
  * ---
  */
 static void
-SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
+SnapBuildWaitSnapshot(xl_running_xacts *xrunning, TransactionId cutoff)
 {
-	int			off;
+	RunningTransactions running;
 
-	for (off = 0; off < running->xcnt; off++)
+	running = GetRunningTransactionData();
+	LWLockRelease(XidGenLock);
+	LWLockRelease(ProcArrayLock);
+
+	elog(LOG, "running oldestRunningXid %u nextXid %u", xrunning->oldestRunningXid, xrunning->nextXid);
+	for (int i = 0; i < xrunning->xcnt; i++)
 	{
-		TransactionId xid = running->xids[off];
+		TransactionId xid = xrunning->xids[i];
+
+		elog(LOG, "RUNNING %u (cutoff %u)", xid, cutoff);
+	}
+
+	for (int i = 0; i < running->xcnt; i++)
+	{
+		TransactionId xid = running->xids[i];
 
 		/*
 		 * Upper layers should prevent that we ever need to wait on ourselves.
@@ -1542,6 +1554,10 @@ SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
 		if (TransactionIdFollows(xid, cutoff))
 			continue;
 
+		if (TransactionIdFollowsOrEquals(xid, xrunning->nextXid))
+			continue;
+
+		elog(LOG, "WAITING FOR %u (cutoff %u)", xid, cutoff);
 		XactLockTableWait(xid, NULL, NULL, XLTW_None);
 	}
 
