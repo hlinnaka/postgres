@@ -47,8 +47,6 @@ extern void LogRecoveryConflict(ProcSignalReason reason, TimestampTz wait_start,
 								TimestampTz now, VirtualTransactionId *wait_list,
 								bool still_waiting);
 
-#define MinSizeOfXactRunningXacts offsetof(xl_running_xacts, xids)
-
 
 /*
  * Declarations for GetRunningTransactionData(). Similar to Snapshots, but

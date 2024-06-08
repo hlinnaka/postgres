@@ -1452,8 +1452,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		ereport(LOG,
 				(errmsg("logical decoding found initial starting point at %X/%X",
 						LSN_FORMAT_ARGS(lsn)),
-				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						   running->xcnt, running->nextXid)));
+				 errdetail("Waiting for transactions older than %u to end.",
+						   running->nextXid)));
 
 		SnapBuildWaitSnapshot(running, running->nextXid);
 	}
@@ -1476,8 +1476,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		ereport(LOG,
 				(errmsg("logical decoding found initial consistent point at %X/%X",
 						LSN_FORMAT_ARGS(lsn)),
-				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						   running->xcnt, running->nextXid)));
+				 errdetail("Waiting for transactions older than %u to end.",
+						   running->nextXid)));
 
 		SnapBuildWaitSnapshot(running, running->nextXid);
 	}
@@ -1532,13 +1532,6 @@ SnapBuildWaitSnapshot(xl_running_xacts *xrunning, TransactionId cutoff)
 	LWLockRelease(ProcArrayLock);
 
 	elog(LOG, "running oldestRunningXid %u nextXid %u", xrunning->oldestRunningXid, xrunning->nextXid);
-	for (int i = 0; i < xrunning->xcnt; i++)
-	{
-		TransactionId xid = xrunning->xids[i];
-
-		elog(LOG, "RUNNING %u (cutoff %u)", xid, cutoff);
-	}
-
 	for (int i = 0; i < running->xcnt; i++)
 	{
 		TransactionId xid = running->xids[i];
