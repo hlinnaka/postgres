@@ -840,6 +840,17 @@ autovacuum_worker_slots = 16	# autovacuum worker slots to allocate
 
 
 #------------------------------------------------------------------------------
+# WIP AIO GUC docs
+#------------------------------------------------------------------------------
+
+#io_method = sync			# (change requires restart)
+
+#io_max_concurrency = 32		# Max number of IOs that may be in
+					# flight at the same time in one backend
+					# (change requires restart)
+
+
+#------------------------------------------------------------------------------
 # CUSTOMIZED OPTIONS
 #------------------------------------------------------------------------------
 
