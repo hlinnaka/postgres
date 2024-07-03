@@ -93,7 +93,6 @@ typedef int InheritableSocket;
 typedef struct
 {
 	char		DataDir[MAXPGPATH];
-	int32		MyCancelKey;
 	int			MyPMChildSlot;
 #ifndef WIN32
 	unsigned long UsedShmemSegID;
@@ -103,7 +102,6 @@ typedef struct
 #endif
 	void	   *UsedShmemSegAddr;
 	slock_t    *ShmemLock;
-	struct bkend *ShmemBackendArray;
 #ifndef HAVE_SPINLOCKS
 	PGSemaphore *SpinlockSemaArray;
 #endif
@@ -676,7 +674,7 @@ extern slock_t *ProcStructLock;
 extern PGPROC *AuxiliaryProcs;
 extern PMSignalData *PMSignalState;
 extern pg_time_t first_syslogger_file_time;
-extern struct bkend *ShmemBackendArray;
+extern bool redirection_done;
 
 #ifndef WIN32
 #define write_inheritable_socket(dest, src, childpid) ((*(dest) = (src)), true)
@@ -708,7 +706,6 @@ save_backend_variables(BackendParameters *param, ClientSocket *client_sock,
 
 	strlcpy(param->DataDir, DataDir, MAXPGPATH);
 
-	param->MyCancelKey = MyCancelKey;
 	param->MyPMChildSlot = MyPMChildSlot;
 
 #ifdef WIN32
@@ -718,7 +715,6 @@ save_backend_variables(BackendParameters *param, ClientSocket *client_sock,
 	param->UsedShmemSegAddr = UsedShmemSegAddr;
 
 	param->ShmemLock = ShmemLock;
-	param->ShmemBackendArray = ShmemBackendArray;
 
 #ifndef HAVE_SPINLOCKS
 	param->SpinlockSemaArray = SpinlockSemaArray;
@@ -967,7 +963,6 @@ restore_backend_variables(BackendParameters *param)
 
 	SetDataDir(param->DataDir);
 
-	MyCancelKey = param->MyCancelKey;
 	MyPMChildSlot = param->MyPMChildSlot;
 
 #ifdef WIN32
@@ -977,7 +972,6 @@ restore_backend_variables(BackendParameters *param)
 	UsedShmemSegAddr = param->UsedShmemSegAddr;
 
 	ShmemLock = param->ShmemLock;
-	ShmemBackendArray = param->ShmemBackendArray;
 
 #ifndef HAVE_SPINLOCKS
 	SpinlockSemaArray = param->SpinlockSemaArray;

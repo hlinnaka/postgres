@@ -4226,6 +4226,26 @@ PostgresMain(const char *dbname, const char *username)
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
+	 * Generate a random cancel key, if this is a backend serving a
+	 * connection. InitPostgres() advertised it in shared mmeory.
+	 *
+	 * We probably don't need cancel keys for non-backend processes, but we'd
+	 * better have something random in the field to prevent unfriendly people
+	 * from sending cancels to them.
+	 */
+	Assert(!MyCancelKeyValid);
+	if (whereToSendOutput == DestRemote)
+	{
+		if (!pg_strong_random(&MyCancelKey, sizeof(int32)))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("could not generate random cancel key")));
+		}
+		MyCancelKeyValid = true;
+	}
+
+	/*
 	 * General initialization.
 	 *
 	 * NOTE: if you are tempted to add code in this vicinity, consider putting
@@ -4277,6 +4297,7 @@ PostgresMain(const char *dbname, const char *username)
 	{
 		StringInfoData buf;
 
+		Assert(MyCancelKeyValid);
 		pq_beginmessage(&buf, PqMsg_BackendKeyData);
 		pq_sendint32(&buf, (int32) MyProcPid);
 		pq_sendint32(&buf, (int32) MyCancelKey);

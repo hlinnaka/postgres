@@ -62,7 +62,10 @@
  */
 typedef struct
 {
-	volatile pid_t pss_pid;
+	pid_t		pss_pid;
+	bool		pss_cancel_key_valid;
+	int32		pss_cancel_key;
+
 	volatile sig_atomic_t pss_signalFlags[NUM_PROCSIGNALS];
 	pg_atomic_uint64 pss_barrierGeneration;
 	pg_atomic_uint32 pss_barrierCheckMask;
@@ -142,6 +145,8 @@ ProcSignalShmemInit(void)
 			ProcSignalSlot *slot = &ProcSignal->psh_slot[i];
 
 			slot->pss_pid = 0;
+			slot->pss_cancel_key_valid = false;
+			slot->pss_cancel_key = 0;
 			MemSet(slot->pss_signalFlags, 0, sizeof(slot->pss_signalFlags));
 			pg_atomic_init_u64(&slot->pss_barrierGeneration, PG_UINT64_MAX);
 			pg_atomic_init_u32(&slot->pss_barrierCheckMask, 0);
@@ -155,7 +160,7 @@ ProcSignalShmemInit(void)
  *		Register the current process in the ProcSignal array
  */
 void
-ProcSignalInit(void)
+ProcSignalInit(bool cancel_key_valid, int32 cancel_key)
 {
 	ProcSignalSlot *slot;
 	uint64		barrier_generation;
@@ -189,9 +194,16 @@ ProcSignalInit(void)
 	barrier_generation =
 		pg_atomic_read_u64(&ProcSignal->psh_barrierGeneration);
 	pg_atomic_write_u64(&slot->pss_barrierGeneration, barrier_generation);
-	pg_memory_barrier();
 
-	/* Mark slot with my PID */
+	slot->pss_cancel_key_valid = cancel_key_valid;
+	slot->pss_cancel_key = cancel_key;
+
+	/*
+	 * Mark slot with my PID. Issue a write barrier first, to make sure that any
+	 * a concurrent reader cannot see the slot as used (= having a non-zero PID)
+	 * before all the other fields have been initialized.
+	 */
+	pg_write_barrier();
 	slot->pss_pid = MyProcPid;
 
 	/* Remember slot location for CheckProcSignal */
@@ -239,7 +251,14 @@ CleanupProcSignalState(int status, Datum arg)
 	pg_atomic_write_u64(&slot->pss_barrierGeneration, PG_UINT64_MAX);
 	ConditionVariableBroadcast(&slot->pss_barrierCV);
 
+	/*
+	 * Mark the slot as unused. Use a memory barrier to ensure that the other fields
+	 * are seen to have valid values for as long as the PID is valid.
+	 */
 	slot->pss_pid = 0;
+	pg_write_barrier();
+	slot->pss_cancel_key_valid = false;
+	slot->pss_cancel_key = 0;
 }
 
 /*
@@ -677,4 +696,54 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 		HandleRecoveryConflictInterrupt(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
 
 	SetLatch(MyLatch);
+}
+
+/*
+ * Send a query cancellation signal to backend.
+ *
+ * Note: This is called from a backend process before authentication.  We
+ * cannot take LWLocks yet, but that's OK; we rely on atomic reads of the
+ * fields in the ProcSignal slots.
+ */
+void
+SendCancelRequest(int backendPID, int32 cancelAuthCode)
+{
+	Assert(backendPID != 0);
+
+	/*
+	 * See if we have a matching backend. Reading the pss_pid and
+	 * pss_cancel_key fields is racy, a backend might die and remove itself
+	 * from the array at any time.  The probability of the cancellation key
+	 * matching wrong process is miniscule, however, so we can live with that.
+	 * PIDs are reused too, so sending the signal based on PID is inherently
+	 * racy anyway, although OS's avoid reusing PIDs too soon.
+	 */
+	for (int i = 0; i < NumProcSignalSlots; i++)
+	{
+		ProcSignalSlot *slot = &ProcSignal->psh_slot[i];
+
+		if (slot->pss_pid == backendPID)
+		{
+			pg_read_barrier();
+			if (slot->pss_cancel_key_valid && slot->pss_cancel_key == cancelAuthCode)
+			{
+				/* Found a match; signal that backend to cancel current op */
+				ereport(DEBUG2,
+						(errmsg_internal("processing cancel request: sending SIGINT to process %d",
+										 backendPID)));
+				kill(backendPID, SIGINT);
+			}
+			else
+				/* Right PID, wrong key: no way, Jose */
+				ereport(LOG,
+						(errmsg("wrong key in cancel request for process %d",
+								backendPID)));
+			return;
+		}
+	}
+
+	/* No matching backend */
+	ereport(LOG,
+			(errmsg("PID %d in cancel request did not match any process",
+					backendPID)));
 }
