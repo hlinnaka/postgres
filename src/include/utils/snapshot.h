@@ -187,6 +187,7 @@ typedef struct SnapshotData
 	 * LSN are considered as visible.
 	 */
 	XLogRecPtr	snapshotCsn;
+	struct xid_status_hash *xidStatusCache;
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 	bool		copied;			/* false if it's a static snapshot */

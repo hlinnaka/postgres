@@ -52,6 +52,7 @@
 #include "access/subtrans.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "common/hashfn.h"
 #include "datatype/timestamp.h"
 #include "lib/pairingheap.h"
 #include "miscadmin.h"
@@ -65,6 +66,24 @@
 #include "utils/resowner.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+
+typedef struct xid_status_entry {
+	TransactionId xid;
+	bool		inprogress;
+	char		status;			/* for simplehash use */
+} xid_status_entry;
+
+#define SH_PREFIX xid_status
+#define SH_ELEMENT_TYPE xid_status_entry
+#define SH_KEY_TYPE TransactionId
+#define SH_KEY xid
+#define SH_HASH_KEY(tb, key) murmurhash32(key)
+#define SH_EQUAL(tb, a, b) (a == b)
+#define SH_SCOPE static inline
+#define SH_DEFINE
+#define SH_DECLARE
+#include "lib/simplehash.h"
+
 
 
 /*
@@ -635,6 +654,8 @@ FreeSnapshot(Snapshot snapshot)
 	Assert(snapshot->active_count == 0);
 	Assert(snapshot->copied);
 
+	if (snapshot->xidStatusCache)
+		xid_status_destroy(snapshot->xidStatusCache);
 	pfree(snapshot);
 }
 
@@ -1807,6 +1828,7 @@ RestoreSnapshot(char *start_address)
 	snapshot->whenTaken = serialized_snapshot.whenTaken;
 	snapshot->lsn = serialized_snapshot.lsn;
 	snapshot->snapshotCsn = serialized_snapshot.snapshotCsn;
+	snapshot->xidStatusCache = NULL;
 	snapshot->snapXactCompletionCount = 0;
 
 	/* Copy XIDs, if present. */
@@ -1917,12 +1939,33 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 	}
 	else
 	{
-		XLogRecPtr csn = CSNLogGetCSNByXid(xid);
+		xid_status_entry *cached;
+		bool	found;
+		bool	result;
+		XLogRecPtr csn;
+
+		if (snapshot->xidStatusCache == NULL)
+		{
+			MemoryContext cxt;
+
+			cxt = snapshot->copied ? 
+				GetMemoryChunkContext(snapshot) : TopMemoryContext;
+			snapshot->xidStatusCache = xid_status_create(cxt, 16, NULL);
+		}
+
+		cached = xid_status_insert(snapshot->xidStatusCache, xid, &found);
+		if (found)
+			return cached->inprogress;
+
+		csn = CSNLogGetCSNByXid(xid);
 
 		if (csn != InvalidXLogRecPtr && csn <= snapshot->snapshotCsn)
-			return false;
+			result = false;
 		else
-			return true;
+			result = true;
+
+		cached->inprogress = result;
+		return result;
 	}
 
 	return false;
