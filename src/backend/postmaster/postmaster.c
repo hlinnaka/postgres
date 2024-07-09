@@ -173,6 +173,8 @@ postmaster_guc int			ReservedConnections;
 static global int	NumListenSockets = 0;
 static global pgsocket *ListenSockets = NULL;
 
+static global Latch *PostmasterLatch;
+
 /* still more option variables */
 sighup_guc bool		EnableSSL = false;
 
@@ -344,7 +346,6 @@ static void CloseServerPorts(int status, Datum arg);
 static void unlink_external_pid_file(int status, Datum arg);
 static void getInstallationPaths(const char *argv0);
 static void checkControlFile(void);
-static void handle_pm_pmsignal_signal(SIGNAL_ARGS);
 static void handle_pm_child_exit_signal(SIGNAL_ARGS);
 static void handle_pm_reload_request_signal(SIGNAL_ARGS);
 static void handle_pm_shutdown_request_signal(SIGNAL_ARGS);
@@ -484,6 +485,7 @@ PostmasterMain(int argc, char *argv[])
 	/* This may configure SIGURG, depending on platform. */
 	InitializeLatchSupport();
 	InitProcessLocalLatch();
+	PostmasterLatch = MyLatch;
 
 	/*
 	 * No other place in Postgres should touch SIGTTIN/SIGTTOU handling.  We
@@ -1544,7 +1546,7 @@ ConfigurePostmasterWaitSet(bool accept_connections)
 
 	pm_wait_set = CreateWaitEventSet(NULL,
 									 accept_connections ? (1 + NumListenSockets) : 1);
-	AddWaitEventToSet(pm_wait_set, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch,
+	AddWaitEventToSet(pm_wait_set, WL_LATCH_SET, PGINVALID_SOCKET, PostmasterLatch,
 					  NULL);
 
 	if (accept_connections)
@@ -1586,7 +1588,7 @@ ServerLoop(void)
 		for (int i = 0; i < nevents; i++)
 		{
 			if (events[i].events & WL_LATCH_SET)
-				ResetLatch(MyLatch);
+				ResetLatch(PostmasterLatch);
 
 			/*
 			 * The following requests are handled unconditionally, even if we
@@ -1882,11 +1884,11 @@ InitProcessGlobals(void)
  * Child processes use SIGUSR1 to notify us of 'pmsignals'.  pg_ctl uses
  * SIGUSR1 to ask postmaster to check for logrotate and promote files.
  */
-static void
+void
 handle_pm_pmsignal_signal(SIGNAL_ARGS)
 {
 	pending_pm_pmsignal = true;
-	SetLatch(MyLatch);
+	SetLatch(PostmasterLatch);
 }
 
 /*
@@ -1896,7 +1898,7 @@ static void
 handle_pm_reload_request_signal(SIGNAL_ARGS)
 {
 	pending_pm_reload_request = true;
-	SetLatch(MyLatch);
+	SetLatch(PostmasterLatch);
 }
 
 /*
@@ -1971,7 +1973,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			pending_pm_shutdown_request = true;
 			break;
 	}
-	SetLatch(MyLatch);
+	SetLatch(PostmasterLatch);
 }
 
 /*
@@ -2132,7 +2134,7 @@ static void
 handle_pm_child_exit_signal(SIGNAL_ARGS)
 {
 	pending_pm_child_exit = true;
-	SetLatch(MyLatch);
+	SetLatch(PostmasterLatch);
 }
 
 /*
