@@ -956,6 +956,11 @@ ProcArrayInitRecovery(TransactionId initializedUptoXID)
 void
 ProcArrayUpdateOldestRunningXid(TransactionId oldestRunningXID)
 {
+	/*
+	 * Remove stale locks, if any.
+	 */
+	StandbyReleaseOldLocks(oldestRunningXID);
+
 	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
 	procArray->oldest_running_primary_xid = oldestRunningXID;
 	LWLockRelease(ProcArrayLock);
