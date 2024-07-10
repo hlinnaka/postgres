@@ -36,7 +36,6 @@
 #include "access/xlog.h"
 #include "common/file_utils.h"
 #include "libpq/libpq-be.h"
-#include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "nodes/queryjumble.h"
 #include "port.h"
