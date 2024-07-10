@@ -582,7 +582,6 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	sprintf(worker.bgw_library_name, "postgres");
 	sprintf(worker.bgw_function_name, "ParallelWorkerMain");
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(pcxt->seg));
-	worker.bgw_notify_pid = MyProcPid;
 
 	/*
 	 * Start workers.

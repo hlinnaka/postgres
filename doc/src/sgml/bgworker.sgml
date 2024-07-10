@@ -63,7 +63,7 @@ typedef struct BackgroundWorker
     char        bgw_function_name[BGW_MAXLEN];
     Datum       bgw_main_arg;
     char        bgw_extra[BGW_EXTRALEN];
-    pid_t       bgw_notify_pid;
+    pid_t       bgw_notify_pid;			/* not used */
 } BackgroundWorker;
 </programlisting>
   </para>
@@ -108,6 +108,18 @@ typedef struct BackgroundWorker
      </listitem>
     </varlistentry>
 
+    <varlistentry>
+     <term><literal>BGWORKER_NO_NOTIFY</literal></term>
+     <listitem>
+      <para>
+       <indexterm><primary>BGWORKER_NO_NOTIFY</primary></indexterm>
+       Normally, the backend that registers a dynamic worker will be notified
+       by having its latch set when the workers state changes, which allows the
+       caller to wait for the worker to start and shut down.  That can be
+       suppressed by setting this flag.
+      </para>
+     </listitem>
+    </varlistentry>
    </variablelist>
 
   </para>
@@ -181,12 +193,8 @@ typedef struct BackgroundWorker
   </para>
 
   <para>
-   <structfield>bgw_notify_pid</structfield> is the PID of a PostgreSQL
-   backend process to which the postmaster should send <literal>SIGUSR1</literal>
-   when the process is started or exits.  It should be 0 for workers registered
-   at postmaster startup time, or when the backend registering the worker does
-   not wish to wait for the worker to start up.  Otherwise, it should be
-   initialized to <literal>MyProcPid</literal>.
+   <structfield>bgw_notify_pid</structfield> is not used and may be removed
+   in a future release.
   </para>
 
   <para>Once running, the process can connect to a database by calling
@@ -258,10 +266,7 @@ typedef struct BackgroundWorker
 
   <para>
    In some cases, a process which registers a background worker may wish to
-   wait for the worker to start up.  This can be accomplished by initializing
-   <structfield>bgw_notify_pid</structfield> to <literal>MyProcPid</literal> and
-   then passing the <type>BackgroundWorkerHandle *</type> obtained at
-   registration time to
+   wait for the worker to start up.  This can be accomplished with the
    <function>WaitForBackgroundWorkerStartup(<parameter>BackgroundWorkerHandle
    *handle</parameter>, <parameter>pid_t *</parameter>)</function> function.
    This function will block until the postmaster has attempted to start the
