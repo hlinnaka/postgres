@@ -36,15 +36,31 @@
  * processes.  It is used as an index into the PMChildFlags array. dead_end
  * children are not assigned a child_slot.
  */
-typedef struct
+
+typedef union
 {
-	pid_t		pid;			/* process id of backend */
+	pid_t		pid;
+	pthread_t	threadid;
+} pid_or_threadid;
+
+extern global bool IsMultiThreaded;
+static inline bool
+pid_eq(pid_or_threadid a, pid_or_threadid b)
+{
+	return IsMultiThreaded ? (a.threadid == b.threadid) : (a.pid == b.pid);
+}
+
+typedef struct PMChild
+{
+	pid_or_threadid	pid;			/* process id of backend */
 	int			child_slot;		/* PMChildSlot for this backend, if any */
 	BackendType bkend_type;		/* child process flavor, see above */
 	struct RegisteredBgWorker *rw;	/* bgworker info, if this is a bgworker */
 	bool		bgworker_notify;	/* gets bgworker start/stop notifications */
 	dlist_node	elem;			/* list link in BackendList */
 } PMChild;
+
+extern void thread_pre_exit(pthread_t threadid, int code);
 
 /* GUC options */
 extern PGDLLIMPORT sighup_guc bool EnableSSL;
@@ -93,6 +109,7 @@ extern void InitProcessGlobals(void);
 extern int	MaxLivePostmasterChildren(void);
 
 extern bool PostmasterMarkPIDForWorkerNotify(int);
+extern void signal_child(PMChild *pmchild, int signal);
 
 #ifdef WIN32
 extern void pgwin32_register_deadchild_callback(HANDLE procHandle, DWORD procId);
@@ -104,11 +121,12 @@ extern void handle_pm_pmsignal_signal(SIGNAL_ARGS);
 extern PGDLLIMPORT session_local struct ClientSocket *MyClientSocket;
 
 /* prototypes for functions in launch_backend.c */
-extern pid_t postmaster_child_launch(BackendType child_type,
+extern bool postmaster_child_launch(BackendType child_type,
 									 int child_slot,
 									 char *startup_data,
 									 size_t startup_data_len,
-									 struct ClientSocket *client_sock);
+									 struct ClientSocket *client_sock,
+									 pid_or_threadid *id);
 const char *PostmasterChildName(BackendType child_type);
 #ifdef EXEC_BACKEND
 extern void SubPostmasterMain(int argc, char *argv[]) pg_attribute_noreturn();
@@ -120,7 +138,7 @@ extern dlist_head ActiveChildList;
 extern void InitPostmasterChildSlots(void);
 extern PMChild *AssignPostmasterChildSlot(BackendType btype);
 extern bool FreePostmasterChildSlot(PMChild *pmchild);
-extern PMChild *FindPostmasterChildByPid(int pid);
+extern PMChild *FindPostmasterChildByPid(pid_or_threadid id);
 extern PMChild *AllocDeadEndChild(void);
 
 /*

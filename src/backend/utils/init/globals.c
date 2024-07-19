@@ -67,7 +67,7 @@ session_local struct Latch *MyLatch;
  * most code therefore can simply use relative paths and not reference DataDir
  * explicitly.
  */
-session_local char	   *DataDir = NULL;
+global char	   *DataDir = NULL;
 
 /*
  * Mode of the data directory.  The default is 0700 but it may be changed in

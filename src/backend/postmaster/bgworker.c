@@ -292,8 +292,10 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 			if (slot->terminate && !rw->rw_terminate)
 			{
 				rw->rw_terminate = true;
-				if (rw->rw_pid != 0)
-					kill(rw->rw_pid, SIGTERM);
+				if (rw->rw_child_proc)
+				{
+					signal_child(rw->rw_child_proc, SIGTERM);
+				}
 				else
 				{
 					/* Report never-started, now-terminated worker as dead. */
@@ -401,7 +403,7 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 		}
 
 		/* Initialize postmaster bookkeeping. */
-		rw->rw_pid = 0;
+		rw->rw_child_proc = NULL;
 		rw->rw_crashed_at = 0;
 		rw->rw_shmem_slot = slotno;
 		rw->rw_terminate = false;
@@ -464,7 +466,12 @@ ReportBackgroundWorkerPID(RegisteredBgWorker *rw)
 
 	Assert(rw->rw_shmem_slot < max_worker_processes);
 	slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
-	slot->pid = rw->rw_pid;
+
+	// FIXME: broken
+	if (rw->rw_child_proc)
+		slot->pid = rw->rw_child_proc->pid.pid;
+	else
+		slot->pid = 0;
 
 	if (rw->rw_worker.bgw_notify_pid != 0)
 		kill(rw->rw_worker.bgw_notify_pid, SIGUSR1);
@@ -487,7 +494,7 @@ ReportBackgroundWorkerExit(RegisteredBgWorker *rw)
 
 	Assert(rw->rw_shmem_slot < max_worker_processes);
 	slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
-	slot->pid = rw->rw_pid;
+	slot->pid = rw->rw_child_proc ? rw->rw_child_proc->pid.pid : 0;
 	notify_pid = rw->rw_worker.bgw_notify_pid;
 
 	/*
@@ -1024,7 +1031,7 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 	}
 
 	rw->rw_worker = *worker;
-	rw->rw_pid = 0;
+	rw->rw_child_proc = NULL;
 	rw->rw_crashed_at = 0;
 	rw->rw_terminate = false;
 
