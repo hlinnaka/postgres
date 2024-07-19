@@ -474,8 +474,8 @@ typedef struct
 
 /* Macros to check exit status of a child process */
 #define EXIT_STATUS_0(st)  ((st) == 0)
-#define EXIT_STATUS_1(st)  (WIFEXITED(st) && WEXITSTATUS(st) == 1)
-#define EXIT_STATUS_3(st)  (WIFEXITED(st) && WEXITSTATUS(st) == 3)
+#define EXIT_STATUS_1(st)  (IsMultiThreaded ? ((st) == 1) : (WIFEXITED(st) && WEXITSTATUS(st) == 1))
+#define EXIT_STATUS_3(st)  (IsMultiThreaded ? ((st) == 3) : (WIFEXITED(st) && WEXITSTATUS(st) == 3))
 
 #ifndef WIN32
 /*
@@ -2840,7 +2840,7 @@ LogChildExit(int lev, const char *procname, pid_or_threadid id, int exitstatus)
 													   activity_buffer,
 													   sizeof(activity_buffer));
 
-	if (WIFEXITED(exitstatus))
+	if (IsMultiThreaded || WIFEXITED(exitstatus))
 		ereport(lev,
 
 		/*------
