@@ -19,6 +19,7 @@
  */
 #include "postgres.h"
 
+#include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -27,6 +28,7 @@
 #ifdef PROFILE_PID_DIR
 #include "postmaster/autovacuum.h"
 #endif
+#include "postmaster/postmaster.h"
 #include "storage/dsm.h"
 #include "storage/ipc.h"
 #include "tcop/tcopprot.h"
@@ -104,7 +106,7 @@ void
 proc_exit(int code)
 {
 	/* not safe if forked by system(), etc. */
-	if (MyProcPid != (int) getpid())
+	if (!IsMultiThreaded && MyProcPid != (int) getpid())
 		elog(PANIC, "proc_exit() called in child process");
 
 	/* Clean up everything that must be cleaned up */
@@ -153,7 +155,13 @@ proc_exit(int code)
 
 	elog(DEBUG3, "exit(%d)", code);
 
-	exit(code);
+	if (IsMultiThreaded)
+	{
+		thread_pre_exit(pthread_self(), code);
+		pthread_exit((void *) (intptr_t) code);
+	}
+	else
+		exit(code);
 }
 
 /*

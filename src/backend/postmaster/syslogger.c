@@ -590,11 +590,12 @@ SysLoggerMain(char *startup_data, size_t startup_data_len)
 /*
  * Postmaster subroutine to start a syslogger subprocess.
  */
-int
-SysLogger_Start(int child_slot)
+bool
+SysLogger_Start(int child_slot, pid_or_threadid *id)
 {
-	pid_t		sysloggerPid;
+	pid_or_threadid sysloggerPid;
 	char	   *filename;
+	bool		success;
 #ifdef EXEC_BACKEND
 	SysloggerStartupData startup_data;
 #endif							/* EXEC_BACKEND */
@@ -700,14 +701,16 @@ SysLogger_Start(int child_slot)
 	startup_data.syslogFile = syslogger_fdget(syslogFile);
 	startup_data.csvlogFile = syslogger_fdget(csvlogFile);
 	startup_data.jsonlogFile = syslogger_fdget(jsonlogFile);
-	sysloggerPid = postmaster_child_launch(B_LOGGER, child_slot,
-										   (char *) &startup_data, sizeof(startup_data), NULL);
+	success = postmaster_child_launch(B_LOGGER, child_slot,
+									  (char *) &startup_data, sizeof(startup_data), NULL,
+									  &sysloggerPid);
 #else
-	sysloggerPid = postmaster_child_launch(B_LOGGER, child_slot,
-										   NULL, 0, NULL);
+	success = postmaster_child_launch(B_LOGGER, child_slot,
+									  NULL, 0, NULL,
+									  &sysloggerPid);
 #endif							/* EXEC_BACKEND */
 
-	if (sysloggerPid == -1)
+	if (!success)
 	{
 		ereport(LOG,
 				(errmsg("could not fork system logger: %m")));
@@ -787,7 +790,8 @@ SysLogger_Start(int child_slot)
 		fclose(jsonlogFile);
 		jsonlogFile = NULL;
 	}
-	return (int) sysloggerPid;
+	*id = sysloggerPid;
+	return success;
 }
 
 

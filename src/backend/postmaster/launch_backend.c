@@ -75,7 +75,6 @@
 #include "storage/spin.h"
 #endif
 
-
 #ifdef EXEC_BACKEND
 
 /* Type for a socket that can be inherited to a client process */
@@ -239,11 +238,14 @@ typedef struct {
  *
  * 'startup_data' is an optional contiguous chunk of data that is passed to
  * the child process.
+ *
+ * Returns true on success, and *id is filled with the pid/threadid
  */
-pid_t
+bool
 postmaster_child_launch(BackendType child_type, int child_slot,
 						char *startup_data, size_t startup_data_len,
-						ClientSocket *client_sock)
+						ClientSocket *client_sock,
+						pid_or_threadid *id)
 {
 	pid_t		pid;
 
@@ -257,7 +259,7 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 
 		sinfo = malloc(offsetof(thread_startup_info, startup_data) + startup_data_len);
 		if (sinfo == NULL)
-			return -1;
+			return false;
 		sinfo->child_type = child_type;
 		sinfo->child_slot = child_slot;
 		if (client_sock)
@@ -272,8 +274,9 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 			memcpy(&sinfo->startup_data, startup_data, startup_data_len);
 
 		if (pthread_create(&thread_id, NULL, backend_thread_main, sinfo) < 0)
-			return -1;
-		return (pid_t) thread_id;
+			return false;
+		id->threadid = thread_id;
+		return true;
 	}
 
 #ifdef EXEC_BACKEND
@@ -322,7 +325,8 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 		pg_unreachable();		/* main_fn never returns */
 	}
 #endif							/* EXEC_BACKEND */
-	return pid;
+	id->pid = pid;
+	return (pid != -1);
 }
 
 static void *
@@ -334,11 +338,13 @@ backend_thread_main(void *arg)
 	size_t		startup_data_len;
 
 	/* TODO: Detach from postmaster thread. Initialize MemoryContexts and other basic stuff */
-	/* See 'main', PostmasterMain, InitStandaloneProcess functions for ideas on what might need to be handled here */
+	/* See InitPostmasterChild, 'main', PostmasterMain, InitStandaloneProcess functions for ideas on what might need to be handled here */
 
 	/* FIXME: careful not to leak 'sinfo', which is malloc'd, on failure below */
 
 	IsUnderPostmaster = true;
+
+	InitProcessGlobals();
 
 	/* FIXME: use linux thread id for now. Should switch to using pthread_t */
 	MyProcPid = gettid();
@@ -347,7 +353,7 @@ backend_thread_main(void *arg)
 	 * Set reference point for stack-depth checking.
 	 */
 	(void) set_stack_base();
-
+	
 	MemoryContextInit();
 
 	InitializeLatchSupport();
@@ -754,7 +760,7 @@ SubPostmasterMain(int argc, char *argv[])
 		PGSharedMemoryNoReAttach();
 
 	/* Read in remaining GUC variables */
-	read_nondefault_variables();
+	read_nondefault_variables(false);
 
 	/*
 	 * Check that the data directory looks valid, which will also check the

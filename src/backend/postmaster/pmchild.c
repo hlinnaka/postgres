@@ -80,7 +80,7 @@ MaxLivePostmasterChildren(void)
 static void
 init_slot(PMChild *pmchild, int slotno, dlist_head *freelist)
 {
-	pmchild->pid = 0;
+	pmchild->pid.pid = 0;
 	pmchild->child_slot = slotno + 1;
 	pmchild->bkend_type = B_INVALID;
 	pmchild->rw = NULL;
@@ -195,7 +195,7 @@ AssignPostmasterChildSlot(BackendType btype)
 		return NULL;
 
 	pmchild = dlist_container(PMChild, elem, dlist_pop_head_node(freelist));
-	pmchild->pid = 0;
+	pmchild->pid.pid = 0;
 	pmchild->bkend_type = btype;
 	pmchild->rw = NULL;
 	pmchild->bgworker_notify = true;
@@ -242,7 +242,7 @@ FreePostmasterChildSlot(PMChild *pmchild)
 }
 
 PMChild *
-FindPostmasterChildByPid(int pid)
+FindPostmasterChildByPid(pid_or_threadid pid)
 {
 	dlist_iter	iter;
 
@@ -250,7 +250,7 @@ FindPostmasterChildByPid(int pid)
 	{
 		PMChild    *bp = dlist_container(PMChild, elem, iter.cur);
 
-		if (bp->pid == pid)
+		if (pid_eq(bp->pid, pid))
 			return bp;
 	}
 	return NULL;
@@ -271,7 +271,7 @@ AllocDeadEndChild(void)
 	pmchild = (PMChild *) palloc_extended(sizeof(PMChild), MCXT_ALLOC_NO_OOM);
 	if (pmchild)
 	{
-		pmchild->pid = 0;
+		pmchild->pid.pid = 0;
 		pmchild->child_slot = 0;
 		pmchild->bkend_type = B_DEAD_END_BACKEND;
 		pmchild->rw = NULL;

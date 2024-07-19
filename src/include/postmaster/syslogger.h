@@ -14,6 +14,7 @@
 
 #include <limits.h>				/* for PIPE_BUF */
 
+#include "postmaster/postmaster.h"
 
 /*
  * Primitive protocol structure for writing to syslogger pipe(s).  The idea
@@ -86,7 +87,7 @@ extern PGDLLIMPORT HANDLE syslogPipe[2];
 #endif
 
 
-extern int	SysLogger_Start(int child_slot);
+extern bool	SysLogger_Start(int child_slot, pid_or_threadid *id);
 
 extern void write_syslogger_file(const char *buffer, int count, int destination);
 
