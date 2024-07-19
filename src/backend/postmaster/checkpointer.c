@@ -107,7 +107,7 @@ typedef struct
 
 typedef struct
 {
-	pid_t		checkpointer_pid;	/* PID (0 if not started) */
+	ProcNumber	checkpointer_proc_number; /* INVALID_PROC_NUMBER if not started */
 
 	slock_t		ckpt_lck;		/* protects all the ckpt_* fields */
 
@@ -180,7 +180,7 @@ CheckpointerMain(char *startup_data, size_t startup_data_len)
 	MyBackendType = B_CHECKPOINTER;
 	AuxiliaryProcessMainCommon();
 
-	CheckpointerShmem->checkpointer_pid = MyProcPid;
+	CheckpointerShmem->checkpointer_proc_number = MyProcNumber;
 
 	/*
 	 * Properly accept or ignore signals the postmaster might send us
@@ -991,7 +991,9 @@ RequestCheckpoint(int flags)
 #define MAX_SIGNAL_TRIES 600	/* max wait 60.0 sec */
 	for (ntries = 0;; ntries++)
 	{
-		if (CheckpointerShmem->checkpointer_pid == 0)
+		Latch		*checkpointer_latch = ProcGlobal->checkpointerLatch;
+
+		if (checkpointer_latch == NULL)
 		{
 			if (ntries >= MAX_SIGNAL_TRIES || !(flags & CHECKPOINT_WAIT))
 			{
@@ -1000,17 +1002,11 @@ RequestCheckpoint(int flags)
 				break;
 			}
 		}
-		else if (kill(CheckpointerShmem->checkpointer_pid, SIGINT) != 0)
-		{
-			if (ntries >= MAX_SIGNAL_TRIES || !(flags & CHECKPOINT_WAIT))
-			{
-				elog((flags & CHECKPOINT_WAIT) ? ERROR : LOG,
-					 "could not signal for checkpoint: %m");
-				break;
-			}
-		}
 		else
+		{
+			SetLatch(checkpointer_latch);
 			break;				/* signal sent successfully */
+		}
 
 		CHECK_FOR_INTERRUPTS();
 		pg_usleep(100000L);		/* wait 0.1 sec, then retry */
@@ -1108,7 +1104,7 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 	 * backend will have to perform its own fsync request.  But before forcing
 	 * that to happen, we can try to compact the request queue.
 	 */
-	if (CheckpointerShmem->checkpointer_pid == 0 ||
+	if (CheckpointerShmem->checkpointer_proc_number == INVALID_PROC_NUMBER ||
 		(CheckpointerShmem->num_requests >= CheckpointerShmem->max_requests &&
 		 !CompactCheckpointerRequestQueue()))
 	{
