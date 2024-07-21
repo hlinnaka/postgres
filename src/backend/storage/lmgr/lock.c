@@ -1861,8 +1861,6 @@ WaitOnLock(LOCALLOCK *locallock, ResourceOwner owner, bool dontWait)
 			 * now.
 			 */
 			awaitedLock = NULL;
-			LOCK_PRINT("WaitOnLock: aborting on lock",
-					   locallock->lock, locallock->tag.mode);
 			LWLockRelease(LockHashPartitionLock(locallock->hashcode));
 
 			/*
