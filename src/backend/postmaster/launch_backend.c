@@ -337,6 +337,10 @@ backend_thread_main(void *arg)
 
 	InitProcessGlobals();
 
+	MyPMChildSlot = sinfo->child_slot;
+	MyBackendType = sinfo->child_type;
+	pthread_setname_np(pthread_self(), 	child_process_kinds[MyBackendType].name);
+
 	/* FIXME: use linux thread id for now. Should switch to using pthread_t */
 	MyProcPid = gettid();
 
@@ -361,8 +365,6 @@ backend_thread_main(void *arg)
 	/* Enter the Main function with TopMemoryContext. */
 	MemoryContextSwitchTo(TopMemoryContext);
 
-	MyPMChildSlot = sinfo->child_slot;
-	MyBackendType = sinfo->child_type;
 	if (sinfo->has_client_sock)
 	{
 		MyClientSocket = palloc(sizeof(ClientSocket));
