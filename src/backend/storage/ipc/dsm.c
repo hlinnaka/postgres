@@ -138,7 +138,7 @@ const ShmemCallbacks dsm_shmem_callbacks = {
  * each new mapping would require an update to the control segment,
  * which requires locking, in which the postmaster must not be involved.
  */
-static /* FIXME: session_local */ dlist_head dsm_segment_list = DLIST_STATIC_INIT(dsm_segment_list);
+static session_local dlist_head dsm_segment_list;
 
 /*
  * Control segment information.
