@@ -1043,6 +1043,7 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	{
 		/* No conflict with held or previously requested locks */
 		GrantLock(lock, proclock, lockmode);
+		LWLockRelease(partitionLock);
 	}
 	else
 	{
@@ -1118,8 +1119,10 @@ LockAcquireExtended(const LOCKTAG *locktag,
 				elog(ERROR, "LockAcquire failed");
 			}
 		}
+
 		PROCLOCK_PRINT("LockAcquire: granted", proclock);
 		LOCK_PRINT("LockAcquire: granted", lock, lockmode);
+		LWLockRelease(partitionLock);
 	}
 
 	/* The lock was granted to us.  Update the local lock entry accordingly */
@@ -1130,8 +1133,6 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	 * special error cleanup is required.
 	 */
 	FinishStrongLockAcquire();
-
-	LWLockRelease(partitionLock);
 
 	/*
 	 * Emit a WAL record if acquisition of this lock needs to be replayed in a
