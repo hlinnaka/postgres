@@ -1040,9 +1040,6 @@ AuxiliaryPidGetProc(int pid)
 /*
  * ProcSleep -- put a process to sleep on the specified lock
  *
- * Caller must have set MyProc->heldLocks to reflect locks already held
- * on the lockable object by this process (under all XIDs).
- *
  * It's not actually guaranteed that we need to wait when this function is
  * called, because it could be that when we try to find a position at which
  * to insert ourself into the wait queue, we discover that we must be inserted
@@ -1072,13 +1069,18 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable, bool dontWait)
 	LWLock	   *partitionLock = LockHashPartitionLock(hashcode);
 	dclist_head *waitQueue = &lock->waitProcs;
 	PGPROC	   *insert_before = NULL;
-	LOCKMASK	myHeldLocks = MyProc->heldLocks;
+	LOCKMASK	myHeldLocks;
 	TimestampTz standbyWaitStart = 0;
 	bool		early_deadlock = false;
 	bool		allow_autovacuum_cancel = true;
 	bool		logged_recovery_conflict = false;
 	ProcWaitStatus myWaitStatus;
 	PGPROC	   *leader = MyProc->lockGroupLeader;
+
+	/*
+	 * Set bitmask of locks this process already holds on this object.
+	 */
+	myHeldLocks = MyProc->heldLocks = proclock->holdMask;
 
 	/*
 	 * If group locking is in use, locks held by members of my locking group
