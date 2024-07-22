@@ -1152,7 +1152,6 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable, bool dontWait)
 				{
 					/* Skip the wait and just grant myself the lock. */
 					GrantLock(lock, proclock, lockmode);
-					GrantAwaitedLock();
 					return PROC_WAIT_STATUS_OK;
 				}
 
@@ -1627,12 +1626,6 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable, bool dontWait)
 	 * us to still hold it.
 	 */
 	LWLockAcquire(partitionLock, LW_EXCLUSIVE);
-
-	/*
-	 * If we got the lock, be sure to remember it in the locallock table.
-	 */
-	if (MyProc->waitStatus == PROC_WAIT_STATUS_OK)
-		GrantAwaitedLock();
 
 	/*
 	 * We don't have to do anything else, because the awaker did all the

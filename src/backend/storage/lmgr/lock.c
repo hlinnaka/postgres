@@ -1043,7 +1043,6 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	{
 		/* No conflict with held or previously requested locks */
 		GrantLock(lock, proclock, lockmode);
-		GrantLockLocal(locallock, owner);
 	}
 	else
 	{
@@ -1122,6 +1121,9 @@ LockAcquireExtended(const LOCKTAG *locktag,
 		PROCLOCK_PRINT("LockAcquire: granted", proclock);
 		LOCK_PRINT("LockAcquire: granted", lock, lockmode);
 	}
+
+	/* The lock was granted to us.  Update the local lock entry accordingly */
+	GrantLockLocal(locallock, owner);
 
 	/*
 	 * Lock state is fully up-to-date now; if we error out after this, no
