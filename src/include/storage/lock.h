@@ -583,6 +583,8 @@ extern bool LockCheckConflicts(LockMethod lockMethodTable,
 							   LOCK *lock, PROCLOCK *proclock);
 extern void GrantLock(LOCK *lock, PROCLOCK *proclock, LOCKMODE lockmode);
 extern void GrantAwaitedLock(void);
+extern LOCALLOCK *GetAwaitedLock(void);
+
 extern void RemoveFromWaitQueue(PGPROC *proc, uint32 hashcode);
 extern Size LockShmemSize(void);
 extern LockData *GetLockStatusData(void);

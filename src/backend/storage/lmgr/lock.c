@@ -1771,6 +1771,12 @@ GrantAwaitedLock(void)
 	GrantLockLocal(awaitedLock, awaitedOwner);
 }
 
+LOCALLOCK *
+GetAwaitedLock(void)
+{
+	return awaitedLock;
+}
+
 /*
  * MarkLockClear -- mark an acquired lock as "clear"
  *
@@ -1867,6 +1873,9 @@ WaitOnLock(LOCALLOCK *locallock, ResourceOwner owner, bool dontWait)
 	}
 	PG_END_TRY();
 
+	/*
+	 * We no longer want LockErrorCleanup to do anything.
+	 */
 	awaitedLock = NULL;
 
 	/* reset ps display to remove the suffix */

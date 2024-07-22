@@ -79,9 +79,6 @@ PROC_HDR   *ProcGlobal = NULL;
 NON_EXEC_STATIC PGPROC *AuxiliaryProcs = NULL;
 PGPROC	   *PreparedXactProcs = NULL;
 
-/* If we are waiting for a lock, this points to the associated LOCALLOCK */
-static LOCALLOCK *lockAwaited = NULL;
-
 static DeadLockState deadlock_state = DS_NOT_YET_CHECKED;
 
 /* Is a deadlock check pending? */
@@ -707,18 +704,6 @@ HaveNFreeProcs(int n, int *nfree)
 }
 
 /*
- * Check if the current process is awaiting a lock.
- */
-bool
-IsWaitingForLock(void)
-{
-	if (lockAwaited == NULL)
-		return false;
-
-	return true;
-}
-
-/*
  * Cancel any pending wait for lock, when aborting a transaction, and revert
  * any strong lock count acquisition for a lock being acquired.
  *
@@ -729,6 +714,7 @@ IsWaitingForLock(void)
 void
 LockErrorCleanup(void)
 {
+	LOCALLOCK  *lockAwaited;
 	LWLock	   *partitionLock;
 	DisableTimeoutParams timeouts[2];
 
@@ -737,6 +723,7 @@ LockErrorCleanup(void)
 	AbortStrongLockAcquire();
 
 	/* Nothing to do if we weren't waiting for a lock */
+	lockAwaited = GetAwaitedLock();
 	if (lockAwaited == NULL)
 	{
 		RESUME_INTERRUPTS();
@@ -1212,9 +1199,6 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable, bool dontWait)
 		return PROC_WAIT_STATUS_ERROR;
 	}
 
-	/* mark that we are waiting for a lock */
-	lockAwaited = locallock;
-
 	/*
 	 * Release the lock table's partition lock.
 	 *
@@ -1639,16 +1623,10 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable, bool dontWait)
 							NULL, false);
 
 	/*
-	 * Re-acquire the lock table's partition lock.  We have to do this to hold
-	 * off cancel/die interrupts before we can mess with lockAwaited (else we
-	 * might have a missed or duplicated locallock update).
+	 * Re-acquire the lock table's partition lock, because the caller expects
+	 * us to still hold it.
 	 */
 	LWLockAcquire(partitionLock, LW_EXCLUSIVE);
-
-	/*
-	 * We no longer want LockErrorCleanup to do anything.
-	 */
-	lockAwaited = NULL;
 
 	/*
 	 * If we got the lock, be sure to remember it in the locallock table.
