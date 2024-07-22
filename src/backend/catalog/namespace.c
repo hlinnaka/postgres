@@ -155,14 +155,14 @@ static session_local bool baseTempCreationPending = false;
 static session_local Oid	namespaceUser = InvalidOid;
 
 /* The above four values are valid only if baseSearchPathValid */
-static bool baseSearchPathValid = true;
+static session_local bool baseSearchPathValid = true;
 
 /*
  * Storage for search path cache.  Clear searchPathCacheValid as a simple
  * way to invalidate *all* the cache entries, not just the active one.
  */
-static bool searchPathCacheValid = false;
-static MemoryContext SearchPathCacheContext = NULL;
+static session_local bool searchPathCacheValid = false;
+static session_local MemoryContext SearchPathCacheContext = NULL;
 
 typedef struct SearchPathCacheKey
 {
