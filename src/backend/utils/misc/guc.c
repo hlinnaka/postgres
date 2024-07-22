@@ -693,7 +693,14 @@ guc_free(void *ptr)
 	if (ptr != NULL)
 	{
 		/* This is to help catch old code that malloc's GUC data. */
-		Assert(GetMemoryChunkContext(ptr) == GUCMemoryContext);
+		/* FIXME: we are currently quite confused with the memory contexts,
+		 * and which GUCs are thread-local and which ones are global. Just ignore
+		 * this for now.
+		 */
+		if (IsMultiThreaded && GetMemoryChunkContext(ptr) != GUCMemoryContext)
+			return;
+
+		Assert(GetMemoryChunkContext(ptr) == GUCMemoryContext);		
 		pfree(ptr);
 	}
 }
@@ -891,6 +898,19 @@ get_guc_variables(int *num_vars)
 	return result;
 }
 
+static inline struct config_generic *
+COPY_GUCVAR(struct config_generic *orig, size_t sz)
+{
+	struct config_generic *gucvar_copy;
+
+	if (!IsMultiThreaded)
+		return orig;
+	
+	gucvar_copy = guc_malloc(ERROR, sz);
+	memcpy(gucvar_copy, orig, sz);
+
+	return gucvar_copy;
+}
 
 /*
  * Build the GUC hash table.  This is split out so that help_config.c can
@@ -983,7 +1003,7 @@ build_guc_variables(void)
 											  HASH_ENTER,
 											  &found);
 		Assert(!found);
-		hentry->gucvar = gucvar;
+		hentry->gucvar = COPY_GUCVAR(gucvar, sizeof(struct config_bool));
 	}
 
 	for (i = 0; ConfigureNamesInt[i].gen.name; i++)
@@ -995,7 +1015,7 @@ build_guc_variables(void)
 											  HASH_ENTER,
 											  &found);
 		Assert(!found);
-		hentry->gucvar = gucvar;
+		hentry->gucvar = COPY_GUCVAR(gucvar, sizeof(struct config_int));
 	}
 
 	for (i = 0; ConfigureNamesReal[i].gen.name; i++)
@@ -1007,7 +1027,7 @@ build_guc_variables(void)
 											  HASH_ENTER,
 											  &found);
 		Assert(!found);
-		hentry->gucvar = gucvar;
+		hentry->gucvar = COPY_GUCVAR(gucvar, sizeof(struct config_real));
 	}
 
 	for (i = 0; ConfigureNamesString[i].gen.name; i++)
@@ -1019,7 +1039,7 @@ build_guc_variables(void)
 											  HASH_ENTER,
 											  &found);
 		Assert(!found);
-		hentry->gucvar = gucvar;
+		hentry->gucvar = COPY_GUCVAR(gucvar, sizeof(struct config_string));
 	}
 
 	for (i = 0; ConfigureNamesEnum[i].gen.name; i++)
@@ -1031,7 +1051,7 @@ build_guc_variables(void)
 											  HASH_ENTER,
 											  &found);
 		Assert(!found);
-		hentry->gucvar = gucvar;
+		hentry->gucvar = COPY_GUCVAR(gucvar, sizeof(struct config_enum));
 	}
 
 	Assert(num_vars == hash_get_num_entries(guc_hashtab));

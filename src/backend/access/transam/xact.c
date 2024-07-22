@@ -244,11 +244,12 @@ typedef struct SerializedTransactionState
  * block.  It will point to TopTransactionStateData when not in a
  * transaction at all, or when in a top-level transaction.
  */
-static static_singleton TransactionStateData TopTransactionStateData = {
+static const TransactionStateData TopTransactionStateDataTemplate = {
 	.state = TRANS_DEFAULT,
 	.blockState = TBLOCK_DEFAULT,
 	.topXidLogged = false,
 };
+static session_local TransactionStateData TopTransactionStateData;
 
 /*
  * unreportedXids holds XIDs of all subtransactions that have not yet been
@@ -257,7 +258,11 @@ static static_singleton TransactionStateData TopTransactionStateData = {
 static session_local int	nUnreportedXids;
 static session_local TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
 
-static session_local TransactionState CurrentTransactionState = &TopTransactionStateData;
+/*
+ * This initially points at the const. But as soon as a transaction is started, it
+ * changed to point to the session-local TopTransactionStateData
+ */
+static session_local TransactionState CurrentTransactionState = (TransactionState) &TopTransactionStateDataTemplate;
 
 /*
  * The subtransaction ID and command ID assignment counters are global
@@ -3068,6 +3073,7 @@ StartTransactionCommand(void)
 			 */
 		case TBLOCK_DEFAULT:
 			StartTransaction();
+			s = CurrentTransactionState;
 			s->blockState = TBLOCK_STARTED;
 			break;
 

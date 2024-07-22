@@ -127,7 +127,7 @@ static pg_global void *dsm_main_space_begin = NULL;
  * each new mapping would require an update to the control segment,
  * which requires locking, in which the postmaster must not be involved.
  */
-static /* FIXME: session_local */ dlist_head dsm_segment_list = DLIST_STATIC_INIT(dsm_segment_list);
+static session_local dlist_head dsm_segment_list;
 
 /*
  * Control segment information.
