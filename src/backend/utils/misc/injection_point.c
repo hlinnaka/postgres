@@ -23,6 +23,7 @@
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "storage/lwlock.h"
+#include "storage/proc.h"
 #include "storage/shmem.h"
 #include "utils/hsearch.h"
 #include "utils/injection_point.h"
@@ -568,5 +569,19 @@ InjectionPointCached(const char *name)
 		cache_entry->callback(name, cache_entry->private_data);
 #else
 	elog(ERROR, "Injection points are not supported by this build");
+#endif
+}
+
+/*
+ * Test if an injection point is defined.
+ */
+bool
+IsInjectionPointAttached(const char *name)
+{
+#ifdef USE_INJECTION_POINTS
+	return InjectionPointCacheRefresh(name) != NULL;
+#else
+	elog(ERROR, "Injection points are not supported by this build");
+	return false;				/* silence compiler */
 #endif
 }
