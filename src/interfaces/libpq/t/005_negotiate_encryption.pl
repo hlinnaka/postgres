@@ -337,6 +337,15 @@ nossluser   .            disable      postgres       connect, authok            
 			"user=testuser sslmode=prefer",
 			'connect, v2error -> fail');
 		$node->restart;
+
+		$node->safe_psql('postgres',
+						 "SELECT injection_points_attach('backend-ssl-startup', 'error');",
+						 connstr => "user=localuser host=$unixdir");
+		connect_test(
+			$node,
+			"user=testuser sslmode=prefer",
+			'connect, sslaccept, backenderror, reconnect, authok -> plain');
+		$node->restart;
 	}
 
 	# Disable SSL again
@@ -439,6 +448,15 @@ nogssuser   disable      disable      postgres       connect, authok            
 			$node,
 			"user=testuser gssencmode=prefer sslmode=disable",
 			'v2error -> fail');
+		$node->restart;
+
+		$node->safe_psql('postgres',
+						 "SELECT injection_points_attach('backend-gssapi-startup', 'error');",
+						 connstr => "user=localuser host=$unixdir");
+		connect_test(
+			$node,
+			"user=testuser gssencmode=prefer sslmode=disable",
+			'connect, gssaccept, backenderror, reconnect, authok -> plain');
 		$node->restart;
 	}
 }
