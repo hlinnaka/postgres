@@ -91,7 +91,7 @@
  * value has no effect until the next VACUUM, so no need for stronger lock.
  */
 
-static const relopt_bool boolRelOpts[] =
+static const relopt_bool boolRelOptsConst[] =
 {
 	{
 		{
@@ -170,7 +170,7 @@ static const relopt_bool boolRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_int intRelOpts[] =
+static const relopt_int intRelOptsConst[] =
 {
 	{
 		{
@@ -385,7 +385,7 @@ static const relopt_int intRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_real realRelOpts[] =
+static const relopt_real realRelOptsConst[] =
 {
 	{
 		{
@@ -505,7 +505,7 @@ static const relopt_enum_elt_def viewCheckOptValues[] =
 	{(const char *) NULL}		/* list terminator */
 };
 
-static const relopt_enum enumRelOpts[] =
+static const relopt_enum enumRelOptsConst[] =
 {
 	{
 		{
@@ -544,7 +544,7 @@ static const relopt_enum enumRelOpts[] =
 	{{NULL}}
 };
 
-static const relopt_string stringRelOpts[] =
+static const relopt_string stringRelOptsConst[] =
 {
 	/* list terminator */
 	{{NULL}}
@@ -581,6 +581,22 @@ initialize_reloptions(void)
 {
 	int			i;
 	int			j;
+	relopt_bool *boolRelOpts;
+	relopt_int *intRelOpts;
+	relopt_real *realRelOpts;
+	relopt_enum *enumRelOpts;
+	relopt_string *stringRelOpts;
+
+	boolRelOpts = MemoryContextAlloc(TopMemoryContext, sizeof(boolRelOptsConst));
+	memcpy(boolRelOpts, boolRelOptsConst, sizeof(boolRelOptsConst));
+	intRelOpts = MemoryContextAlloc(TopMemoryContext, sizeof(intRelOptsConst));
+	memcpy(intRelOpts, intRelOptsConst, sizeof(intRelOptsConst));
+	realRelOpts = MemoryContextAlloc(TopMemoryContext, sizeof(realRelOptsConst));
+	memcpy(realRelOpts, realRelOptsConst, sizeof(realRelOptsConst));
+	enumRelOpts = MemoryContextAlloc(TopMemoryContext, sizeof(enumRelOptsConst));
+	memcpy(enumRelOpts, enumRelOptsConst, sizeof(enumRelOptsConst));
+	stringRelOpts = MemoryContextAlloc(TopMemoryContext, sizeof(stringRelOptsConst));
+	memcpy(stringRelOpts, stringRelOptsConst, sizeof(stringRelOptsConst));
 
 	j = 0;
 	for (i = 0; boolRelOpts[i].gen.name; i++)
@@ -623,7 +639,7 @@ initialize_reloptions(void)
 	j = 0;
 	for (i = 0; boolRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &boolRelOpts[i].gen);
+		relOpts[j] = &boolRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_BOOL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -631,7 +647,7 @@ initialize_reloptions(void)
 
 	for (i = 0; intRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &intRelOpts[i].gen);
+		relOpts[j] = &intRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_INT;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -639,7 +655,7 @@ initialize_reloptions(void)
 
 	for (i = 0; realRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &realRelOpts[i].gen);
+		relOpts[j] = &realRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_REAL;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -647,7 +663,7 @@ initialize_reloptions(void)
 
 	for (i = 0; enumRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &enumRelOpts[i].gen);
+		relOpts[j] = &enumRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_ENUM;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
@@ -655,7 +671,7 @@ initialize_reloptions(void)
 
 	for (i = 0; stringRelOpts[i].gen.name; i++)
 	{
-		relOpts[j] = unconstify(relopt_gen *, &stringRelOpts[i].gen);
+		relOpts[j] = &stringRelOpts[i].gen;
 		relOpts[j]->type = RELOPT_TYPE_STRING;
 		relOpts[j]->namelen = strlen(relOpts[j]->name);
 		j++;
