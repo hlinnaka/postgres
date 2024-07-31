@@ -395,6 +395,8 @@ pgarch_ArchiverCopyLoop(void)
 		int			failures = 0;
 		int			failures_orphan = 0;
 
+		elog(LOG, "ready: %s", xlog);
+
 		for (;;)
 		{
 			struct stat stat_buf;
@@ -408,7 +410,10 @@ pgarch_ArchiverCopyLoop(void)
 			 * archiver spawned by a newer postmaster.
 			 */
 			if (ShutdownRequestPending || !PostmasterIsAlive())
+			{
+				elog(LOG, "PENDING SHUTDOWN ON: %s", xlog);
 				return;
+			}
 
 			/*
 			 * Check for barrier events and config update.  This is so that
@@ -475,6 +480,8 @@ pgarch_ArchiverCopyLoop(void)
 			{
 				/* successful */
 				pgarch_archiveDone(xlog);
+
+				elog(LOG, "DONE: %s", xlog);
 
 				/*
 				 * Tell the cumulative stats system about the WAL file that we
@@ -588,6 +595,9 @@ pgarch_archiveXlog(char *xlog)
 		/* Now we can allow interrupts again */
 		RESUME_INTERRUPTS();
 
+
+		elog(LOG, "ERROR ON: %s", xlog);
+
 		/* Report failure so that the archiver retries this file */
 		ret = false;
 	}
@@ -596,9 +606,13 @@ pgarch_archiveXlog(char *xlog)
 		/* Enable our exception handler */
 		PG_exception_stack = &local_sigjmp_buf;
 
+
+		elog(LOG, "CB ON: %s", xlog);
+
 		/* Archive the file! */
 		ret = ArchiveCallbacks->archive_file_cb(archive_module_state,
 												xlog, pathname);
+		elog(LOG, "CBDONE ON: %s", xlog);
 
 		/* Remove our exception handler */
 		PG_exception_stack = NULL;
@@ -613,6 +627,9 @@ pgarch_archiveXlog(char *xlog)
 	else
 		snprintf(activitymsg, sizeof(activitymsg), "failed on %s", xlog);
 	set_ps_display(activitymsg);
+
+
+	elog(LOG, "ARCHIVED: %s", xlog);
 
 	return ret;
 }
