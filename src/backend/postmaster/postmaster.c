@@ -2809,6 +2809,7 @@ PostmasterStateMachine(void)
 
 		/* Now transition to PM_WAIT_BACKENDS state to wait for them to die */
 		pmState = PM_WAIT_BACKENDS;
+		elog(LOG, "switching to PM_WAIT_BACKENDS");
 	}
 
 	/*
@@ -3186,6 +3187,8 @@ signal_child(PMChild *pmchild, int signal)
 		return;
 	pid = pmchild->pid;
 
+	elog(LOG, "signaling pid %d at slot %d: %d", pid, pmchild->child_slot, signal);
+
 	if (kill(pid, signal) < 0)
 		elog(DEBUG3, "kill(%ld,%d) failed: %m", (long) pid, signal);
 #ifdef HAVE_SETSID
@@ -3251,7 +3254,10 @@ SignalSomeChildren(int signal, uint32 targetMask)
 				bp->bkend_type = B_WAL_SENDER;
 
 			if ((targetMask & (1 << bp->bkend_type)) == 0)
+			{
+				elog(LOG, "not signalling slot %d: %d, mask %x", bp->child_slot, bp->bkend_type, targetMask);
 				continue;
+			}
 		}
 
 		ereport(DEBUG4,
@@ -3591,6 +3597,7 @@ CountChildren(uint32 targetMask)
 	dlist_iter	iter;
 	int			cnt = 0;
 
+	elog(LOG, "COUNTING with mask %x", targetMask);
 	dlist_foreach(iter, &ActiveChildList)
 	{
 		PMChild    *bp = dlist_container(PMChild, elem, iter.cur);
@@ -3610,11 +3617,16 @@ CountChildren(uint32 targetMask)
 				bp->bkend_type = B_WAL_SENDER;
 
 			if ((targetMask & (1 << bp->bkend_type)) == 0)
+			{
+				elog(LOG, "not counting slot %d with backend type %d", bp->child_slot, bp->bkend_type);
 				continue;
+			}
 		}
+		elog(LOG, "counting slot %d with type %d", bp->child_slot, bp->bkend_type);
 
 		cnt++;
 	}
+	elog(LOG, "COUNT %d", cnt);
 	return cnt;
 }
 
