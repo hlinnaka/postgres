@@ -281,6 +281,9 @@ GetBackendTypeDesc(BackendType backendType)
 		case B_BACKEND:
 			backendDesc = "client backend";
 			break;
+		case B_DEAD_END_BACKEND:
+			backendDesc = "dead-end client backend";
+			break;
 		case B_BG_WORKER:
 			backendDesc = "background worker";
 			break;

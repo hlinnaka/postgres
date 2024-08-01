@@ -337,6 +337,7 @@ typedef enum BackendType
 
 	/* Backends and other backend-like processes */
 	B_BACKEND,
+	B_DEAD_END_BACKEND,
 	B_AUTOVAC_LAUNCHER,
 	B_AUTOVAC_WORKER,
 	B_BG_WORKER,
