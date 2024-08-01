@@ -983,7 +983,7 @@ PostmasterMain(int argc, char *argv[])
 	SysLoggerPMChild = AssignPostmasterChildSlot(B_LOGGER);
 	if (!SysLoggerPMChild)
 		elog(ERROR, "no postmaster child slot available for syslogger");
-	SysLoggerPMChild->pid = SysLogger_Start();
+	SysLoggerPMChild->pid = SysLogger_Start(SysLoggerPMChild->child_slot);
 	if (SysLoggerPMChild->pid == 0)
 	{
 		FreePostmasterChildSlot(SysLoggerPMChild);
@@ -2414,7 +2414,7 @@ process_pm_child_exit(void)
 		if (SysLoggerPMChild && pid == SysLoggerPMChild->pid)
 		{
 			/* for safety's sake, launch new logger *first* */
-			SysLoggerPMChild->pid = SysLogger_Start();
+			SysLoggerPMChild->pid = SysLogger_Start(SysLoggerPMChild->child_slot);
 			if (SysLoggerPMChild->pid == 0)
 			{
 				FreePostmasterChildSlot(SysLoggerPMChild);
@@ -3039,7 +3039,7 @@ LaunchMissingBackgroundProcesses(void)
 			elog(LOG, "no postmaster child slot available for syslogger");
 		else
 		{
-			SysLoggerPMChild->pid = SysLogger_Start();
+			SysLoggerPMChild->pid = SysLogger_Start(SysLoggerPMChild->child_slot);
 			if (SysLoggerPMChild->pid == 0)
 			{
 				FreePostmasterChildSlot(SysLoggerPMChild);
@@ -3311,8 +3311,7 @@ BackendStartup(ClientSocket *client_sock)
 	/* Hasn't asked to be notified about any bgworkers yet */
 	bn->bgworker_notify = false;
 
-	MyPMChildSlot = bn->child_slot;
-	pid = postmaster_child_launch(bn->bkend_type,
+	pid = postmaster_child_launch(bn->bkend_type, bn->child_slot,
 								  (char *) &startup_data, sizeof(startup_data),
 								  client_sock);
 	if (pid < 0)
@@ -3636,8 +3635,7 @@ StartChildProcess(BackendType type)
 		return NULL;
 	}
 
-	MyPMChildSlot = pmchild->child_slot;
-	pid = postmaster_child_launch(type, NULL, 0, NULL);
+	pid = postmaster_child_launch(type, pmchild->child_slot, NULL, 0, NULL);
 	if (pid < 0)
 	{
 		/* in parent, fork failed */
@@ -3792,8 +3790,8 @@ do_start_bgworker(RegisteredBgWorker *rw)
 			(errmsg_internal("starting background worker process \"%s\"",
 							 rw->rw_worker.bgw_name)));
 
-	MyPMChildSlot = bn->child_slot;
-	worker_pid = postmaster_child_launch(B_BG_WORKER, (char *) &rw->rw_worker, sizeof(BackgroundWorker), NULL);
+	worker_pid = postmaster_child_launch(B_BG_WORKER, bn->child_slot,
+										 (char *) &rw->rw_worker, sizeof(BackgroundWorker), NULL);
 	if (worker_pid == -1)
 	{
 		/* in postmaster, fork failed ... */

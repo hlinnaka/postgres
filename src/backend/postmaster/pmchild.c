@@ -209,9 +209,6 @@ AssignPostmasterChildSlot(BackendType btype)
 
 	ReservePostmasterChildSlot(pmchild->child_slot);
 
-	/* FIXME: find a more elegant way to pass this */
-	MyPMChildSlot = pmchild->child_slot;
-
 	elog(DEBUG2, "assigned pm child slot %d for %s", pmchild->child_slot, PostmasterChildName(btype));
 
 	return pmchild;
