@@ -23,6 +23,7 @@ OBJS = \
 	launch_backend.o \
 	pgarch.o \
 	postmaster.o \
+	pmchild.o \
 	startup.o \
 	syslogger.o \
 	walsummarizer.o \
