@@ -1082,7 +1082,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 				  int elevel)
 {
 	dsm_hash_entry *entry;
-	bool		locked;
+	bool		locked = false;
 
 	if (IsUnderPostmaster)
 	{

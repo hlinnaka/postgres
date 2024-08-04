@@ -647,8 +647,8 @@ pgstat_initialize(void)
 long
 pgstat_report_stat(bool force)
 {
-	static TimestampTz pending_since = 0;
-	static TimestampTz last_flush = 0;
+	static session_local TimestampTz pending_since = 0;
+	static session_local TimestampTz last_flush = 0;
 	bool		partial_flush;
 	TimestampTz now;
 	bool		nowait;

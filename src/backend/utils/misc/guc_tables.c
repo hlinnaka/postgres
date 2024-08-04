@@ -818,9 +818,11 @@ DEFINE_BOOL_GUC_ADDR(remove_temp_files_after_crash)
 DEFINE_BOOL_GUC_ADDR(send_abort_for_crash)
 DEFINE_BOOL_GUC_ADDR(send_abort_for_kill)
 DEFINE_BOOL_GUC_ADDR(log_duration)
+#ifdef DEBUG_NODE_TESTS_ENABLED
 DEFINE_BOOL_GUC_ADDR(Debug_copy_parse_plan_trees)
 DEFINE_BOOL_GUC_ADDR(Debug_write_read_parse_plan_trees)
 DEFINE_BOOL_GUC_ADDR(Debug_raw_expression_coverage_test)
+#endif
 DEFINE_BOOL_GUC_ADDR(Debug_print_parse)
 DEFINE_BOOL_GUC_ADDR(Debug_print_rewritten)
 DEFINE_BOOL_GUC_ADDR(Debug_print_plan)
