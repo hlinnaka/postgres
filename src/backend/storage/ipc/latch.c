@@ -180,9 +180,9 @@ static void latch_sigurg_handler(SIGNAL_ARGS);
 static void sendSelfPipeByte(void);
 #endif
 
-#if defined(WAIT_USE_SELF_PIPE) || defined(WAIT_USE_SIGNALFD)
+static void sendPipeWakeupByte(int writefd);
+
 static void drain(void);
-#endif
 
 #if defined(WAIT_USE_EPOLL)
 static void WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action);
@@ -194,6 +194,20 @@ static void WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event);
 static void WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event);
 #endif
 
+/*
+ * Multithreaded implementation
+ *
+ * There's a pipe, similar to the self-pipe, for each pmchild slot. And element 0 for
+ * postmaster
+ */
+#define POSTMASTER_PMCHILD_SLOT		INT_MAX
+
+static global int *thread_wakeup_readfds;
+static global int *thread_wakeup_writefds;
+
+
+
+static void InitializeLatchSupportProcess(void);
 static inline int WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 										WaitEvent *occurred_events, int nevents);
 
@@ -230,6 +244,52 @@ ResourceOwnerForgetWaitEventSet(ResourceOwner owner, WaitEventSet *set)
  */
 void
 InitializeLatchSupport(void)
+{
+	int			n;
+
+	if (!IsMultiThreaded)
+	{
+		InitializeLatchSupportProcess();
+		return;
+	}
+
+	/* FIXME: this is called very early at startup, before GUCs are processed */
+	n = MaxLivePostmasterChildren();
+	//n = 300;
+	thread_wakeup_readfds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+	thread_wakeup_writefds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+	for (int i = 0; i < n + 1; i++)
+	{
+		int			pipefd[2];
+
+		/*
+		 * Set up the self-pipe that allows a signal handler to wake up the
+		 * poll()/epoll_wait() in WaitLatch. Make the write-end non-blocking, so
+		 * that SetLatch won't block if the event has already been set many times
+		 * filling the kernel buffer. Make the read-end non-blocking too, so that
+		 * we can easily clear the pipe by reading until EAGAIN or EWOULDBLOCK.
+		 * Also, make both FDs close-on-exec, since we surely do not want any
+		 * child processes messing with them.
+		 */
+		if (pipe(pipefd) < 0)
+			elog(FATAL, "pipe() failed: %m");
+		if (fcntl(pipefd[0], F_SETFL, O_NONBLOCK) == -1)
+			elog(FATAL, "fcntl(F_SETFL) failed on read-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[1], F_SETFL, O_NONBLOCK) == -1)
+			elog(FATAL, "fcntl(F_SETFL) failed on write-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[0], F_SETFD, FD_CLOEXEC) == -1)
+			elog(FATAL, "fcntl(F_SETFD) failed on read-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[1], F_SETFD, FD_CLOEXEC) == -1)
+			elog(FATAL, "fcntl(F_SETFD) failed on write-end of thread wakeup pipe: %m");
+
+		thread_wakeup_readfds[i] = pipefd[0];
+		thread_wakeup_writefds[i] = pipefd[1];
+	}
+}
+
+
+static void
+InitializeLatchSupportProcess(void)
 {
 #if defined(WAIT_USE_SELF_PIPE)
 	int			pipefd[2];
@@ -395,15 +455,19 @@ InitLatch(Latch *latch)
 {
 	latch->is_set = false;
 	latch->maybe_sleeping = false;
-	latch->owner_pid = MyProcPid;
+
+	if (IsMultiThreaded)
+		latch->owner.pmchild_slot = IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT;
+	else
+		latch->owner.pid = MyProcPid;
 	latch->is_shared = false;
 
 #if defined(WAIT_USE_SELF_PIPE)
 	/* Assert InitializeLatchSupport has been called in this process */
-	Assert(selfpipe_readfd >= 0 && selfpipe_owner_pid == MyProcPid);
+	Assert(IsMultiThreaded || (selfpipe_readfd >= 0 && selfpipe_owner_pid == MyProcPid));
 #elif defined(WAIT_USE_SIGNALFD)
 	/* Assert InitializeLatchSupport has been called in this process */
-	Assert(signal_fd >= 0);
+	Assert(IsMultiThreaded || signal_fd >= 0);
 #elif defined(WAIT_USE_WIN32)
 	latch->event = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (latch->event == NULL)
@@ -446,7 +510,10 @@ InitSharedLatch(Latch *latch)
 
 	latch->is_set = false;
 	latch->maybe_sleeping = false;
-	latch->owner_pid = 0;
+	if (IsMultiThreaded)
+		latch->owner.pmchild_slot = 0;
+	else
+		latch->owner.pid = 0;
 	latch->is_shared = true;
 }
 
@@ -462,24 +529,37 @@ InitSharedLatch(Latch *latch)
 void
 OwnLatch(Latch *latch)
 {
-	int			owner_pid;
-
 	/* Sanity checks */
 	Assert(latch->is_shared);
 
 #if defined(WAIT_USE_SELF_PIPE)
 	/* Assert InitializeLatchSupport has been called in this process */
-	Assert(selfpipe_readfd >= 0 && selfpipe_owner_pid == MyProcPid);
+	Assert(IsMultiThreaded || (selfpipe_readfd >= 0 && selfpipe_owner_pid == MyProcPid));
 #elif defined(WAIT_USE_SIGNALFD)
 	/* Assert InitializeLatchSupport has been called in this process */
-	Assert(signal_fd >= 0);
+	Assert(IsMultiThreaded || (signal_fd >= 0));
 #endif
 
-	owner_pid = latch->owner_pid;
-	if (owner_pid != 0)
-		elog(PANIC, "latch already owned by PID %d", owner_pid);
+	if (IsMultiThreaded)
+	{
+		int			owner_pmchild_slot;
 
-	latch->owner_pid = MyProcPid;
+		owner_pmchild_slot = latch->owner.pmchild_slot;
+		if (owner_pmchild_slot != 0)
+			elog(PANIC, "latch already owned by proc with slot %d", owner_pmchild_slot);
+
+		latch->owner.pmchild_slot = MyPMChildSlot;
+	}
+	else
+	{
+		int			owner_pid;
+
+		owner_pid = latch->owner.pid;
+		if (owner_pid != 0)
+			elog(PANIC, "latch already owned by PID %d", owner_pid);
+
+		latch->owner.pid = MyProcPid;
+	}
 }
 
 /*
@@ -489,9 +569,17 @@ void
 DisownLatch(Latch *latch)
 {
 	Assert(latch->is_shared);
-	Assert(latch->owner_pid == MyProcPid);
 
-	latch->owner_pid = 0;
+	if (IsMultiThreaded)
+	{
+		Assert(latch->owner.pmchild_slot == IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT);
+		latch->owner.pmchild_slot = 0;
+	}
+	else
+	{
+		Assert(latch->owner.pid == MyProcPid);
+		latch->owner.pid = 0;
+	}
 }
 
 /*
@@ -678,7 +766,22 @@ SetLatch(Latch *latch)
 	 * not the top, so that they'll correctly process latch-setting events
 	 * that happen before they enter the loop.
 	 */
-	owner_pid = latch->owner_pid;
+	if (IsMultiThreaded)
+	{
+		int			owner_pmchild = latch->owner.pmchild_slot;
+
+		if (owner_pmchild == 0)
+			return;
+		else if (owner_pmchild == (IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT))
+		{
+			if (waiting)
+				sendPipeWakeupByte(thread_wakeup_writefds[(owner_pmchild == POSTMASTER_PMCHILD_SLOT) ? 0 : owner_pmchild]);
+		}
+		else
+			sendPipeWakeupByte(thread_wakeup_writefds[(owner_pmchild == POSTMASTER_PMCHILD_SLOT) ? 0 : owner_pmchild]);
+	}
+
+	owner_pid = latch->owner.pid;
 	if (owner_pid == 0)
 		return;
 	else if (owner_pid == MyProcPid)
@@ -724,7 +827,10 @@ void
 ResetLatch(Latch *latch)
 {
 	/* Only the owner should reset the latch */
-	Assert(latch->owner_pid == MyProcPid);
+	if (IsMultiThreaded)
+		Assert(latch->owner.pmchild_slot == (IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT));
+	else
+		Assert(latch->owner.pid == MyProcPid);
 	Assert(latch->maybe_sleeping == false);
 
 	latch->is_set = false;
@@ -976,8 +1082,16 @@ AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd, Latch *latch,
 
 	if (latch)
 	{
-		if (latch->owner_pid != MyProcPid)
-			elog(ERROR, "cannot wait on a latch owned by another process");
+		if (IsMultiThreaded)
+		{
+			if (latch->owner.pmchild_slot != (IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT))
+				elog(ERROR, "cannot wait on a latch owned by another process");
+		}
+		else
+		{
+			if (latch->owner.pid != MyProcPid)
+				elog(ERROR, "cannot wait on a latch owned by another process");
+		}
 		if (set->latch)
 			elog(ERROR, "cannot wait on more than one latch");
 		if ((events & WL_LATCH_SET) != WL_LATCH_SET)
@@ -1006,16 +1120,22 @@ AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd, Latch *latch,
 	{
 		set->latch = latch;
 		set->latch_pos = event->pos;
+
+		if (IsMultiThreaded)
+			event->fd = thread_wakeup_readfds[IsUnderPostmaster ? MyPMChildSlot : 0];
+		else
+		{
 #if defined(WAIT_USE_SELF_PIPE)
-		event->fd = selfpipe_readfd;
+			event->fd = selfpipe_readfd;
 #elif defined(WAIT_USE_SIGNALFD)
-		event->fd = signal_fd;
+			event->fd = signal_fd;
 #else
-		event->fd = PGINVALID_SOCKET;
+			event->fd = PGINVALID_SOCKET;
 #ifdef WAIT_USE_EPOLL
-		return event->pos;
+			return event->pos;
 #endif
 #endif
+		}
 	}
 	else if (events == WL_POSTMASTER_DEATH)
 	{
@@ -1086,8 +1206,16 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 
 	if (events == WL_LATCH_SET)
 	{
-		if (latch && latch->owner_pid != MyProcPid)
-			elog(ERROR, "cannot wait on a latch owned by another process");
+		if (IsMultiThreaded)
+		{
+			if (latch->owner.pmchild_slot != (IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT))
+				elog(ERROR, "cannot wait on a latch owned by another process");
+		}
+		else
+		{
+			if (latch->owner.pid != MyProcPid)
+				elog(ERROR, "cannot wait on a latch owned by another process");
+		}
 		set->latch = latch;
 
 		/*
@@ -1610,7 +1738,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		if (cur_event->events == WL_LATCH_SET &&
 			cur_epoll_event->events & (EPOLLIN | EPOLLERR | EPOLLHUP))
 		{
-			/* Drain the signalfd. */
+			/* Drain the signalfd / thread wakup fd. */
 			drain();
 
 			if (set->latch && set->latch->is_set)
@@ -2282,11 +2410,20 @@ latch_sigurg_handler(SIGNAL_ARGS)
 static void
 sendSelfPipeByte(void)
 {
+	sendPipeWakeupByte(selfpipe_writefd);
+}
+
+#endif
+
+/* Send one byte to the self-pipe or a thread wakeup pipe, to wake up WaitLatch */
+static void
+sendPipeWakeupByte(int writefd)
+{
 	int			rc;
 	char		dummy = 0;
 
 retry:
-	rc = write(selfpipe_writefd, &dummy, 1);
+	rc = write(writefd, &dummy, 1);
 	if (rc < 0)
 	{
 		/* If interrupted by signal, just retry */
@@ -2309,10 +2446,6 @@ retry:
 	}
 }
 
-#endif
-
-#if defined(WAIT_USE_SELF_PIPE) || defined(WAIT_USE_SIGNALFD)
-
 /*
  * Read all available data from self-pipe or signalfd.
  *
@@ -2327,12 +2460,18 @@ drain(void)
 	int			rc;
 	int			fd;
 
+	if (IsMultiThreaded)
+		fd = thread_wakeup_readfds[IsUnderPostmaster ? MyPMChildSlot : 0];
+	else
+	{
 #ifdef WAIT_USE_SELF_PIPE
-	fd = selfpipe_readfd;
+		fd = selfpipe_readfd;
+#elif defined(WAIT_USE_SIGNALFD)
+		fd = signal_fd;
 #else
-	fd = signal_fd;
+		elog(PANIC, "drain() called unexpectedly");
 #endif
-
+	}
 	for (;;)
 	{
 		rc = read(fd, buf, sizeof(buf));
@@ -2369,8 +2508,6 @@ drain(void)
 		/* else buffer wasn't big enough, so read again */
 	}
 }
-
-#endif
 
 static void
 ResOwnerReleaseWaitEventSet(Datum res)
