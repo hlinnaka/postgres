@@ -278,7 +278,7 @@ pq_init(ClientSocket *client_sock)
 		elog(FATAL, "fcntl(F_SETFD) failed on socket: %m");
 #endif
 
-	FeBeWaitSet = CreateWaitEventSet(NULL, FeBeWaitSetNEvents);
+	FeBeWaitSet = CreateWaitEventSet(SessionResourceOwner, FeBeWaitSetNEvents);
 	socket_pos = AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE,
 								   port->sock, NULL, NULL);
 	latch_pos = AddWaitEventToSet(FeBeWaitSet, WL_LATCH_SET, PGINVALID_SOCKET,
@@ -362,6 +362,8 @@ socket_close(int code, Datum arg)
 		 * We do set sock to PGINVALID_SOCKET to prevent any further I/O,
 		 * though.
 		 */
+		if (IsMultiThreaded)
+			closesocket(MyProcPort->sock);
 		MyProcPort->sock = PGINVALID_SOCKET;
 	}
 }

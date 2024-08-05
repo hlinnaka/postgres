@@ -209,7 +209,7 @@ AssignPostmasterChildSlot(BackendType btype)
 
 	ReservePostmasterChildSlot(pmchild->child_slot);
 
-	elog(LOG, "assigned pm child slot %d for %s", pmchild->child_slot, PostmasterChildName(btype));
+	elog(DEBUG4, "assigned pm child slot %d for %s", pmchild->child_slot, PostmasterChildName(btype));
 
 	return pmchild;
 }
@@ -223,7 +223,7 @@ AssignPostmasterChildSlot(BackendType btype)
 bool
 FreePostmasterChildSlot(PMChild *pmchild)
 {
-	elog(LOG, "releasing pm child slot %d for %s", pmchild->child_slot, PostmasterChildName(pmchild->bkend_type));
+	elog(DEBUG4, "releasing pm child slot %d for %s", pmchild->child_slot, PostmasterChildName(pmchild->bkend_type));
 
 	dlist_delete(&pmchild->elem);
 	if (pmchild->bkend_type == B_DEAD_END_BACKEND)

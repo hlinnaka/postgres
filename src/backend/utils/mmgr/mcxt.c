@@ -334,7 +334,8 @@ BogusGetChunkSpace(void *pointer)
  * postmaster startup, and not at all by individual backend startup
  * (since the backends inherit an already-initialized context subsystem
  * by virtue of being forked off the postmaster).  But in an EXEC_BACKEND
- * build, each process must do this for itself.
+ * build, each process must do this for itself.  Also in a multi-threaded
+ * server.
  *
  * In a standalone backend this must be called during backend startup.
  */

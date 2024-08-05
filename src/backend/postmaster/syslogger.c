@@ -338,7 +338,7 @@ SysLoggerMain(char *startup_data, size_t startup_data_len)
 	 * syslog pipe, which implies that all other backends have exited
 	 * (including the postmaster).
 	 */
-	wes = CreateWaitEventSet(NULL, 2);
+	wes = CreateWaitEventSet(SessionResourceOwner, 2);
 	AddWaitEventToSet(wes, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
 #ifndef WIN32
 	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], NULL, NULL);
