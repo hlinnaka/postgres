@@ -298,6 +298,10 @@ init_ps_display(const char *fixed_part)
 	if (!IsUnderPostmaster)
 		return;
 
+	/* no ps display for multi-threaded environment */
+	if (IsMultiThreaded)
+		return;
+
 	/* no ps display if you didn't call save_ps_display_args() */
 	if (!save_argv)
 		return;
@@ -367,6 +371,10 @@ update_ps_display_precheck(void)
 
 	/* no ps display for stand-alone backend */
 	if (!IsUnderPostmaster)
+		return false;
+
+	/* no ps display for multi-threaded environment */
+	if (IsMultiThreaded)
 		return false;
 
 #ifdef PS_USE_CLOBBER_ARGV
