@@ -167,6 +167,8 @@ ResourceOwner session_local CurTransactionResourceOwner = NULL;
 ResourceOwner session_local TopTransactionResourceOwner = NULL;
 ResourceOwner session_local AuxProcessResourceOwner = NULL;
 
+ResourceOwner session_local SessionResourceOwner = NULL;
+
 /* #define RESOWNER_STATS */
 
 #ifdef RESOWNER_STATS
@@ -401,6 +403,39 @@ ResourceOwnerReleaseAll(ResourceOwner owner, ResourceReleasePhase phase,
  *	  EXPORTED ROUTINES														 *
  *****************************************************************************/
 
+/*
+ * on_proc_exit hook
+ */
+static void
+DeleteSessionResourceOwner(int code, Datum arg)
+{
+	/*
+	 * XXX: pass isCommit==false. That's unusual in that this is normal
+	 * resource cleanup at end of session.  Before this, isCommit==false was
+	 * only used at transaction abort.
+	 */
+	ResourceOwnerRelease(SessionResourceOwner,
+						 RESOURCE_RELEASE_BEFORE_LOCKS,
+						 false, true);
+	ResourceOwnerRelease(SessionResourceOwner,
+						 RESOURCE_RELEASE_LOCKS,
+						 false, true);
+	ResourceOwnerRelease(SessionResourceOwner,
+						 RESOURCE_RELEASE_AFTER_LOCKS,
+						 false, true);
+	ResourceOwnerDelete(SessionResourceOwner);
+	SessionResourceOwner = NULL;
+}
+
+void
+InitResourceOwnerAccess(void)
+{
+	Assert(SessionResourceOwner == NULL);
+	SessionResourceOwner = ResourceOwnerCreate(NULL, "Session");
+
+	/* register the shutdown proc */
+	on_proc_exit(DeleteSessionResourceOwner, 0);
+}
 
 /*
  * ResourceOwnerCreate
