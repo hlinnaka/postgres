@@ -98,36 +98,39 @@ static void PrintLockQueue(LOCK *lock, const char *info);
 /*
  * Working space for the deadlock detector
  */
+typedef struct
+{
+	/* Workspace for FindLockCycle */
+	PGPROC	  **visitedProcs;	/* Array of visited procs */
+	int			nVisitedProcs;
 
-/* Workspace for FindLockCycle */
-static PGPROC **visitedProcs;	/* Array of visited procs */
-static int	nVisitedProcs;
+	/* Workspace for TopoSort */
+	PGPROC	  **topoProcs;		/* Array of not-yet-output procs */
+	int		   *beforeConstraints;	/* Counts of remaining before-constraints */
+	int		   *afterConstraints;	/* List head for after-constraints */
 
-/* Workspace for TopoSort */
-static PGPROC **topoProcs;		/* Array of not-yet-output procs */
-static int *beforeConstraints;	/* Counts of remaining before-constraints */
-static int *afterConstraints;	/* List head for after-constraints */
+	/* Output area for ExpandConstraints */
+	WAIT_ORDER *waitOrders;		/* Array of proposed queue rearrangements */
+	int			nWaitOrders;
+	PGPROC	  **waitOrderProcs; /* Space for waitOrders queue contents */
 
-/* Output area for ExpandConstraints */
-static WAIT_ORDER *waitOrders;	/* Array of proposed queue rearrangements */
-static int	nWaitOrders;
-static PGPROC **waitOrderProcs; /* Space for waitOrders queue contents */
+	/* Current list of constraints being considered */
+	EDGE	   *curConstraints;
+	int			nCurConstraints;
+	int			maxCurConstraints;
 
-/* Current list of constraints being considered */
-static EDGE *curConstraints;
-static int	nCurConstraints;
-static int	maxCurConstraints;
+	/* Storage space for results from FindLockCycle */
+	EDGE	   *possibleConstraints;
+	int			nPossibleConstraints;
+	int			maxPossibleConstraints;
+	DEADLOCK_INFO *deadlockDetails;
+	int			nDeadlockDetails;
 
-/* Storage space for results from FindLockCycle */
-static EDGE *possibleConstraints;
-static int	nPossibleConstraints;
-static int	maxPossibleConstraints;
-static DEADLOCK_INFO *deadlockDetails;
-static int	nDeadlockDetails;
+	/* PGPROC pointer of any blocking autovacuum worker found */
+	PGPROC	   *blocking_autovacuum_proc;
+}			Workspace;
 
-/* PGPROC pointer of any blocking autovacuum worker found */
-static PGPROC *blocking_autovacuum_proc = NULL;
-
+static Workspace * workspace;
 
 /*
  * InitDeadLockChecking -- initialize deadlock checker during backend startup
@@ -144,24 +147,28 @@ void
 InitDeadLockChecking(void)
 {
 	MemoryContext oldcxt;
+	Workspace  *ws;
 
 	/* Make sure allocations are permanent */
 	oldcxt = MemoryContextSwitchTo(TopMemoryContext);
+
+	workspace = palloc(sizeof(Workspace));
+	ws = workspace;
 
 	/*
 	 * FindLockCycle needs at most MaxBackends entries in visitedProcs[] and
 	 * deadlockDetails[].
 	 */
-	visitedProcs = (PGPROC **) palloc(MaxBackends * sizeof(PGPROC *));
-	deadlockDetails = (DEADLOCK_INFO *) palloc(MaxBackends * sizeof(DEADLOCK_INFO));
+	ws->visitedProcs = (PGPROC **) palloc(MaxBackends * sizeof(PGPROC *));
+	ws->deadlockDetails = (DEADLOCK_INFO *) palloc(MaxBackends * sizeof(DEADLOCK_INFO));
 
 	/*
 	 * TopoSort needs to consider at most MaxBackends wait-queue entries, and
 	 * it needn't run concurrently with FindLockCycle.
 	 */
-	topoProcs = visitedProcs;	/* re-use this space */
-	beforeConstraints = (int *) palloc(MaxBackends * sizeof(int));
-	afterConstraints = (int *) palloc(MaxBackends * sizeof(int));
+	ws->topoProcs = ws->visitedProcs;	/* re-use this space */
+	ws->beforeConstraints = (int *) palloc(MaxBackends * sizeof(int));
+	ws->afterConstraints = (int *) palloc(MaxBackends * sizeof(int));
 
 	/*
 	 * We need to consider rearranging at most MaxBackends/2 wait queues
@@ -169,9 +176,8 @@ InitDeadLockChecking(void)
 	 * and the expanded form of the wait queues can't involve more than
 	 * MaxBackends total waiters.
 	 */
-	waitOrders = (WAIT_ORDER *)
-		palloc((MaxBackends / 2) * sizeof(WAIT_ORDER));
-	waitOrderProcs = (PGPROC **) palloc(MaxBackends * sizeof(PGPROC *));
+	ws->waitOrders = (WAIT_ORDER *) palloc((MaxBackends / 2) * sizeof(WAIT_ORDER));
+	ws->waitOrderProcs = (PGPROC **) palloc(MaxBackends * sizeof(PGPROC *));
 
 	/*
 	 * Allow at most MaxBackends distinct constraints in a configuration. (Is
@@ -181,8 +187,8 @@ InitDeadLockChecking(void)
 	 * limits the maximum recursion depth of DeadLockCheckRecurse. Making it
 	 * really big might potentially allow a stack-overflow problem.
 	 */
-	maxCurConstraints = MaxBackends;
-	curConstraints = (EDGE *) palloc(maxCurConstraints * sizeof(EDGE));
+	ws->maxCurConstraints = MaxBackends;
+	ws->curConstraints = (EDGE *) palloc(ws->maxCurConstraints * sizeof(EDGE));
 
 	/*
 	 * Allow up to 3*MaxBackends constraints to be saved without having to
@@ -194,9 +200,9 @@ InitDeadLockChecking(void)
 	 */
 	StaticAssertStmt(MAX_BACKENDS_BITS <= (32 - 3),
 					 "MAX_BACKENDS_BITS too big for * 4");
-	maxPossibleConstraints = MaxBackends * 4;
-	possibleConstraints =
-		(EDGE *) palloc(maxPossibleConstraints * sizeof(EDGE));
+	ws->maxPossibleConstraints = MaxBackends * 4;
+	ws->possibleConstraints =
+		(EDGE *) palloc(ws->maxPossibleConstraints * sizeof(EDGE));
 
 	MemoryContextSwitchTo(oldcxt);
 }
@@ -219,13 +225,15 @@ InitDeadLockChecking(void)
 DeadLockState
 DeadLockCheck(PGPROC *proc)
 {
+	Workspace  *ws = workspace;
+
 	/* Initialize to "no constraints" */
-	nCurConstraints = 0;
-	nPossibleConstraints = 0;
-	nWaitOrders = 0;
+	ws->nCurConstraints = 0;
+	ws->nPossibleConstraints = 0;
+	ws->nWaitOrders = 0;
 
 	/* Initialize to not blocked by an autovacuum worker */
-	blocking_autovacuum_proc = NULL;
+	ws->blocking_autovacuum_proc = NULL;
 
 	/* Search for deadlocks and possible fixes */
 	if (DeadLockCheckRecurse(proc))
@@ -238,19 +246,19 @@ DeadLockCheck(PGPROC *proc)
 
 		TRACE_POSTGRESQL_DEADLOCK_FOUND();
 
-		nWaitOrders = 0;
-		if (!FindLockCycle(proc, possibleConstraints, &nSoftEdges))
+		ws->nWaitOrders = 0;
+		if (!FindLockCycle(proc, ws->possibleConstraints, &nSoftEdges))
 			elog(FATAL, "deadlock seems to have disappeared");
 
 		return DS_HARD_DEADLOCK;	/* cannot find a non-deadlocked state */
 	}
 
 	/* Apply any needed rearrangements of wait queues */
-	for (int i = 0; i < nWaitOrders; i++)
+	for (int i = 0; i < ws->nWaitOrders; i++)
 	{
-		LOCK	   *lock = waitOrders[i].lock;
-		PGPROC	  **procs = waitOrders[i].procs;
-		int			nProcs = waitOrders[i].nProcs;
+		LOCK	   *lock = ws->waitOrders[i].lock;
+		PGPROC	  **procs = ws->waitOrders[i].procs;
+		int			nProcs = ws->waitOrders[i].nProcs;
 		dclist_head *waitQueue = &lock->waitProcs;
 
 		Assert(nProcs == dclist_count(waitQueue));
@@ -273,9 +281,9 @@ DeadLockCheck(PGPROC *proc)
 	}
 
 	/* Return code tells caller if we had to escape a deadlock or not */
-	if (nWaitOrders > 0)
+	if (ws->nWaitOrders > 0)
 		return DS_SOFT_DEADLOCK;
-	else if (blocking_autovacuum_proc != NULL)
+	else if (ws->blocking_autovacuum_proc != NULL)
 		return DS_BLOCKED_BY_AUTOVACUUM;
 	else
 		return DS_NO_DEADLOCK;
@@ -289,10 +297,11 @@ DeadLockCheck(PGPROC *proc)
 PGPROC *
 GetBlockingAutoVacuumPgproc(void)
 {
+	Workspace  *ws = workspace;
 	PGPROC	   *ptr;
 
-	ptr = blocking_autovacuum_proc;
-	blocking_autovacuum_proc = NULL;
+	ptr = ws->blocking_autovacuum_proc;
+	ws->blocking_autovacuum_proc = NULL;
 
 	return ptr;
 }
@@ -311,6 +320,7 @@ GetBlockingAutoVacuumPgproc(void)
 static bool
 DeadLockCheckRecurse(PGPROC *proc)
 {
+	Workspace  *ws = workspace;
 	int			nEdges;
 	int			oldPossibleConstraints;
 	bool		savedList;
@@ -321,13 +331,13 @@ DeadLockCheckRecurse(PGPROC *proc)
 		return true;			/* hard deadlock --- no solution */
 	if (nEdges == 0)
 		return false;			/* good configuration found */
-	if (nCurConstraints >= maxCurConstraints)
+	if (ws->nCurConstraints >= ws->maxCurConstraints)
 		return true;			/* out of room for active constraints? */
-	oldPossibleConstraints = nPossibleConstraints;
-	if (nPossibleConstraints + nEdges + MaxBackends <= maxPossibleConstraints)
+	oldPossibleConstraints = ws->nPossibleConstraints;
+	if (ws->nPossibleConstraints + nEdges + MaxBackends <= ws->maxPossibleConstraints)
 	{
 		/* We can save the edge list in possibleConstraints[] */
-		nPossibleConstraints += nEdges;
+		ws->nPossibleConstraints += nEdges;
 		savedList = true;
 	}
 	else
@@ -347,15 +357,15 @@ DeadLockCheckRecurse(PGPROC *proc)
 			if (nEdges != TestConfiguration(proc))
 				elog(FATAL, "inconsistent results during deadlock check");
 		}
-		curConstraints[nCurConstraints] =
-			possibleConstraints[oldPossibleConstraints + i];
-		nCurConstraints++;
+		ws->curConstraints[ws->nCurConstraints] =
+			ws->possibleConstraints[oldPossibleConstraints + i];
+		ws->nCurConstraints++;
 		if (!DeadLockCheckRecurse(proc))
 			return false;		/* found a valid solution! */
 		/* give up on that added constraint, try again */
-		nCurConstraints--;
+		ws->nCurConstraints--;
 	}
-	nPossibleConstraints = oldPossibleConstraints;
+	ws->nPossibleConstraints = oldPossibleConstraints;
 	return true;				/* no solution found */
 }
 
@@ -377,22 +387,23 @@ DeadLockCheckRecurse(PGPROC *proc)
 static int
 TestConfiguration(PGPROC *startProc)
 {
+	Workspace  *ws = workspace;
 	int			softFound = 0;
-	EDGE	   *softEdges = possibleConstraints + nPossibleConstraints;
+	EDGE	   *softEdges = ws->possibleConstraints + ws->nPossibleConstraints;
 	int			nSoftEdges;
 	int			i;
 
 	/*
 	 * Make sure we have room for FindLockCycle's output.
 	 */
-	if (nPossibleConstraints + MaxBackends > maxPossibleConstraints)
+	if (ws->nPossibleConstraints + MaxBackends > ws->maxPossibleConstraints)
 		return -1;
 
 	/*
 	 * Expand current constraint set into wait orderings.  Fail if the
 	 * constraint set is not self-consistent.
 	 */
-	if (!ExpandConstraints(curConstraints, nCurConstraints))
+	if (!ExpandConstraints(ws->curConstraints, ws->nCurConstraints))
 		return -1;
 
 	/*
@@ -400,15 +411,15 @@ TestConfiguration(PGPROC *startProc)
 	 * constraints.  We check startProc last because if it has a soft cycle
 	 * still to be dealt with, we want to deal with that first.
 	 */
-	for (i = 0; i < nCurConstraints; i++)
+	for (i = 0; i < ws->nCurConstraints; i++)
 	{
-		if (FindLockCycle(curConstraints[i].waiter, softEdges, &nSoftEdges))
+		if (FindLockCycle(ws->curConstraints[i].waiter, softEdges, &nSoftEdges))
 		{
 			if (nSoftEdges == 0)
 				return -1;		/* hard deadlock detected */
 			softFound = nSoftEdges;
 		}
-		if (FindLockCycle(curConstraints[i].blocker, softEdges, &nSoftEdges))
+		if (FindLockCycle(ws->curConstraints[i].blocker, softEdges, &nSoftEdges))
 		{
 			if (nSoftEdges == 0)
 				return -1;		/* hard deadlock detected */
@@ -447,8 +458,10 @@ FindLockCycle(PGPROC *checkProc,
 			  EDGE *softEdges,	/* output argument */
 			  int *nSoftEdges)	/* output argument */
 {
-	nVisitedProcs = 0;
-	nDeadlockDetails = 0;
+	Workspace  *ws = workspace;
+
+	ws->nVisitedProcs = 0;
+	ws->nDeadlockDetails = 0;
 	*nSoftEdges = 0;
 	return FindLockCycleRecurse(checkProc, 0, softEdges, nSoftEdges);
 }
@@ -459,6 +472,7 @@ FindLockCycleRecurse(PGPROC *checkProc,
 					 EDGE *softEdges,	/* output argument */
 					 int *nSoftEdges)	/* output argument */
 {
+	Workspace  *ws = workspace;
 	int			i;
 	dlist_iter	iter;
 
@@ -472,9 +486,9 @@ FindLockCycleRecurse(PGPROC *checkProc,
 	/*
 	 * Have we already seen this proc?
 	 */
-	for (i = 0; i < nVisitedProcs; i++)
+	for (i = 0; i < ws->nVisitedProcs; i++)
 	{
-		if (visitedProcs[i] == checkProc)
+		if (ws->visitedProcs[i] == checkProc)
 		{
 			/* If we return to starting point, we have a deadlock cycle */
 			if (i == 0)
@@ -484,7 +498,7 @@ FindLockCycleRecurse(PGPROC *checkProc,
 				 * deadlockDetails[]
 				 */
 				Assert(depth <= MaxBackends);
-				nDeadlockDetails = depth;
+				ws->nDeadlockDetails = depth;
 
 				return true;
 			}
@@ -497,8 +511,8 @@ FindLockCycleRecurse(PGPROC *checkProc,
 		}
 	}
 	/* Mark proc as seen */
-	Assert(nVisitedProcs < MaxBackends);
-	visitedProcs[nVisitedProcs++] = checkProc;
+	Assert(ws->nVisitedProcs < MaxBackends);
+	ws->visitedProcs[ws->nVisitedProcs++] = checkProc;
 
 	/*
 	 * If the process is waiting, there is an outgoing waits-for edge to each
@@ -539,6 +553,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 						   EDGE *softEdges, /* output argument */
 						   int *nSoftEdges) /* output argument */
 {
+	Workspace  *ws = workspace;
 	PGPROC	   *proc;
 	LOCK	   *lock = checkProc->waitLock;
 	dlist_iter	proclock_iter;
@@ -585,7 +600,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 											 softEdges, nSoftEdges))
 					{
 						/* fill deadlockDetails[] */
-						DEADLOCK_INFO *info = &deadlockDetails[depth];
+						DEADLOCK_INFO *info = &ws->deadlockDetails[depth];
 
 						info->locktag = lock->tag;
 						info->lockmode = checkProc->waitLockMode;
@@ -618,7 +633,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 					 */
 					if (checkProc == MyProc &&
 						proc->statusFlags & PROC_IS_AUTOVACUUM)
-						blocking_autovacuum_proc = proc;
+						ws->blocking_autovacuum_proc = proc;
 
 					/* We're done looking at this proclock */
 					break;
@@ -636,17 +651,17 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 	 * If there is a proposed re-ordering of the lock's wait order, use that
 	 * rather than the current wait order.
 	 */
-	for (i = 0; i < nWaitOrders; i++)
+	for (i = 0; i < ws->nWaitOrders; i++)
 	{
-		if (waitOrders[i].lock == lock)
+		if (ws->waitOrders[i].lock == lock)
 			break;
 	}
 
-	if (i < nWaitOrders)
+	if (i < ws->nWaitOrders)
 	{
 		/* Use the given hypothetical wait queue order */
-		PGPROC	  **procs = waitOrders[i].procs;
-		int			queue_size = waitOrders[i].nProcs;
+		PGPROC	  **procs = ws->waitOrders[i].procs;
+		int			queue_size = ws->waitOrders[i].nProcs;
 
 		for (i = 0; i < queue_size; i++)
 		{
@@ -674,7 +689,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 										 softEdges, nSoftEdges))
 				{
 					/* fill deadlockDetails[] */
-					DEADLOCK_INFO *info = &deadlockDetails[depth];
+					DEADLOCK_INFO *info = &ws->deadlockDetails[depth];
 
 					info->locktag = lock->tag;
 					info->lockmode = checkProc->waitLockMode;
@@ -748,7 +763,7 @@ FindLockCycleRecurseMember(PGPROC *checkProc,
 										 softEdges, nSoftEdges))
 				{
 					/* fill deadlockDetails[] */
-					DEADLOCK_INFO *info = &deadlockDetails[depth];
+					DEADLOCK_INFO *info = &ws->deadlockDetails[depth];
 
 					info->locktag = lock->tag;
 					info->lockmode = checkProc->waitLockMode;
@@ -790,11 +805,12 @@ static bool
 ExpandConstraints(EDGE *constraints,
 				  int nConstraints)
 {
+	Workspace  *ws = workspace;
 	int			nWaitOrderProcs = 0;
 	int			i,
 				j;
 
-	nWaitOrders = 0;
+	ws->nWaitOrders = 0;
 
 	/*
 	 * Scan constraint list backwards.  This is because the last-added
@@ -806,17 +822,17 @@ ExpandConstraints(EDGE *constraints,
 		LOCK	   *lock = constraints[i].lock;
 
 		/* Did we already make a list for this lock? */
-		for (j = nWaitOrders; --j >= 0;)
+		for (j = ws->nWaitOrders; --j >= 0;)
 		{
-			if (waitOrders[j].lock == lock)
+			if (ws->waitOrders[j].lock == lock)
 				break;
 		}
 		if (j >= 0)
 			continue;
 		/* No, so allocate a new list */
-		waitOrders[nWaitOrders].lock = lock;
-		waitOrders[nWaitOrders].procs = waitOrderProcs + nWaitOrderProcs;
-		waitOrders[nWaitOrders].nProcs = dclist_count(&lock->waitProcs);
+		ws->waitOrders[ws->nWaitOrders].lock = lock;
+		ws->waitOrders[ws->nWaitOrders].procs = ws->waitOrderProcs + nWaitOrderProcs;
+		ws->waitOrders[ws->nWaitOrders].nProcs = dclist_count(&lock->waitProcs);
 		nWaitOrderProcs += dclist_count(&lock->waitProcs);
 		Assert(nWaitOrderProcs <= MaxBackends);
 
@@ -825,9 +841,9 @@ ExpandConstraints(EDGE *constraints,
 		 * one, since they must be for different locks.
 		 */
 		if (!TopoSort(lock, constraints, i + 1,
-					  waitOrders[nWaitOrders].procs))
+					  ws->waitOrders[ws->nWaitOrders].procs))
 			return false;
-		nWaitOrders++;
+		ws->nWaitOrders++;
 	}
 	return true;
 }
@@ -864,6 +880,7 @@ TopoSort(LOCK *lock,
 		 int nConstraints,
 		 PGPROC **ordering)		/* output argument */
 {
+	Workspace  *ws = workspace;
 	dclist_head *waitQueue = &lock->waitProcs;
 	int			queue_size = dclist_count(waitQueue);
 	PGPROC	   *proc;
@@ -880,7 +897,7 @@ TopoSort(LOCK *lock,
 	dclist_foreach(proc_iter, waitQueue)
 	{
 		proc = dlist_container(PGPROC, links, proc_iter.cur);
-		topoProcs[i++] = proc;
+		ws->topoProcs[i++] = proc;
 	}
 	Assert(i == queue_size);
 
@@ -904,8 +921,8 @@ TopoSort(LOCK *lock,
 	 * present.  If so, the constraint is relevant to this wait queue; if not,
 	 * it isn't.
 	 */
-	MemSet(beforeConstraints, 0, queue_size * sizeof(int));
-	MemSet(afterConstraints, 0, queue_size * sizeof(int));
+	MemSet(ws->beforeConstraints, 0, queue_size * sizeof(int));
+	MemSet(ws->afterConstraints, 0, queue_size * sizeof(int));
 	for (i = 0; i < nConstraints; i++)
 	{
 		/*
@@ -927,7 +944,7 @@ TopoSort(LOCK *lock,
 		jj = -1;
 		for (j = queue_size; --j >= 0;)
 		{
-			PGPROC	   *waiter = topoProcs[j];
+			PGPROC	   *waiter = ws->topoProcs[j];
 
 			if (waiter == proc || waiter->lockGroupLeader == proc)
 			{
@@ -936,8 +953,8 @@ TopoSort(LOCK *lock,
 					jj = j;
 				else
 				{
-					Assert(beforeConstraints[j] <= 0);
-					beforeConstraints[j] = -1;
+					Assert(ws->beforeConstraints[j] <= 0);
+					ws->beforeConstraints[j] = -1;
 				}
 			}
 		}
@@ -956,7 +973,7 @@ TopoSort(LOCK *lock,
 		kk = -1;
 		for (k = queue_size; --k >= 0;)
 		{
-			PGPROC	   *blocker = topoProcs[k];
+			PGPROC	   *blocker = ws->topoProcs[k];
 
 			if (blocker == proc || blocker->lockGroupLeader == proc)
 			{
@@ -965,8 +982,8 @@ TopoSort(LOCK *lock,
 					kk = k;
 				else
 				{
-					Assert(beforeConstraints[k] <= 0);
-					beforeConstraints[k] = -1;
+					Assert(ws->beforeConstraints[k] <= 0);
+					ws->beforeConstraints[k] = -1;
 				}
 			}
 		}
@@ -975,12 +992,12 @@ TopoSort(LOCK *lock,
 		if (kk < 0)
 			continue;
 
-		Assert(beforeConstraints[jj] >= 0);
-		beforeConstraints[jj]++;	/* waiter must come before */
+		Assert(ws->beforeConstraints[jj] >= 0);
+		ws->beforeConstraints[jj]++;	/* waiter must come before */
 		/* add this constraint to list of after-constraints for blocker */
 		constraints[i].pred = jj;
-		constraints[i].link = afterConstraints[kk];
-		afterConstraints[kk] = i + 1;
+		constraints[i].link = ws->afterConstraints[kk];
+		ws->afterConstraints[kk] = i + 1;
 	}
 
 	/*--------------------
@@ -1001,11 +1018,11 @@ TopoSort(LOCK *lock,
 		int			nmatches = 0;
 
 		/* Find next candidate to output */
-		while (topoProcs[last] == NULL)
+		while (ws->topoProcs[last] == NULL)
 			last--;
 		for (j = last; j >= 0; j--)
 		{
-			if (topoProcs[j] != NULL && beforeConstraints[j] == 0)
+			if (ws->topoProcs[j] != NULL && ws->beforeConstraints[j] == 0)
 				break;
 		}
 
@@ -1022,17 +1039,17 @@ TopoSort(LOCK *lock,
 		 * with at most one of them and is thus isomorphic to an ordering
 		 * where the group members are consecutive.
 		 */
-		proc = topoProcs[j];
+		proc = ws->topoProcs[j];
 		if (proc->lockGroupLeader != NULL)
 			proc = proc->lockGroupLeader;
 		Assert(proc != NULL);
 		for (c = 0; c <= last; ++c)
 		{
-			if (topoProcs[c] == proc || (topoProcs[c] != NULL &&
-										 topoProcs[c]->lockGroupLeader == proc))
+			if (ws->topoProcs[c] == proc || (ws->topoProcs[c] != NULL &&
+											 ws->topoProcs[c]->lockGroupLeader == proc))
 			{
-				ordering[i - nmatches] = topoProcs[c];
-				topoProcs[c] = NULL;
+				ordering[i - nmatches] = ws->topoProcs[c];
+				ws->topoProcs[c] = NULL;
 				++nmatches;
 			}
 		}
@@ -1040,8 +1057,8 @@ TopoSort(LOCK *lock,
 		i -= nmatches;
 
 		/* Update beforeConstraints counts of its predecessors */
-		for (k = afterConstraints[j]; k > 0; k = constraints[k - 1].link)
-			beforeConstraints[constraints[k - 1].pred]--;
+		for (k = ws->afterConstraints[j]; k > 0; k = constraints[k - 1].link)
+			ws->beforeConstraints[constraints[k - 1].pred]--;
 	}
 
 	/* Done */
@@ -1074,6 +1091,7 @@ PrintLockQueue(LOCK *lock, const char *info)
 void
 DeadLockReport(void)
 {
+	Workspace  *ws = workspace;
 	StringInfoData clientbuf;	/* errdetail for client */
 	StringInfoData logbuf;		/* errdetail for server log */
 	StringInfoData locktagbuf;
@@ -1084,16 +1102,16 @@ DeadLockReport(void)
 	initStringInfo(&locktagbuf);
 
 	/* Generate the "waits for" lines sent to the client */
-	for (i = 0; i < nDeadlockDetails; i++)
+	for (i = 0; i < ws->nDeadlockDetails; i++)
 	{
-		DEADLOCK_INFO *info = &deadlockDetails[i];
+		DEADLOCK_INFO *info = &ws->deadlockDetails[i];
 		int			nextpid;
 
 		/* The last proc waits for the first one... */
-		if (i < nDeadlockDetails - 1)
+		if (i < ws->nDeadlockDetails - 1)
 			nextpid = info[1].pid;
 		else
-			nextpid = deadlockDetails[0].pid;
+			nextpid = ws->deadlockDetails[0].pid;
 
 		/* reset locktagbuf to hold next object description */
 		resetStringInfo(&locktagbuf);
@@ -1116,9 +1134,9 @@ DeadLockReport(void)
 	appendBinaryStringInfo(&logbuf, clientbuf.data, clientbuf.len);
 
 	/* ... and add info about query strings */
-	for (i = 0; i < nDeadlockDetails; i++)
+	for (i = 0; i < ws->nDeadlockDetails; i++)
 	{
-		DEADLOCK_INFO *info = &deadlockDetails[i];
+		DEADLOCK_INFO *info = &ws->deadlockDetails[i];
 
 		appendStringInfoChar(&logbuf, '\n');
 
@@ -1149,7 +1167,8 @@ RememberSimpleDeadLock(PGPROC *proc1,
 					   LOCK *lock,
 					   PGPROC *proc2)
 {
-	DEADLOCK_INFO *info = &deadlockDetails[0];
+	Workspace  *ws = workspace;
+	DEADLOCK_INFO *info = &ws->deadlockDetails[0];
 
 	info->locktag = lock->tag;
 	info->lockmode = lockmode;
@@ -1158,5 +1177,5 @@ RememberSimpleDeadLock(PGPROC *proc1,
 	info->locktag = proc2->waitLock->tag;
 	info->lockmode = proc2->waitLockMode;
 	info->pid = proc2->pid;
-	nDeadlockDetails = 2;
+	ws->nDeadlockDetails = 2;
 }
