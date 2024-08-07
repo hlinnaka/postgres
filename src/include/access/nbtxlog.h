@@ -354,8 +354,6 @@ typedef struct xl_btree_newroot
  * prototypes for functions in nbtxlog.c
  */
 extern void btree_redo(XLogReaderState *record);
-extern void btree_xlog_startup(void);
-extern void btree_xlog_cleanup(void);
 extern void btree_mask(char *pagedata, BlockNumber blkno);
 
 /*

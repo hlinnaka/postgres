@@ -22,8 +22,6 @@
 #include "storage/standby.h"
 #include "utils/memutils.h"
 
-static MemoryContext opCtx;		/* working memory for operations */
-
 /*
  * _bt_restore_page -- re-enter all the index tuples on a page
  *
@@ -1004,9 +1002,7 @@ void
 btree_redo(XLogReaderState *record)
 {
 	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-	MemoryContext oldCtx;
 
-	oldCtx = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
 		case XLOG_BTREE_INSERT_LEAF:
@@ -1055,23 +1051,6 @@ btree_redo(XLogReaderState *record)
 		default:
 			elog(PANIC, "btree_redo: unknown op code %u", info);
 	}
-	MemoryContextSwitchTo(oldCtx);
-	MemoryContextReset(opCtx);
-}
-
-void
-btree_xlog_startup(void)
-{
-	opCtx = AllocSetContextCreate(CurrentMemoryContext,
-								  "Btree recovery temporary context",
-								  ALLOCSET_DEFAULT_SIZES);
-}
-
-void
-btree_xlog_cleanup(void)
-{
-	MemoryContextDelete(opCtx);
-	opCtx = NULL;
 }
 
 /*

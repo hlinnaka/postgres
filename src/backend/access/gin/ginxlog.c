@@ -19,8 +19,6 @@
 #include "access/xlogutils.h"
 #include "utils/memutils.h"
 
-static MemoryContext opCtx;		/* working memory for operations */
-
 static void
 ginRedoClearIncompleteSplit(XLogReaderState *record, uint8 block_id)
 {
@@ -724,7 +722,6 @@ void
 gin_redo(XLogReaderState *record)
 {
 	uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
-	MemoryContext oldCtx;
 
 	/*
 	 * GIN indexes do not require any conflict processing. NB: If we ever
@@ -732,7 +729,6 @@ gin_redo(XLogReaderState *record)
 	 * killed tuples outside VACUUM, we'll need to handle that here.
 	 */
 
-	oldCtx = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
 		case XLOG_GIN_CREATE_PTREE:
@@ -765,23 +761,6 @@ gin_redo(XLogReaderState *record)
 		default:
 			elog(PANIC, "gin_redo: unknown op code %u", info);
 	}
-	MemoryContextSwitchTo(oldCtx);
-	MemoryContextReset(opCtx);
-}
-
-void
-gin_xlog_startup(void)
-{
-	opCtx = AllocSetContextCreate(CurrentMemoryContext,
-								  "GIN recovery temporary context",
-								  ALLOCSET_DEFAULT_SIZES);
-}
-
-void
-gin_xlog_cleanup(void)
-{
-	MemoryContextDelete(opCtx);
-	opCtx = NULL;
 }
 
 /*
