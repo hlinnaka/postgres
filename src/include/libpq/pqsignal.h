@@ -13,8 +13,6 @@
 #ifndef PQSIGNAL_H
 #define PQSIGNAL_H
 
-#include "postgres.h"
-
 #include <signal.h>
 
 #ifdef WIN32

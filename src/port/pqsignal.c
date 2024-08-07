@@ -51,6 +51,7 @@
 #endif
 
 #ifndef FRONTEND
+#include "postgres.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #endif
