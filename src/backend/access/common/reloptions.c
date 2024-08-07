@@ -473,7 +473,7 @@ static relopt_real realRelOpts[] =
 };
 
 /* values from StdRdOptIndexCleanup */
-static relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
+static const relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 {
 	{"auto", STDRD_OPTION_VACUUM_INDEX_CLEANUP_AUTO},
 	{"on", STDRD_OPTION_VACUUM_INDEX_CLEANUP_ON},
@@ -488,7 +488,7 @@ static relopt_enum_elt_def StdRdOptIndexCleanupValues[] =
 };
 
 /* values from GistOptBufferingMode */
-static relopt_enum_elt_def gistBufferingOptValues[] =
+static const relopt_enum_elt_def gistBufferingOptValues[] =
 {
 	{"auto", GIST_OPTION_BUFFERING_AUTO},
 	{"on", GIST_OPTION_BUFFERING_ON},
@@ -497,7 +497,7 @@ static relopt_enum_elt_def gistBufferingOptValues[] =
 };
 
 /* values from ViewOptCheckOption */
-static relopt_enum_elt_def viewCheckOptValues[] =
+static const relopt_enum_elt_def viewCheckOptValues[] =
 {
 	/* no value for NOT_SET */
 	{"local", VIEW_OPTION_CHECK_OPTION_LOCAL},
@@ -1640,7 +1640,7 @@ parse_one_reloption(relopt_value *option, char *text_str, int text_len,
 		case RELOPT_TYPE_ENUM:
 			{
 				relopt_enum *optenum = (relopt_enum *) option->gen;
-				relopt_enum_elt_def *elt;
+				const relopt_enum_elt_def *elt;
 
 				parsed = false;
 				for (elt = optenum->members; elt->string_val; elt++)
