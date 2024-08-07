@@ -335,6 +335,11 @@ struct XLogRecordBuffer;
  * This struct must be kept in sync with the PG_RMGR definition in
  * rmgr.c.
  *
+ * rm_redo is the core function that replays one WAL record.  During WAL
+ * recovery, it is called once for every WAL record belonging to the resource
+ * manager.  It's called in a temporary memory context that is reset between
+ * every record.
+ *
  * rm_identify must return a name for the record based on xl_info (without
  * reference to the rmid). For example, XLOG_BTREE_VACUUM would be named
  * "VACUUM". rm_desc can then be called to obtain additional detail for the
