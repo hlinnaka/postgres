@@ -740,6 +740,7 @@ const char *const config_type_names[] =
 StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
 				 "array length mismatch");
 
+
 /*
  * Contents of GUC tables
  *
