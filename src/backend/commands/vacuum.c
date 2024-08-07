@@ -1148,7 +1148,7 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams params,
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if we are
 	 * short of multixact member space.
 	 */
-	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
+	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
 
 	/*
 	 * Almost ready to set freeze output parameters; check if OldestXmin or

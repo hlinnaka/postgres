@@ -69,6 +69,7 @@
 #include "postgres.h"
 
 #include "access/multixact.h"
+#include "access/multixact_internal.h"
 #include "access/slru.h"
 #include "access/twophase.h"
 #include "access/twophase_rmgr.h"
@@ -89,10 +90,14 @@
 #include "utils/memutils.h"
 
 
-/* Multixact members wraparound thresholds. */
-#define MULTIXACT_MEMBER_SAFE_THRESHOLD		(MaxMultiXactOffset / 2)
-#define MULTIXACT_MEMBER_DANGER_THRESHOLD	\
-	(MaxMultiXactOffset - MaxMultiXactOffset / 4)
+/*
+ * Multixact members warning threshold.
+ *
+ * If the difference between nextOffset and oldestOffset exceeds this value,
+ * we trigger autovacuum in order to release disk space consumed by the
+ * members SLRU.
+ */
+#define MULTIXACT_MEMBER_AUTOVAC_THRESHOLD		UINT64CONST(4000000000)
 
 static inline MultiXactId
 PreviousMultiXactId(MultiXactId multi)
@@ -148,9 +153,6 @@ typedef struct MultiXactStateData
 	MultiXactId multiWarnLimit;
 	MultiXactId multiStopLimit;
 	MultiXactId multiWrapLimit;
-
-	/* support for members anti-wraparound measures */
-	MultiXactOffset offsetStopLimit;	/* known if oldestOffsetKnown */
 
 	/*
 	 * This is used to sleep until a multixact offset is written when we want
@@ -282,8 +284,6 @@ static bool MultiXactOffsetPrecedes(MultiXactOffset offset1,
 									MultiXactOffset offset2);
 static void ExtendMultiXactOffset(MultiXactId multi);
 static void ExtendMultiXactMember(MultiXactOffset offset, int nmembers);
-static bool MultiXactOffsetWouldWrap(MultiXactOffset boundary,
-									 MultiXactOffset start, uint32 distance);
 static bool SetOffsetVacuumLimit(bool is_startup);
 static bool find_multixact_start(MultiXactId multi, MultiXactOffset *result);
 static void WriteMTruncateXlogRec(Oid oldestMultiDB,
@@ -1023,90 +1023,22 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	ExtendMultiXactOffset(result);
 
 	/*
-	 * Reserve the members space, similarly to above.  Also, be careful not to
-	 * return zero as the starting offset for any multixact. See
-	 * GetMultiXactIdMembers() for motivation.
+	 * Reserve the members space, similarly to above.
 	 */
 	nextOffset = MultiXactState->nextOffset;
-	if (nextOffset == 0)
-	{
-		*offset = 1;
-		nmembers++;				/* allocate member slot 0 too */
-	}
-	else
-		*offset = nextOffset;
-
-	/*----------
-	 * Protect against overrun of the members space as well, with the
-	 * following rules:
-	 *
-	 * If we're past offsetStopLimit, refuse to generate more multis.
-	 * If we're close to offsetStopLimit, emit a warning.
-	 *
-	 * Arbitrarily, we start emitting warnings when we're 20 segments or less
-	 * from offsetStopLimit.
-	 *
-	 * Note we haven't updated the shared state yet, so if we fail at this
-	 * point, the multixact ID we grabbed can still be used by the next guy.
-	 *
-	 * Note that there is no point in forcing autovacuum runs here: the
-	 * multixact freeze settings would have to be reduced for that to have any
-	 * effect.
-	 *----------
-	 */
-#define OFFSET_WARN_SEGMENTS	20
-	if (MultiXactState->oldestOffsetKnown &&
-		MultiXactOffsetWouldWrap(MultiXactState->offsetStopLimit, nextOffset,
-								 nmembers))
-	{
-		/* see comment in the corresponding offsets wraparound case */
-		SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-
-		ereport(ERROR,
-				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("multixact \"members\" limit exceeded"),
-				 errdetail_plural("This command would create a multixact with %u members, but the remaining space is only enough for %u member.",
-								  "This command would create a multixact with %u members, but the remaining space is only enough for %u members.",
-								  MultiXactState->offsetStopLimit - nextOffset - 1,
-								  nmembers,
-								  MultiXactState->offsetStopLimit - nextOffset - 1),
-				 errhint("Execute a database-wide VACUUM in database with OID %u with reduced \"vacuum_multixact_freeze_min_age\" and \"vacuum_multixact_freeze_table_age\" settings.",
-						 MultiXactState->oldestMultiXactDB)));
-	}
 
 	/*
-	 * Check whether we should kick autovacuum into action, to prevent members
-	 * wraparound. NB we use a much larger window to trigger autovacuum than
-	 * just the warning limit. The warning is just a measure of last resort -
-	 * this is in line with GetNewTransactionId's behaviour.
+	 * Offsets are 64-bit integers and will never wrap around.  Firstly, it
+	 * would take an unrealistic amount of time and resources to consume 2^64
+	 * offsets.  Secondly, multixid creation is WAL-logged, so you would run
+	 * out of LSNs before reaching offset wraparound.  Nevertheless, check for
+	 * wraparound as a sanity check.
 	 */
-	if (!MultiXactState->oldestOffsetKnown ||
-		(MultiXactState->nextOffset - MultiXactState->oldestOffset
-		 > MULTIXACT_MEMBER_SAFE_THRESHOLD))
-	{
-		/*
-		 * To avoid swamping the postmaster with signals, we issue the autovac
-		 * request only when crossing a segment boundary. With default
-		 * compilation settings that's roughly after 50k members.  This still
-		 * gives plenty of chances before we get into real trouble.
-		 */
-		if ((MXOffsetToMemberPage(nextOffset) / SLRU_PAGES_PER_SEGMENT) !=
-			(MXOffsetToMemberPage(nextOffset + nmembers) / SLRU_PAGES_PER_SEGMENT))
-			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-	}
-
-	if (MultiXactState->oldestOffsetKnown &&
-		MultiXactOffsetWouldWrap(MultiXactState->offsetStopLimit,
-								 nextOffset,
-								 nmembers + MULTIXACT_MEMBERS_PER_PAGE * SLRU_PAGES_PER_SEGMENT * OFFSET_WARN_SEGMENTS))
-		ereport(WARNING,
+	if (nextOffset + nmembers < nextOffset)
+		ereport(ERROR,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg_plural("database with OID %u must be vacuumed before %d more multixact member is used",
-							   "database with OID %u must be vacuumed before %d more multixact members are used",
-							   MultiXactState->offsetStopLimit - nextOffset + nmembers,
-							   MultiXactState->oldestMultiXactDB,
-							   MultiXactState->offsetStopLimit - nextOffset + nmembers),
-				 errhint("Execute a database-wide VACUUM in that database with reduced \"vacuum_multixact_freeze_min_age\" and \"vacuum_multixact_freeze_table_age\" settings.")));
+				 errmsg("MultiXact members would wrap around")));
+	*offset = nextOffset;
 
 	ExtendMultiXactMember(nextOffset, nmembers);
 
@@ -1127,8 +1059,7 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 	 * the next iteration.  But note that nextMXact may be InvalidMultiXactId
 	 * or the first value on a segment-beginning page after this routine
 	 * exits, so anyone else looking at the variable must be prepared to deal
-	 * with either case.  Similarly, nextOffset may be zero, but we won't use
-	 * that as the actual start offset of the next multixact.
+	 * with either case.
 	 */
 	(MultiXactState->nextMXact)++;
 
@@ -1136,7 +1067,8 @@ GetNewMultiXactId(int nmembers, MultiXactOffset *offset)
 
 	LWLockRelease(MultiXactGenLock);
 
-	debug_elog4(DEBUG2, "GetNew: returning %u offset %u", result, *offset);
+	debug_elog4(DEBUG2, "GetNew: returning %u offset %" PRIu64, result,
+				*offset);
 	return result;
 }
 
@@ -1178,7 +1110,6 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	MultiXactOffset *offptr;
 	MultiXactOffset offset;
 	int			length;
-	int			truelength;
 	MultiXactId oldestMXact;
 	MultiXactId nextMXact;
 	MultiXactId tmpMXact;
@@ -1277,16 +1208,7 @@ GetMultiXactIdMembers(MultiXactId multi, MultiXactMember **members,
 	 * we have just for this; the process in charge will signal the CV as soon
 	 * as it has finished writing the multixact offset.
 	 *
-	 * 3. Because GetNewMultiXactId increments offset zero to offset one to
-	 * handle case #2, there is an ambiguity near the point of offset
-	 * wraparound.  If we see next multixact's offset is one, is that our
-	 * multixact's actual endpoint, or did it end at zero with a subsequent
-	 * increment?  We handle this using the knowledge that if the zero'th
-	 * member slot wasn't filled, it'll contain zero, and zero isn't a valid
-	 * transaction ID so it can't be a multixact member.  Therefore, if we
-	 * read a zero from the members array, just ignore it.
-	 *
-	 * This is all pretty messy, but the mess occurs only in infrequent corner
+	 * This is a little messy, but the mess occurs only in infrequent corner
 	 * cases, so it seems better than holding the MultiXactGenLock for a long
 	 * time on every multixact creation.
 	 */
@@ -1372,6 +1294,9 @@ retry:
 	LWLockRelease(lock);
 	lock = NULL;
 
+	/* A multixid with zero members should not happen */
+	Assert(length > 0);
+
 	/*
 	 * If we slept above, clean up state; it's no longer needed.
 	 */
@@ -1380,7 +1305,6 @@ retry:
 
 	ptr = (MultiXactMember *) palloc(length * sizeof(MultiXactMember));
 
-	truelength = 0;
 	prev_pageno = -1;
 	for (int i = 0; i < length; i++, offset++)
 	{
@@ -1417,37 +1341,27 @@ retry:
 
 		xactptr = (TransactionId *)
 			(MultiXactMemberCtl->shared->page_buffer[slotno] + memberoff);
-
-		if (!TransactionIdIsValid(*xactptr))
-		{
-			/* Corner case 3: we must be looking at unused slot zero */
-			Assert(offset == 0);
-			continue;
-		}
+		Assert(TransactionIdIsValid(*xactptr));
 
 		flagsoff = MXOffsetToFlagsOffset(offset);
 		bshift = MXOffsetToFlagsBitShift(offset);
 		flagsptr = (uint32 *) (MultiXactMemberCtl->shared->page_buffer[slotno] + flagsoff);
 
-		ptr[truelength].xid = *xactptr;
-		ptr[truelength].status = (*flagsptr >> bshift) & MXACT_MEMBER_XACT_BITMASK;
-		truelength++;
+		ptr[i].xid = *xactptr;
+		ptr[i].status = (*flagsptr >> bshift) & MXACT_MEMBER_XACT_BITMASK;
 	}
 
 	LWLockRelease(lock);
 
-	/* A multixid with zero members should not happen */
-	Assert(truelength > 0);
-
 	/*
 	 * Copy the result into the local cache.
 	 */
-	mXactCachePut(multi, truelength, ptr);
+	mXactCachePut(multi, length, ptr);
 
 	debug_elog3(DEBUG2, "GetMembers: no cache for %s",
-				mxid_to_string(multi, truelength, ptr));
+				mxid_to_string(multi, length, ptr));
 	*members = ptr;
-	return truelength;
+	return length;
 }
 
 /*
@@ -1854,7 +1768,7 @@ MultiXactShmemInit(void)
 				  "pg_multixact/members", LWTRANCHE_MULTIXACTMEMBER_BUFFER,
 				  LWTRANCHE_MULTIXACTMEMBER_SLRU,
 				  SYNC_HANDLER_MULTIXACT_MEMBER,
-				  false);
+				  true);
 	/* doesn't call SimpleLruTruncate() or meet criteria for unit tests */
 
 	/* Initialize our shared state struct */
@@ -2031,7 +1945,6 @@ TrimMultiXact(void)
 		slotno = SimpleLruReadPage(MultiXactOffsetCtl, pageno, true, nextMXact);
 		offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 		offptr += entryno;
-
 		MemSet(offptr, 0, BLCKSZ - (entryno * sizeof(MultiXactOffset)));
 
 		MultiXactOffsetCtl->shared->page_dirty[slotno] = true;
@@ -2104,7 +2017,7 @@ MultiXactGetCheckptMulti(bool is_shutdown,
 	LWLockRelease(MultiXactGenLock);
 
 	debug_elog6(DEBUG2,
-				"MultiXact: checkpoint is nextMulti %u, nextOffset %u, oldestMulti %u in DB %u",
+				"MultiXact: checkpoint is nextMulti %u, nextOffset %" PRIu64 ", oldestMulti %u in DB %u",
 				*nextMulti, *nextMultiOffset, *oldestMulti, *oldestMultiDB);
 }
 
@@ -2139,7 +2052,7 @@ void
 MultiXactSetNextMXact(MultiXactId nextMulti,
 					  MultiXactOffset nextMultiOffset)
 {
-	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %u",
+	debug_elog4(DEBUG2, "MultiXact: setting next multi to %u offset %" PRIu64,
 				nextMulti, nextMultiOffset);
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	MultiXactState->nextMXact = nextMulti;
@@ -2330,7 +2243,7 @@ MultiXactAdvanceNextMXact(MultiXactId minMulti,
 	}
 	if (MultiXactOffsetPrecedes(MultiXactState->nextOffset, minMultiOffset))
 	{
-		debug_elog3(DEBUG2, "MultiXact: setting next offset to %u",
+		debug_elog3(DEBUG2, "MultiXact: setting next offset to %" PRIU64,
 					minMultiOffset);
 		MultiXactState->nextOffset = minMultiOffset;
 	}
@@ -2432,23 +2345,8 @@ ExtendMultiXactMember(MultiXactOffset offset, int nmembers)
 			LWLockRelease(lock);
 		}
 
-		/*
-		 * Compute the number of items till end of current page.  Careful: if
-		 * addition of unsigned ints wraps around, we're at the last page of
-		 * the last segment; since that page holds a different number of items
-		 * than other pages, we need to do it differently.
-		 */
-		if (offset + MAX_MEMBERS_IN_LAST_MEMBERS_PAGE < offset)
-		{
-			/*
-			 * This is the last page of the last segment; we can compute the
-			 * number of items left to allocate in it without modulo
-			 * arithmetic.
-			 */
-			difference = MaxMultiXactOffset - offset + 1;
-		}
-		else
-			difference = MULTIXACT_MEMBERS_PER_PAGE - offset % MULTIXACT_MEMBERS_PER_PAGE;
+		/* Compute the number of items till end of current page. */
+		difference = MULTIXACT_MEMBERS_PER_PAGE - offset % MULTIXACT_MEMBERS_PER_PAGE;
 
 		/*
 		 * Advance to next page, taking care to properly handle the wraparound
@@ -2514,15 +2412,14 @@ GetOldestMultiXactId(void)
 }
 
 /*
- * Determine how aggressively we need to vacuum in order to prevent member
- * wraparound.
+ * Determine if we need to vacuum to keep the size of the members SLRU in
+ * check.
  *
  * To do so determine what's the oldest member offset and install the limit
  * info in MultiXactState, where it can be used to prevent overrun of old data
  * in the members SLRU area.
  *
- * The return value is true if emergency autovacuum is required and false
- * otherwise.
+ * The return value is true if autovacuum is required and false otherwise.
  */
 static bool
 SetOffsetVacuumLimit(bool is_startup)
@@ -2534,8 +2431,6 @@ SetOffsetVacuumLimit(bool is_startup)
 	MultiXactOffset nextOffset;
 	bool		oldestOffsetKnown = false;
 	bool		prevOldestOffsetKnown;
-	MultiXactOffset offsetStopLimit = 0;
-	MultiXactOffset prevOffsetStopLimit;
 
 	/*
 	 * NB: Have to prevent concurrent truncation, we might otherwise try to
@@ -2550,7 +2445,6 @@ SetOffsetVacuumLimit(bool is_startup)
 	nextOffset = MultiXactState->nextOffset;
 	prevOldestOffsetKnown = MultiXactState->oldestOffsetKnown;
 	prevOldestOffset = MultiXactState->oldestOffset;
-	prevOffsetStopLimit = MultiXactState->offsetStopLimit;
 	Assert(MultiXactState->finishedStartup);
 	LWLockRelease(MultiXactGenLock);
 
@@ -2581,13 +2475,9 @@ SetOffsetVacuumLimit(bool is_startup)
 		oldestOffsetKnown =
 			find_multixact_start(oldestMultiXactId, &oldestOffset);
 
-		if (oldestOffsetKnown)
-			ereport(DEBUG1,
-					(errmsg_internal("oldest MultiXactId member is at offset %u",
-									 oldestOffset)));
-		else
+		if (!oldestOffsetKnown)
 			ereport(LOG,
-					(errmsg("MultiXact member wraparound protections are disabled because oldest checkpointed MultiXact %u does not exist on disk",
+					(errmsg("oldest checkpointed MultiXact %u does not exist on disk",
 							oldestMultiXactId)));
 	}
 
@@ -2597,97 +2487,32 @@ SetOffsetVacuumLimit(bool is_startup)
 	 * If we can, compute limits (and install them MultiXactState) to prevent
 	 * overrun of old data in the members SLRU area. We can only do so if the
 	 * oldest offset is known though.
+	 *
+	 * FIXME: Is !oldestOffsetKnown possible anymore? At least update the comment:
+	 * we won't overrun members anymore.
 	 */
-	if (oldestOffsetKnown)
-	{
-		/* move back to start of the corresponding segment */
-		offsetStopLimit = oldestOffset - (oldestOffset %
-										  (MULTIXACT_MEMBERS_PER_PAGE * SLRU_PAGES_PER_SEGMENT));
-
-		/* always leave one segment before the wraparound point */
-		offsetStopLimit -= (MULTIXACT_MEMBERS_PER_PAGE * SLRU_PAGES_PER_SEGMENT);
-
-		if (!prevOldestOffsetKnown && !is_startup)
-			ereport(LOG,
-					(errmsg("MultiXact member wraparound protections are now enabled")));
-
-		ereport(DEBUG1,
-				(errmsg_internal("MultiXact member stop limit is now %u based on MultiXact %u",
-								 offsetStopLimit, oldestMultiXactId)));
-	}
-	else if (prevOldestOffsetKnown)
+	if (prevOldestOffsetKnown)
 	{
 		/*
 		 * If we failed to get the oldest offset this time, but we have a
 		 * value from a previous pass through this function, use the old
-		 * values rather than automatically forcing an emergency autovacuum
-		 * cycle again.
+		 * values rather than automatically forcing an autovacuum cycle again.
 		 */
 		oldestOffset = prevOldestOffset;
 		oldestOffsetKnown = true;
-		offsetStopLimit = prevOffsetStopLimit;
 	}
 
 	/* Install the computed values */
 	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
 	MultiXactState->oldestOffset = oldestOffset;
 	MultiXactState->oldestOffsetKnown = oldestOffsetKnown;
-	MultiXactState->offsetStopLimit = offsetStopLimit;
 	LWLockRelease(MultiXactGenLock);
 
 	/*
-	 * Do we need an emergency autovacuum?	If we're not sure, assume yes.
+	 * Do we need autovacuum?	If we're not sure, assume yes.
 	 */
 	return !oldestOffsetKnown ||
-		(nextOffset - oldestOffset > MULTIXACT_MEMBER_SAFE_THRESHOLD);
-}
-
-/*
- * Return whether adding "distance" to "start" would move past "boundary".
- *
- * We use this to determine whether the addition is "wrapping around" the
- * boundary point, hence the name.  The reason we don't want to use the regular
- * 2^31-modulo arithmetic here is that we want to be able to use the whole of
- * the 2^32-1 space here, allowing for more multixacts than would fit
- * otherwise.
- */
-static bool
-MultiXactOffsetWouldWrap(MultiXactOffset boundary, MultiXactOffset start,
-						 uint32 distance)
-{
-	MultiXactOffset finish;
-
-	/*
-	 * Note that offset number 0 is not used (see GetMultiXactIdMembers), so
-	 * if the addition wraps around the UINT_MAX boundary, skip that value.
-	 */
-	finish = start + distance;
-	if (finish < start)
-		finish++;
-
-	/*-----------------------------------------------------------------------
-	 * When the boundary is numerically greater than the starting point, any
-	 * value numerically between the two is not wrapped:
-	 *
-	 *	<----S----B---->
-	 *	[---)			 = F wrapped past B (and UINT_MAX)
-	 *		 [---)		 = F not wrapped
-	 *			  [----] = F wrapped past B
-	 *
-	 * When the boundary is numerically less than the starting point (i.e. the
-	 * UINT_MAX wraparound occurs somewhere in between) then all values in
-	 * between are wrapped:
-	 *
-	 *	<----B----S---->
-	 *	[---)			 = F not wrapped past B (but wrapped past UINT_MAX)
-	 *		 [---)		 = F wrapped past B (and UINT_MAX)
-	 *			  [----] = F not wrapped
-	 *-----------------------------------------------------------------------
-	 */
-	if (start < boundary)
-		return finish >= boundary || finish < start;
-	else
-		return finish >= boundary && finish < start;
+		(nextOffset - oldestOffset > MULTIXACT_MEMBER_AUTOVAC_THRESHOLD);
 }
 
 /*
@@ -2727,6 +2552,7 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 	offptr = (MultiXactOffset *) MultiXactOffsetCtl->shared->page_buffer[slotno];
 	offptr += entryno;
 	offset = *offptr;
+
 	LWLockRelease(SimpleLruGetBankLock(MultiXactOffsetCtl, pageno));
 
 	*result = offset;
@@ -2774,73 +2600,6 @@ GetMultiXactInfo(uint32 *multixacts, MultiXactOffset *members,
 	return true;
 }
 
-/*
- * Multixact members can be removed once the multixacts that refer to them
- * are older than every datminmxid.  autovacuum_multixact_freeze_max_age and
- * vacuum_multixact_freeze_table_age work together to make sure we never have
- * too many multixacts; we hope that, at least under normal circumstances,
- * this will also be sufficient to keep us from using too many offsets.
- * However, if the average multixact has many members, we might exhaust the
- * members space while still using few enough members that these limits fail
- * to trigger relminmxid advancement by VACUUM.  At that point, we'd have no
- * choice but to start failing multixact-creating operations with an error.
- *
- * To prevent that, if more than a threshold portion of the members space is
- * used, we effectively reduce autovacuum_multixact_freeze_max_age and
- * to a value just less than the number of multixacts in use.  We hope that
- * this will quickly trigger autovacuuming on the table or tables with the
- * oldest relminmxid, thus allowing datminmxid values to advance and removing
- * some members.
- *
- * As the fraction of the member space currently in use grows, we become
- * more aggressive in clamping this value.  That not only causes autovacuum
- * to ramp up, but also makes any manual vacuums the user issues more
- * aggressive.  This happens because vacuum_get_cutoffs() will clamp the
- * freeze table and the minimum freeze age cutoffs based on the effective
- * autovacuum_multixact_freeze_max_age this function returns.  In the worst
- * case, we'll claim the freeze_max_age to zero, and every vacuum of any
- * table will freeze every multixact.
- */
-int
-MultiXactMemberFreezeThreshold(void)
-{
-	MultiXactOffset members;
-	uint32		multixacts;
-	uint32		victim_multixacts;
-	double		fraction;
-	int			result;
-	MultiXactId oldestMultiXactId;
-	MultiXactOffset oldestOffset;
-
-	/* If we can't determine member space utilization, assume the worst. */
-	if (!GetMultiXactInfo(&multixacts, &members, &oldestMultiXactId, &oldestOffset))
-		return 0;
-
-	/* If member space utilization is low, no special action is required. */
-	if (members <= MULTIXACT_MEMBER_SAFE_THRESHOLD)
-		return autovacuum_multixact_freeze_max_age;
-
-	/*
-	 * Compute a target for relminmxid advancement.  The number of multixacts
-	 * we try to eliminate from the system is based on how far we are past
-	 * MULTIXACT_MEMBER_SAFE_THRESHOLD.
-	 */
-	fraction = (double) (members - MULTIXACT_MEMBER_SAFE_THRESHOLD) /
-		(MULTIXACT_MEMBER_DANGER_THRESHOLD - MULTIXACT_MEMBER_SAFE_THRESHOLD);
-	victim_multixacts = multixacts * fraction;
-
-	/* fraction could be > 1.0, but lowest possible freeze age is zero */
-	if (victim_multixacts > multixacts)
-		return 0;
-	result = multixacts - victim_multixacts;
-
-	/*
-	 * Clamp to autovacuum_multixact_freeze_max_age, so that we never make
-	 * autovacuum less aggressive than it would otherwise be.
-	 */
-	return Min(result, autovacuum_multixact_freeze_max_age);
-}
-
 typedef struct mxtruncinfo
 {
 	int64		earliestExistingPage;
@@ -2867,36 +2626,12 @@ SlruScanDirCbFindEarliest(SlruCtl ctl, char *filename, int64 segpage, void *data
 
 /*
  * Delete members segments [oldest, newOldest)
- *
- * The members SLRU can, in contrast to the offsets one, be filled to almost
- * the full range at once. This means SimpleLruTruncate() can't trivially be
- * used - instead the to-be-deleted range is computed using the offsets
- * SLRU. C.f. TruncateMultiXact().
  */
 static void
 PerformMembersTruncation(MultiXactOffset oldestOffset, MultiXactOffset newOldestOffset)
 {
-	const int64 maxsegment = MXOffsetToMemberSegment(MaxMultiXactOffset);
-	int64		startsegment = MXOffsetToMemberSegment(oldestOffset);
-	int64		endsegment = MXOffsetToMemberSegment(newOldestOffset);
-	int64		segment = startsegment;
-
-	/*
-	 * Delete all the segments but the last one. The last segment can still
-	 * contain, possibly partially, valid data.
-	 */
-	while (segment != endsegment)
-	{
-		elog(DEBUG2, "truncating multixact members segment %" PRIx64,
-			 segment);
-		SlruDeleteSegment(MultiXactMemberCtl, segment);
-
-		/* move to next segment, handling wraparound correctly */
-		if (segment == maxsegment)
-			segment = 0;
-		else
-			segment += 1;
-	}
+	SimpleLruTruncate(MultiXactMemberCtl,
+					  MXOffsetToMemberPage(newOldestOffset));
 }
 
 /*
@@ -3040,7 +2775,7 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
 
 	elog(DEBUG1, "performing multixact truncation: "
 		 "offsets [%u, %u), offsets segments [%" PRIx64 ", %" PRIx64 "), "
-		 "members [%u, %u), members segments [%" PRIx64 ", %" PRIx64 ")",
+		 "members [%" PRIu64 ", %" PRIu64 "), members segments [%" PRIx64 ", %" PRIx64 ")",
 		 oldestMulti, newOldestMulti,
 		 MultiXactIdToOffsetSegment(oldestMulti),
 		 MultiXactIdToOffsetSegment(newOldestMulti),
@@ -3120,20 +2855,13 @@ MultiXactOffsetPagePrecedes(int64 page1, int64 page2)
 
 /*
  * Decide whether a MultiXactMember page number is "older" for truncation
- * purposes.  There is no "invalid offset number" so use the numbers verbatim.
+ * purposes.  There is no "invalid offset number" and members never wrap
+ * around, so use the numbers verbatim.
  */
 static bool
 MultiXactMemberPagePrecedes(int64 page1, int64 page2)
 {
-	MultiXactOffset offset1;
-	MultiXactOffset offset2;
-
-	offset1 = ((MultiXactOffset) page1) * MULTIXACT_MEMBERS_PER_PAGE;
-	offset2 = ((MultiXactOffset) page2) * MULTIXACT_MEMBERS_PER_PAGE;
-
-	return (MultiXactOffsetPrecedes(offset1, offset2) &&
-			MultiXactOffsetPrecedes(offset1,
-									offset2 + MULTIXACT_MEMBERS_PER_PAGE - 1));
+	return page1 < page2;
 }
 
 /*
@@ -3171,7 +2899,7 @@ MultiXactIdPrecedesOrEquals(MultiXactId multi1, MultiXactId multi2)
 static bool
 MultiXactOffsetPrecedes(MultiXactOffset offset1, MultiXactOffset offset2)
 {
-	int32		diff = (int32) (offset1 - offset2);
+	int64		diff = (int64) (offset1 - offset2);
 
 	return (diff < 0);
 }
@@ -3268,7 +2996,7 @@ multixact_redo(XLogReaderState *record)
 
 		elog(DEBUG1, "replaying multixact truncation: "
 			 "offsets [%u, %u), offsets segments [%" PRIx64 ", %" PRIx64 "), "
-			 "members [%u, %u), members segments [%" PRIx64 ", %" PRIx64 ")",
+			 "members [%" PRIu64 ", %" PRIu64 "), members segments [%" PRIx64 ", %" PRIx64 ")",
 			 xlrec.startTruncOff, xlrec.endTruncOff,
 			 MultiXactIdToOffsetSegment(xlrec.startTruncOff),
 			 MultiXactIdToOffsetSegment(xlrec.endTruncOff),

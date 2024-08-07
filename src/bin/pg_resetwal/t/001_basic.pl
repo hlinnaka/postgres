@@ -145,7 +145,7 @@ command_fails_like(
 	'fails with incorrect -O option');
 command_fails_like(
 	[ 'pg_resetwal', '-O' => '-1', $node->data_dir ],
-	qr/must be between 0 and 4294967295/,
+	qr/error: invalid argument for option -O/,
 	'fails with -O value -1');
 # --wal-segsize
 command_fails_like(
@@ -215,7 +215,7 @@ push @cmd,
   sprintf("%d,%d", hex($files[0]) == 0 ? 3 : hex($files[0]), hex($files[-1]));
 
 @files = get_slru_files('pg_multixact/offsets');
-$mult = 32 * $blcksz / 4;
+$mult = 32 * $blcksz / 8;
 # --multixact-ids argument is "new,old"
 push @cmd,
   '--multixact-ids' => sprintf("%d,%d",

@@ -92,6 +92,7 @@ static void KillExistingArchiveStatus(void);
 static void KillExistingWALSummaries(void);
 static void WriteEmptyXLOG(void);
 static void usage(void);
+static uint64 strtou64_strict(const char *s, char **endptr, int base);
 
 
 int
@@ -120,7 +121,6 @@ main(int argc, char *argv[])
 	MultiXactId set_oldestmxid = 0;
 	char	   *endptr;
 	char	   *endptr2;
-	int64		tmpi64;
 	char	   *DataDir = NULL;
 	char	   *log_fname = NULL;
 	int			fd;
@@ -269,17 +269,14 @@ main(int argc, char *argv[])
 
 			case 'O':
 				errno = 0;
-				tmpi64 = strtoi64(optarg, &endptr, 0);
+				set_mxoff = strtou64_strict(optarg, &endptr, 0);
 				if (endptr == optarg || *endptr != '\0' || errno != 0)
 				{
 					pg_log_error("invalid argument for option %s", "-O");
 					pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 					exit(1);
 				}
-				if (tmpi64 < 0 || tmpi64 > (int64) MaxMultiXactOffset)
-					pg_fatal("multitransaction offset (-O) must be between 0 and %u", MaxMultiXactOffset);
 
-				set_mxoff = (MultiXactOffset) tmpi64;
 				mxoff_given = true;
 				break;
 
@@ -749,7 +746,7 @@ PrintControlValues(bool guessed)
 		   ControlFile.checkPointCopy.nextOid);
 	printf(_("Latest checkpoint's NextMultiXactId:  %u\n"),
 		   ControlFile.checkPointCopy.nextMulti);
-	printf(_("Latest checkpoint's NextMultiOffset:  %u\n"),
+	printf(_("Latest checkpoint's NextMultiOffset:  %" PRIu64 "\n"),
 		   ControlFile.checkPointCopy.nextMultiOffset);
 	printf(_("Latest checkpoint's oldestXID:        %u\n"),
 		   ControlFile.checkPointCopy.oldestXid);
@@ -825,7 +822,7 @@ PrintNewControlValues(void)
 
 	if (mxoff_given)
 	{
-		printf(_("NextMultiOffset:                      %u\n"),
+		printf(_("NextMultiOffset:                      %" PRIu64 "\n"),
 			   ControlFile.checkPointCopy.nextMultiOffset);
 	}
 
@@ -1209,4 +1206,23 @@ usage(void)
 
 	printf(_("\nReport bugs to <%s>.\n"), PACKAGE_BUGREPORT);
 	printf(_("%s home page: <%s>\n"), PACKAGE_NAME, PACKAGE_URL);
+}
+
+/* Like strtou64(), but negative values are not accepted. */
+static uint64
+strtou64_strict(const char *s, char **endptr, int base)
+{
+	/* skip leading whitespace */
+	while (isspace(*s))
+		s++;
+
+	/* reject negative values */
+	if (*s == '-')
+	{
+		*endptr = (char *) s;
+		errno = ERANGE;
+		return UINT64_MAX;
+	}
+
+	return strtou64(s, endptr, base);
 }
