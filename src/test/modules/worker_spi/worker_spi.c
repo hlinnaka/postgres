@@ -46,13 +46,17 @@ PG_FUNCTION_INFO_V1(worker_spi_launch);
 pg_noreturn PGDLLEXPORT void worker_spi_main(Datum main_arg);
 
 /* GUC variables */
-static int	worker_spi_naptime = 10;
-static int	worker_spi_total_workers = 2;
-static char *worker_spi_database = NULL;
-static char *worker_spi_role = NULL;
+static sighup_guc int	worker_spi_naptime = 10;
+DEFINE_INT_GUC_ADDR(worker_spi_naptime);
+static postmaster_guc int	worker_spi_total_workers = 2;
+DEFINE_INT_GUC_ADDR(worker_spi_total_workers);
+static sighup_guc char *worker_spi_database = NULL;
+DEFINE_STRING_GUC_ADDR(worker_spi_database);
+static sighup_guc char *worker_spi_role = NULL;
+DEFINE_STRING_GUC_ADDR(worker_spi_role);
 
 /* value cached, fetched from shared memory */
-static uint32 worker_spi_wait_event_main = 0;
+static session_local uint32 worker_spi_wait_event_main = 0;
 
 typedef struct worktable
 {
@@ -309,7 +313,7 @@ _PG_init(void)
 	DefineCustomIntVariable("worker_spi.naptime",
 							"Duration between each check (in seconds).",
 							NULL,
-							&worker_spi_naptime,
+							GUC_ADDR(worker_spi_naptime),
 							10,
 							1,
 							INT_MAX,
@@ -322,7 +326,7 @@ _PG_init(void)
 	DefineCustomStringVariable("worker_spi.database",
 							   "Database to connect to.",
 							   NULL,
-							   &worker_spi_database,
+							   GUC_ADDR(worker_spi_database),
 							   "postgres",
 							   PGC_SIGHUP,
 							   0,
@@ -331,7 +335,7 @@ _PG_init(void)
 	DefineCustomStringVariable("worker_spi.role",
 							   "Role to connect with.",
 							   NULL,
-							   &worker_spi_role,
+							   GUC_ADDR(worker_spi_role),
 							   NULL,
 							   PGC_SIGHUP,
 							   0,
@@ -343,7 +347,7 @@ _PG_init(void)
 	DefineCustomIntVariable("worker_spi.total_workers",
 							"Number of workers.",
 							NULL,
-							&worker_spi_total_workers,
+							GUC_ADDR(worker_spi_total_workers),
 							2,
 							1,
 							100,

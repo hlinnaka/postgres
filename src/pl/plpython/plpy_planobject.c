@@ -17,16 +17,16 @@ static PyObject *PLy_plan_cursor(PyObject *self, PyObject *args);
 static PyObject *PLy_plan_execute(PyObject *self, PyObject *args);
 static PyObject *PLy_plan_status(PyObject *self, PyObject *args);
 
-static char PLy_plan_doc[] = "Store a PostgreSQL plan";
+static static_singleton char PLy_plan_doc[] = "Store a PostgreSQL plan";
 
-static PyMethodDef PLy_plan_methods[] = {
+static static_singleton PyMethodDef PLy_plan_methods[] = {
 	{"cursor", PLy_plan_cursor, METH_VARARGS, NULL},
 	{"execute", PLy_plan_execute, METH_VARARGS, NULL},
 	{"status", PLy_plan_status, METH_VARARGS, NULL},
 	{NULL, NULL, 0, NULL}
 };
 
-static PyType_Slot PLyPlan_slots[] =
+static static_singleton PyType_Slot PLyPlan_slots[] =
 {
 	{
 		Py_tp_dealloc, PLy_plan_dealloc

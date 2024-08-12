@@ -324,7 +324,7 @@
 static bool SerialPagePrecedesLogically(int64 page1, int64 page2);
 static int	serial_errdetail_for_io_error(const void *opaque_data);
 
-static SlruDesc SerialSlruDesc;
+static pg_global SlruDesc SerialSlruDesc;
 
 #define SerialSlruCtl			(&SerialSlruDesc)
 
@@ -354,7 +354,7 @@ typedef struct SerialControlData
 
 typedef struct SerialControlData *SerialControl;
 
-static SerialControl serialControl;
+static pg_global SerialControl serialControl;
 
 /*
  * When the oldest committed transaction on the "finished" list is moved to
@@ -362,7 +362,7 @@ static SerialControl serialControl;
  * collapsing duplicate targets.  When a duplicate is found, the later
  * commitSeqNo is used.
  */
-static SERIALIZABLEXACT *OldCommittedSxact;
+static session_local SERIALIZABLEXACT *OldCommittedSxact;
 
 
 /*
@@ -371,9 +371,9 @@ static SERIALIZABLEXACT *OldCommittedSxact;
  * attempt to degrade performance (mostly as false positive serialization
  * failure) gracefully in the face of memory pressure.
  */
-int			max_predicate_locks_per_xact;	/* in guc_tables.c */
-int			max_predicate_locks_per_relation;	/* in guc_tables.c */
-int			max_predicate_locks_per_page;	/* in guc_tables.c */
+postmaster_guc int			max_predicate_locks_per_xact;	/* in guc_tables.c */
+sighup_guc int			max_predicate_locks_per_relation;	/* in guc_tables.c */
+sighup_guc int			max_predicate_locks_per_page;	/* in guc_tables.c */
 
 /*
  * This provides a list of objects in order to track transactions
@@ -384,7 +384,7 @@ int			max_predicate_locks_per_page;	/* in guc_tables.c */
  * number of entries in the list, and the size allowed for each entry is
  * fixed upon creation.
  */
-static PredXactList PredXact;
+static pg_global PredXactList PredXact;
 
 static void PredicateLockShmemRequest(void *arg);
 static void PredicateLockShmemInit(void *arg);
@@ -401,16 +401,16 @@ const ShmemCallbacks PredicateLockShmemCallbacks = {
  * This provides a pool of RWConflict data elements to use in conflict lists
  * between transactions.
  */
-static RWConflictPoolHeader RWConflictPool;
+static pg_global RWConflictPoolHeader RWConflictPool;
 
 /*
  * The predicate locking hash tables are in shared memory.
  * Each backend keeps pointers to them.
  */
-static HTAB *SerializableXidHash;
-static HTAB *PredicateLockTargetHash;
-static HTAB *PredicateLockHash;
-static dlist_head *FinishedSerializableTransactions;
+static pg_global HTAB *SerializableXidHash;
+static pg_global HTAB *PredicateLockTargetHash;
+static pg_global HTAB *PredicateLockHash;
+static pg_global dlist_head *FinishedSerializableTransactions;
 
 /*
  * Tag for a dummy entry in PredicateLockTargetHash. By temporarily removing
@@ -418,22 +418,22 @@ static dlist_head *FinishedSerializableTransactions;
  * inserting one entry in the hash table. This is an otherwise-invalid tag.
  */
 static const PREDICATELOCKTARGETTAG ScratchTargetTag = {0, 0, 0, 0};
-static uint32 ScratchTargetTagHash;
-static LWLock *ScratchPartitionLock;
+static pg_global uint32 ScratchTargetTagHash;
+static pg_global LWLock *ScratchPartitionLock;
 
 /*
  * The local hash table used to determine when to combine multiple fine-
  * grained locks into a single courser-grained lock.
  */
-static HTAB *LocalPredicateLockHash = NULL;
+static session_local HTAB *LocalPredicateLockHash = NULL;
 
 /*
  * Keep a pointer to the currently-running serializable transaction (if any)
  * for quick reference. Also, remember if we have written anything that could
  * cause a rw-conflict.
  */
-static SERIALIZABLEXACT *MySerializableXact = InvalidSerializableXact;
-static bool MyXactDidWrite = false;
+static session_local SERIALIZABLEXACT *MySerializableXact = InvalidSerializableXact;
+static session_local bool MyXactDidWrite = false;
 
 /*
  * The SXACT_FLAG_RO_UNSAFE optimization might lead us to release
@@ -442,7 +442,7 @@ static bool MyXactDidWrite = false;
  * transaction, because the workers still have a reference to it.  In that
  * case, the leader stores it here.
  */
-static SERIALIZABLEXACT *SavedSerializableXact = InvalidSerializableXact;
+static session_local SERIALIZABLEXACT *SavedSerializableXact = InvalidSerializableXact;
 
 static int64 max_serializable_xacts;
 

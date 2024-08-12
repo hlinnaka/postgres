@@ -119,8 +119,8 @@ static int	MultiXactOffsetIoErrorDetail(const void *opaque_data);
 static bool MultiXactMemberPagePrecedes(int64 page1, int64 page2);
 static int	MultiXactMemberIoErrorDetail(const void *opaque_data);
 
-static SlruDesc MultiXactOffsetSlruDesc;
-static SlruDesc MultiXactMemberSlruDesc;
+static pg_global SlruDesc MultiXactOffsetSlruDesc;
+static pg_global SlruDesc MultiXactMemberSlruDesc;
 
 #define MultiXactOffsetCtl	(&MultiXactOffsetSlruDesc)
 #define MultiXactMemberCtl	(&MultiXactMemberSlruDesc)
@@ -222,9 +222,9 @@ typedef struct MultiXactStateData
 #define NumVisibleSlots		MaxBackends
 
 /* Pointers to the state data in shared memory */
-static MultiXactStateData *MultiXactState;
-static MultiXactId *OldestMemberMXactId;
-static MultiXactId *OldestVisibleMXactId;
+static pg_global MultiXactStateData *MultiXactState;
+static pg_global MultiXactId *OldestMemberMXactId;
+static pg_global MultiXactId *OldestVisibleMXactId;
 
 static void MultiXactShmemRequest(void *arg);
 static void MultiXactShmemInit(void *arg);
@@ -297,8 +297,8 @@ typedef struct mXactCacheEnt
 } mXactCacheEnt;
 
 #define MAX_CACHE_ENTRIES	256
-static dclist_head MXactCache = DCLIST_STATIC_INIT(MXactCache);
-static MemoryContext MXactContext = NULL;
+static /* FIXME: session_local */ dclist_head MXactCache = DCLIST_STATIC_INIT(MXactCache);
+static session_local MemoryContext MXactContext = NULL;
 
 #ifdef MULTIXACT_DEBUG
 #define debug_elog2(a,b) elog(a,b)

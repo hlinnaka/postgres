@@ -31,11 +31,16 @@
 PG_MODULE_MAGIC;
 
 /* GUC variables */
-char	   *pg_plan_advice_advice = NULL;
-bool		pg_plan_advice_always_store_advice_details = false;
-static bool pg_plan_advice_always_explain_supplied_advice = true;
-bool		pg_plan_advice_feedback_warnings = false;
-bool		pg_plan_advice_trace_mask = false;
+userset_guc char	   *pg_plan_advice_advice = NULL;
+DEFINE_STRING_GUC_ADDR(pg_plan_advice_advice);
+userset_guc bool		pg_plan_advice_always_store_advice_details = false;
+DEFINE_BOOL_GUC_ADDR(pg_plan_advice_always_store_advice_details);
+static userset_guc bool pg_plan_advice_always_explain_supplied_advice = true;
+DEFINE_BOOL_GUC_ADDR(pg_plan_advice_always_explain_supplied_advice);
+userset_guc bool		pg_plan_advice_feedback_warnings = false;
+DEFINE_BOOL_GUC_ADDR(pg_plan_advice_feedback_warnings);
+userset_guc bool		pg_plan_advice_trace_mask = false;
+DEFINE_BOOL_GUC_ADDR(pg_plan_advice_trace_mask);
 
 /* Saved hook value */
 static explain_per_plan_hook_type prev_explain_per_plan = NULL;
@@ -67,7 +72,7 @@ _PG_init(void)
 	DefineCustomStringVariable("pg_plan_advice.advice",
 							   "advice to apply during query planning",
 							   NULL,
-							   &pg_plan_advice_advice,
+							   GUC_ADDR(pg_plan_advice_advice),
 							   NULL,
 							   PGC_USERSET,
 							   0,
@@ -78,7 +83,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_plan_advice.always_explain_supplied_advice",
 							 "EXPLAIN output includes supplied advice even without EXPLAIN (PLAN_ADVICE)",
 							 NULL,
-							 &pg_plan_advice_always_explain_supplied_advice,
+							 GUC_ADDR(pg_plan_advice_always_explain_supplied_advice),
 							 true,
 							 PGC_USERSET,
 							 0,
@@ -89,7 +94,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_plan_advice.always_store_advice_details",
 							 "Generate advice strings even when seemingly not required",
 							 "Use this option to see generated advice for prepared queries.",
-							 &pg_plan_advice_always_store_advice_details,
+							 GUC_ADDR(pg_plan_advice_always_store_advice_details),
 							 false,
 							 PGC_USERSET,
 							 0,
@@ -100,7 +105,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_plan_advice.feedback_warnings",
 							 "Warn when supplied advice does not apply cleanly",
 							 NULL,
-							 &pg_plan_advice_feedback_warnings,
+							 GUC_ADDR(pg_plan_advice_feedback_warnings),
 							 false,
 							 PGC_USERSET,
 							 0,
@@ -111,7 +116,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_plan_advice.trace_mask",
 							 "Emit debugging messages showing the computed strategy mask for each relation",
 							 NULL,
-							 &pg_plan_advice_trace_mask,
+							 GUC_ADDR(pg_plan_advice_trace_mask),
 							 false,
 							 PGC_USERSET,
 							 0,

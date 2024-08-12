@@ -55,7 +55,7 @@
 #include "utils/syscache.h"
 
 /* GUC parameter */
-int			constraint_exclusion = CONSTRAINT_EXCLUSION_PARTITION;
+session_guc int			constraint_exclusion = CONSTRAINT_EXCLUSION_PARTITION;
 
 typedef struct NotnullHashEntry
 {

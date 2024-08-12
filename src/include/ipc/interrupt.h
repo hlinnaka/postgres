@@ -98,7 +98,7 @@ typedef struct PendingInterrupts
  * entry (yet), it points to a process-private variable, so that interrupts
  * can nevertheless be used from signal handlers in the same process.
  */
-extern PGDLLIMPORT PendingInterrupts *MyPendingInterrupts;
+extern PGDLLIMPORT session_local PendingInterrupts *MyPendingInterrupts;
 
 /*
  * Test if an interrupt is pending
@@ -180,7 +180,7 @@ extern void InitializeInterruptWaitSet(void);
  *****************************************************************************/
 
 /* Interrupts currently enabled for CHECK_FOR_INTERRUPTS() processing */
-extern PGDLLIMPORT InterruptMask EnabledInterruptsMask;
+extern PGDLLIMPORT session_local InterruptMask EnabledInterruptsMask;
 
 /*
  * Pointer to MyPendingInterrupts->flags, except when interrupt holdoff or a
@@ -189,7 +189,7 @@ extern PGDLLIMPORT InterruptMask EnabledInterruptsMask;
  * allows CHECK_FOR_INTERRUPTS() to follow just this one pointer, and not have
  * to check the holdoff counts separately.
  */
-extern PGDLLIMPORT pg_atomic_uint32 *MyPendingInterruptsFlags;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *MyPendingInterruptsFlags;
 
 /*
  * Check whether any enabled interrupt is pending, without trying to service
@@ -247,8 +247,8 @@ extern void SetInterruptAttentionMask(InterruptMask mask);
  *		Critical section and interrupt holdoff mechanism
  *****************************************************************************/
 
-extern PGDLLIMPORT uint32 InterruptHoldoffCount;
-extern PGDLLIMPORT uint32 CritSectionCount;
+extern PGDLLIMPORT session_local uint32 InterruptHoldoffCount;
+extern PGDLLIMPORT session_local uint32 CritSectionCount;
 
 extern PGDLLIMPORT const pg_atomic_uint32 ZeroPendingInterruptsFlags;
 

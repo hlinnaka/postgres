@@ -31,7 +31,7 @@ typedef struct VirtualTransactionId VirtualTransactionId;
 typedef struct GlobalTransactionData *GlobalTransaction;
 
 /* GUC variable */
-extern PGDLLIMPORT int max_prepared_xacts;
+extern PGDLLIMPORT postmaster_guc int max_prepared_xacts;
 
 extern void AtAbort_Twophase(void);
 extern void PostPrepare_Twophase(void);

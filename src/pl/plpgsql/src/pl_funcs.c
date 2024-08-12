@@ -32,7 +32,7 @@
  * items.
  * ----------
  */
-static PLpgSQL_nsitem *ns_top = NULL;
+static session_local PLpgSQL_nsitem *ns_top = NULL;
 
 
 /* ----------
@@ -781,7 +781,7 @@ plpgsql_delete_callback(CachedFunction *cfunc)
  * Sadly, there doesn't seem to be any way to let plpgsql_statement_tree_walker
  * bear some of the burden for this.
  **********************************************************************/
-static int	dump_indent;
+static session_local int	dump_indent;
 
 static void dump_ind(void);
 static void dump_stmt(PLpgSQL_stmt *stmt);

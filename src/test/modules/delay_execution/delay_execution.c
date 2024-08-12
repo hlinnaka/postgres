@@ -31,7 +31,8 @@
 PG_MODULE_MAGIC;
 
 /* GUC: advisory lock ID to use.  Zero disables the feature. */
-static int	post_planning_lock_id = 0;
+static userset_guc int	post_planning_lock_id = 0;
+DEFINE_INT_GUC_ADDR(post_planning_lock_id);
 
 /* Save previous planner hook user to be a good citizen */
 static planner_hook_type prev_planner_hook = NULL;
@@ -79,7 +80,7 @@ _PG_init(void)
 	DefineCustomIntVariable("delay_execution.post_planning_lock_id",
 							"Sets the advisory lock ID to be locked/unlocked after planning.",
 							"Zero disables the delay.",
-							&post_planning_lock_id,
+							GUC_ADDR(post_planning_lock_id),
 							0,
 							0, INT_MAX,
 							PGC_USERSET,

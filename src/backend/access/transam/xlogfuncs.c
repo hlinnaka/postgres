@@ -40,11 +40,11 @@
 /*
  * Backup-related variables.
  */
-static BackupState *backup_state = NULL;
-static StringInfo tablespace_map = NULL;
+static session_local BackupState *backup_state = NULL;
+static session_local StringInfo tablespace_map = NULL;
 
 /* Session-level context for the SQL-callable backup functions */
-static MemoryContext backupcontext = NULL;
+static session_local MemoryContext backupcontext = NULL;
 
 
 /*

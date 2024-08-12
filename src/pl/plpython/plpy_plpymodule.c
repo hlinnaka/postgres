@@ -17,7 +17,7 @@
 #include "plpy_util.h"
 #include "utils/builtins.h"
 
-HTAB	   *PLy_spi_exceptions = NULL;
+session_local HTAB	   *PLy_spi_exceptions = NULL;
 
 
 static void PLy_add_exceptions(PyObject *plpy);
@@ -52,7 +52,7 @@ static const ExceptionMap exception_map[] = {
 	{NULL, NULL, 0}
 };
 
-static PyMethodDef PLy_methods[] = {
+static static_singleton PyMethodDef PLy_methods[] = {
 	/*
 	 * logging methods
 	 */
@@ -100,18 +100,18 @@ static PyMethodDef PLy_methods[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-static PyMethodDef PLy_exc_methods[] = {
+static static_singleton PyMethodDef PLy_exc_methods[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-static PyModuleDef PLy_module = {
+static static_singleton PyModuleDef PLy_module = {
 	PyModuleDef_HEAD_INIT,
 	.m_name = "plpy",
 	.m_size = -1,
 	.m_methods = PLy_methods,
 };
 
-static PyModuleDef PLy_exc_module = {
+static static_singleton PyModuleDef PLy_exc_module = {
 	PyModuleDef_HEAD_INIT,
 	.m_name = "spiexceptions",
 	.m_size = -1,

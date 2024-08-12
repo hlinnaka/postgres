@@ -75,7 +75,7 @@ static uint32 host_cache_pointer(const char *key);
 
 /* default init hook can be overridden by a shared library */
 static void default_openssl_tls_init(SSL_CTX *context, bool isServerStart);
-openssl_tls_init_hook_typ openssl_tls_init_hook = default_openssl_tls_init;
+pg_global openssl_tls_init_hook_typ openssl_tls_init_hook = default_openssl_tls_init;
 
 static int	port_bio_read(BIO *h, char *buf, int size);
 static int	port_bio_write(BIO *h, const char *buf, int size);
@@ -106,8 +106,8 @@ static int	sni_clienthello_cb(SSL *ssl, int *al, void *arg);
 
 static char *X509_NAME_to_cstring(const X509_NAME *name);
 
-static SSL_CTX *SSL_context = NULL;
-static MemoryContext SSL_hosts_memcxt = NULL;
+static session_local SSL_CTX *SSL_context = NULL;
+static session_local MemoryContext SSL_hosts_memcxt = NULL;
 static struct hosts
 {
 	/*
@@ -126,8 +126,8 @@ static struct hosts
 	HostsLine  *default_host;
 }		   *SSL_hosts;
 
-static bool dummy_ssl_passwd_cb_called = false;
-static bool ssl_is_server_start;
+static session_local bool dummy_ssl_passwd_cb_called = false;
+static session_local bool ssl_is_server_start;
 
 static int	ssl_protocol_version_to_openssl(int v);
 static const char *ssl_protocol_version_to_string(int v);
@@ -1337,7 +1337,7 @@ be_tls_write(Port *port, const void *ptr, size_t len, int *waitfor)
  * see sock_read() and sock_write() in OpenSSL's crypto/bio/bss_sock.c.
  */
 
-static BIO_METHOD *port_bio_method_ptr = NULL;
+static session_local BIO_METHOD *port_bio_method_ptr = NULL;
 
 static int
 port_bio_read(BIO *h, char *buf, int size)

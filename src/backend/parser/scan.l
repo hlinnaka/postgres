@@ -66,7 +66,7 @@ fprintf_to_ereport(const char *fmt, const char *msg)
  * In practice, backslash_quote is not too awful since it only controls
  * whether to throw an error: it cannot change non-error results.
  */
-int			backslash_quote = BACKSLASH_QUOTE_SAFE_ENCODING;
+session_guc int			backslash_quote = BACKSLASH_QUOTE_SAFE_ENCODING;
 
 /*
  * Constant data exported from this file.  This array maps from the

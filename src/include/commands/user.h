@@ -18,13 +18,13 @@
 #include "utils/guc.h"
 
 /* GUCs */
-extern PGDLLIMPORT int Password_encryption; /* values from enum PasswordType */
-extern PGDLLIMPORT char *createrole_self_grant;
+extern PGDLLIMPORT session_guc int Password_encryption; /* values from enum PasswordType */
+extern PGDLLIMPORT session_guc char *createrole_self_grant;
 
 /* Hook to check passwords in CreateRole() and AlterRole() */
 typedef void (*check_password_hook_type) (const char *username, const char *shadow_pass, PasswordType password_type, Datum validuntil_time, bool validuntil_null);
 
-extern PGDLLIMPORT check_password_hook_type check_password_hook;
+extern PGDLLIMPORT session_local check_password_hook_type check_password_hook;
 
 extern Oid	CreateRole(ParseState *pstate, CreateRoleStmt *stmt);
 extern Oid	AlterRole(ParseState *pstate, AlterRoleStmt *stmt);

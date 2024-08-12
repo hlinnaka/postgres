@@ -135,7 +135,7 @@ static const struct typinfo TypInfo[] = {
 
 static const int n_types = sizeof(TypInfo) / sizeof(struct typinfo);
 
-static List *Typ = NIL;			/* List of struct typinfo* */
+static pg_global List *Typ = NIL;			/* List of struct typinfo* */
 
 /*
  * Basic information about built-in roles.
@@ -174,7 +174,7 @@ static const struct rolinfo RolInfo[] = {
 };
 
 
-static MemoryContext nogc = NULL;	/* special no-gc mem context */
+static pg_global MemoryContext nogc = NULL;	/* special no-gc mem context */
 
 /*
  *	At bootstrap time, we first declare all the indices to be built, and
@@ -190,7 +190,7 @@ typedef struct _IndexList
 	struct _IndexList *il_next;
 } IndexList;
 
-static IndexList *ILHead = NULL;
+static pg_global IndexList *ILHead = NULL;
 
 
 /*

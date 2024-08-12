@@ -25,7 +25,7 @@
 
 
 /* GUC variable */
-bool		ignore_checksum_failure = false;
+session_guc bool		ignore_checksum_failure = false;
 
 
 /* ----------------------------------------------------------------

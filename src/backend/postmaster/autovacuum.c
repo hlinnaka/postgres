@@ -120,30 +120,31 @@
 /*
  * GUC parameters
  */
-bool		autovacuum_start_daemon = false;
-int			autovacuum_worker_slots;
-int			autovacuum_max_workers;
-int			autovacuum_work_mem = -1;
-int			autovacuum_naptime;
-int			autovacuum_vac_thresh;
-int			autovacuum_vac_max_thresh;
-double		autovacuum_vac_scale;
-int			autovacuum_vac_ins_thresh;
-double		autovacuum_vac_ins_scale;
-int			autovacuum_anl_thresh;
-double		autovacuum_anl_scale;
-int			autovacuum_freeze_max_age;
-int			autovacuum_multixact_freeze_max_age;
-double		autovacuum_freeze_score_weight = 1.0;
-double		autovacuum_multixact_freeze_score_weight = 1.0;
-double		autovacuum_vacuum_score_weight = 1.0;
-double		autovacuum_vacuum_insert_score_weight = 1.0;
-double		autovacuum_analyze_score_weight = 1.0;
-double		autovacuum_vac_cost_delay;
-int			autovacuum_vac_cost_limit;
+/* FIXME: or should these be 'session_guc'? */
+session_local bool		autovacuum_start_daemon = false;
+session_local int			autovacuum_worker_slots;
+session_local int			autovacuum_max_workers;
+session_local int			autovacuum_work_mem = -1;
+session_local int			autovacuum_naptime;
+session_local int			autovacuum_vac_thresh;
+session_local int			autovacuum_vac_max_thresh;
+session_local double		autovacuum_vac_scale;
+session_local int			autovacuum_vac_ins_thresh;
+session_local double		autovacuum_vac_ins_scale;
+session_local int			autovacuum_anl_thresh;
+session_local double		autovacuum_anl_scale;
+session_local int			autovacuum_freeze_max_age;
+session_local int			autovacuum_multixact_freeze_max_age;
+session_local double		autovacuum_freeze_score_weight = 1.0;
+session_local double		autovacuum_multixact_freeze_score_weight = 1.0;
+session_local double		autovacuum_vacuum_score_weight = 1.0;
+session_local double		autovacuum_vacuum_insert_score_weight = 1.0;
+session_local double		autovacuum_analyze_score_weight = 1.0;
+session_local double		autovacuum_vac_cost_delay;
+session_local int			autovacuum_vac_cost_limit;
 
-int			Log_autovacuum_min_duration = 600000;
-int			Log_autoanalyze_min_duration = 600000;
+session_local int			Log_autovacuum_min_duration = 600000;
+session_local int			Log_autoanalyze_min_duration = 600000;
 
 /* the minimum allowed time between two awakenings of the launcher */
 #define MIN_AUTOVAC_SLEEPTIME 100.0 /* milliseconds */
@@ -158,21 +159,21 @@ int			Log_autoanalyze_min_duration = 600000;
  * parameters were specified and will be set in do_autovacuum() after checking
  * the storage parameters in table_recheck_autovac().
  */
-static double av_storage_param_cost_delay = -1;
-static int	av_storage_param_cost_limit = -1;
+static session_local double av_storage_param_cost_delay = -1;
+static session_local int	av_storage_param_cost_limit = -1;
 
 /* Comparison points for determining whether freeze_max_age is exceeded */
-static TransactionId recentXid;
-static MultiXactId recentMulti;
+static session_local TransactionId recentXid;
+static session_local MultiXactId recentMulti;
 
 /* Default freeze ages to use for autovacuum (varies by database) */
-static int	default_freeze_min_age;
-static int	default_freeze_table_age;
-static int	default_multixact_freeze_min_age;
-static int	default_multixact_freeze_table_age;
+static session_local int	default_freeze_min_age;
+static session_local int	default_freeze_table_age;
+static session_local int	default_multixact_freeze_min_age;
+static session_local int	default_multixact_freeze_table_age;
 
 /* Memory context for long-lived data */
-static MemoryContext AutovacMemCxt;
+static session_local MemoryContext AutovacMemCxt;
 
 /* struct to keep track of databases in launcher */
 typedef struct avl_dbase
@@ -308,7 +309,7 @@ typedef struct
 	pg_atomic_uint32 av_nworkersForBalance;
 } AutoVacuumShmemStruct;
 
-static AutoVacuumShmemStruct *AutoVacuumShmem;
+static pg_global AutoVacuumShmemStruct *AutoVacuumShmem;
 
 static void AutoVacuumShmemRequest(void *arg);
 static void AutoVacuumShmemInit(void *arg);
@@ -322,8 +323,8 @@ const ShmemCallbacks AutoVacuumShmemCallbacks = {
  * the database list (of avl_dbase elements) in the launcher, and the context
  * that contains it
  */
-static dlist_head DatabaseList = DLIST_STATIC_INIT(DatabaseList);
-static MemoryContext DatabaseListCxt = NULL;
+static /* FIXME: session_local */ dlist_head DatabaseList = DLIST_STATIC_INIT(DatabaseList);
+static session_local MemoryContext DatabaseListCxt = NULL;
 
 /*
  * This struct is used by relation_needs_vacanalyze() to return the table's
@@ -360,7 +361,7 @@ avl_dbase  *avl_dbase_array;
 #endif
 
 /* Pointer to my own WorkerInfo, valid on each worker */
-static WorkerInfo MyWorkerInfo = NULL;
+static session_local WorkerInfo MyWorkerInfo = NULL;
 
 static Oid	do_start_worker(void);
 static void ProcessAutoVacLauncherConfigReloadInterrupt(void);

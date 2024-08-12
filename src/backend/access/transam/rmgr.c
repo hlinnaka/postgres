@@ -47,7 +47,7 @@
 #define PG_RMGR(symname,name,redo,desc,identify,startup,cleanup,mask,decode) \
 	{ name, redo, desc, identify, startup, cleanup, mask, decode },
 
-RmgrData	RmgrTable[RM_MAX_ID + 1] = {
+static_singleton RmgrData	RmgrTable[RM_MAX_ID + 1] = {
 #include "access/rmgrlist.h"
 };
 

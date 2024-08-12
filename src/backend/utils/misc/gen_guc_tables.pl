@@ -25,6 +25,9 @@ my $parse = Catalog::ParseData($input_fname);
 open my $ofh, '>', $output_fname or die;
 
 print_boilerplate($ofh, $output_fname, 'GUC tables');
+
+print_variable_addr_functions($ofh);
+
 print_table($ofh);
 
 close $ofh;
@@ -103,6 +106,19 @@ sub validate_guc_entry
 	}
 }
 
+# Print accessor functions for the thread-local variables
+sub print_variable_addr_functions
+{
+	print $ofh "\n\n";
+
+	foreach my $entry (@{$parse})
+	{
+		print $ofh "#ifdef $entry->{ifdef}\n" if $entry->{ifdef};
+		printf $ofh "DEFINE_%s_GUC_ADDR(%s);\n", uc($entry->{type}), $entry->{variable};
+		print $ofh "#endif\n" if $entry->{ifdef};
+	}
+}
+	
 # Print GUC table.
 sub print_table
 {
@@ -152,7 +168,7 @@ sub print_table
 		printf $ofh "\t\t.flags = %s,\n", $entry->{flags} if $entry->{flags};
 		printf $ofh "\t\t.vartype = %s,\n", ('PGC_' . uc($entry->{type}));
 		printf $ofh "\t\t._%s = {\n", $entry->{type};
-		printf $ofh "\t\t\t.variable = &%s,\n", $entry->{variable};
+		printf $ofh "\t\t\t.variable_addr = &%s_address,\n", $entry->{variable};
 		printf $ofh "\t\t\t.boot_val = %s,\n", $entry->{boot_val};
 		printf $ofh "\t\t\t.min = %s,\n", $entry->{min}
 		  if $entry->{type} eq 'int' || $entry->{type} eq 'real';

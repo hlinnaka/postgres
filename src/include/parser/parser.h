@@ -53,7 +53,7 @@ typedef enum
 }			BackslashQuoteType;
 
 /* GUC variable in scan.l */
-extern PGDLLIMPORT int backslash_quote;
+extern PGDLLIMPORT session_guc int backslash_quote;
 
 
 /* Primary entry point for the raw parsing functions */

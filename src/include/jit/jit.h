@@ -80,16 +80,16 @@ struct JitProviderCallbacks
 
 
 /* GUCs */
-extern PGDLLIMPORT bool jit_enabled;
-extern PGDLLIMPORT char *jit_provider;
-extern PGDLLIMPORT bool jit_debugging_support;
-extern PGDLLIMPORT bool jit_dump_bitcode;
-extern PGDLLIMPORT bool jit_expressions;
-extern PGDLLIMPORT bool jit_profiling_support;
-extern PGDLLIMPORT bool jit_tuple_deforming;
-extern PGDLLIMPORT double jit_above_cost;
-extern PGDLLIMPORT double jit_inline_above_cost;
-extern PGDLLIMPORT double jit_optimize_above_cost;
+extern PGDLLIMPORT session_guc bool jit_enabled;
+extern PGDLLIMPORT postmaster_guc char *jit_provider;
+extern PGDLLIMPORT session_guc bool jit_debugging_support;
+extern PGDLLIMPORT session_guc bool jit_dump_bitcode;
+extern PGDLLIMPORT session_guc bool jit_expressions;
+extern PGDLLIMPORT session_guc bool jit_profiling_support;
+extern PGDLLIMPORT session_guc bool jit_tuple_deforming;
+extern PGDLLIMPORT session_guc double jit_above_cost;
+extern PGDLLIMPORT session_guc double jit_inline_above_cost;
+extern PGDLLIMPORT session_guc double jit_optimize_above_cost;
 
 
 extern void jit_reset_after_error(void);

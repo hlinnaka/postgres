@@ -93,7 +93,7 @@ typedef struct PgArchData
 	pg_atomic_uint32 force_dir_scan;
 } PgArchData;
 
-char	   *XLogArchiveLibrary = "";
+sighup_guc char	   *XLogArchiveLibrary = "";
 char	   *arch_module_check_errdetail_string;
 
 
@@ -101,11 +101,11 @@ char	   *arch_module_check_errdetail_string;
  * Local data
  * ----------
  */
-static time_t last_sigterm_time = 0;
-static PgArchData *PgArch = NULL;
-static const ArchiveModuleCallbacks *ArchiveCallbacks;
-static ArchiveModuleState *archive_module_state;
-static MemoryContext archive_context;
+static pg_global time_t last_sigterm_time = 0;
+static pg_global PgArchData *PgArch = NULL;
+static pg_global const ArchiveModuleCallbacks *ArchiveCallbacks;
+static pg_global ArchiveModuleState *archive_module_state;
+static session_local MemoryContext archive_context;
 
 
 /*
@@ -131,7 +131,7 @@ struct arch_files_state
 	char		arch_filenames[NUM_FILES_PER_DIRECTORY_SCAN][MAX_XFN_CHARS + 1];
 };
 
-static struct arch_files_state *arch_files = NULL;
+static pg_global struct arch_files_state *arch_files = NULL;
 
 /* ----------
  * Local function forward declarations

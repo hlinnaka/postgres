@@ -67,13 +67,13 @@ typedef union
 #define PIPE_PROTO_DEST_JSONLOG	0x40
 
 /* GUC options */
-extern PGDLLIMPORT bool Logging_collector;
-extern PGDLLIMPORT int Log_RotationAge;
-extern PGDLLIMPORT int Log_RotationSize;
-extern PGDLLIMPORT char *Log_directory;
-extern PGDLLIMPORT char *Log_filename;
-extern PGDLLIMPORT bool Log_truncate_on_rotation;
-extern PGDLLIMPORT int Log_file_mode;
+extern PGDLLIMPORT postmaster_guc bool Logging_collector;
+extern PGDLLIMPORT sighup_guc int Log_RotationAge;
+extern PGDLLIMPORT sighup_guc int Log_RotationSize;
+extern PGDLLIMPORT sighup_guc char *Log_directory;
+extern PGDLLIMPORT sighup_guc char *Log_filename;
+extern PGDLLIMPORT sighup_guc bool Log_truncate_on_rotation;
+extern PGDLLIMPORT sighup_guc int Log_file_mode;
 
 #ifdef EXEC_BACKEND
 extern PGDLLIMPORT pg_time_t first_syslogger_file_time;

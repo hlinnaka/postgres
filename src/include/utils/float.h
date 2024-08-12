@@ -25,7 +25,7 @@
 /* Radians per degree, a.k.a. PI / 180 */
 #define RADIANS_PER_DEGREE 0.0174532925199432957692
 
-extern PGDLLIMPORT int extra_float_digits;
+extern PGDLLIMPORT session_guc int extra_float_digits;
 
 /*
  * Utility functions in float.c

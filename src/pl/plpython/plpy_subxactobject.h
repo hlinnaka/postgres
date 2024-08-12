@@ -10,7 +10,7 @@
 #include "utils/resowner.h"
 
 /* a list of nested explicit subtransactions */
-extern List *explicit_subtransactions;
+extern session_local List *explicit_subtransactions;
 
 
 typedef struct PLySubtransactionObject

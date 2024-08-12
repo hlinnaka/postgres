@@ -33,6 +33,13 @@ static bool REGRESS_deny_exec_perms = false;
 static bool REGRESS_deny_utility_commands = false;
 static bool REGRESS_audit = false;
 
+DEFINE_BOOL_GUC_ADDR(REGRESS_deny_set_variable)
+DEFINE_BOOL_GUC_ADDR(REGRESS_deny_alter_system)
+DEFINE_BOOL_GUC_ADDR(REGRESS_deny_object_access)
+DEFINE_BOOL_GUC_ADDR(REGRESS_deny_exec_perms)
+DEFINE_BOOL_GUC_ADDR(REGRESS_deny_utility_commands)
+DEFINE_BOOL_GUC_ADDR(REGRESS_audit)
+
 /*
  * GUCs for testing privileges on USERSET and SUSET variables,
  * with and without privileges granted prior to module load.
@@ -41,6 +48,11 @@ static bool REGRESS_userset_variable1 = false;
 static bool REGRESS_userset_variable2 = false;
 static bool REGRESS_suset_variable1 = false;
 static bool REGRESS_suset_variable2 = false;
+
+DEFINE_BOOL_GUC_ADDR(REGRESS_userset_variable1)
+DEFINE_BOOL_GUC_ADDR(REGRESS_userset_variable2)
+DEFINE_BOOL_GUC_ADDR(REGRESS_suset_variable1)
+DEFINE_BOOL_GUC_ADDR(REGRESS_suset_variable2)
 
 /* Saved hook values */
 static object_access_hook_type next_object_access_hook = NULL;
@@ -79,7 +91,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.deny_set_variable",
 							 "Deny non-superuser set permissions",
 							 NULL,
-							 &REGRESS_deny_set_variable,
+							 GUC_ADDR(REGRESS_deny_set_variable),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -93,7 +105,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.deny_alter_system",
 							 "Deny non-superuser alter system set permissions",
 							 NULL,
-							 &REGRESS_deny_alter_system,
+							 GUC_ADDR(REGRESS_deny_alter_system),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -107,7 +119,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.deny_object_access",
 							 "Deny non-superuser object access permissions",
 							 NULL,
-							 &REGRESS_deny_object_access,
+							 GUC_ADDR(REGRESS_deny_object_access),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -121,7 +133,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.deny_exec_perms",
 							 "Deny non-superuser exec permissions",
 							 NULL,
-							 &REGRESS_deny_exec_perms,
+							 GUC_ADDR(REGRESS_deny_exec_perms),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -135,7 +147,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.deny_utility_commands",
 							 "Deny non-superuser utility commands",
 							 NULL,
-							 &REGRESS_deny_utility_commands,
+							 GUC_ADDR(REGRESS_deny_utility_commands),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -149,7 +161,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.audit",
 							 "Turn on/off debug audit messages",
 							 NULL,
-							 &REGRESS_audit,
+							 GUC_ADDR(REGRESS_audit),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -163,7 +175,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.user_var1",
 							 "Dummy parameter settable by public",
 							 NULL,
-							 &REGRESS_userset_variable1,
+							 GUC_ADDR(REGRESS_userset_variable1),
 							 false,
 							 PGC_USERSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -174,7 +186,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.user_var2",
 							 "Dummy parameter settable by public",
 							 NULL,
-							 &REGRESS_userset_variable2,
+							 GUC_ADDR(REGRESS_userset_variable2),
 							 false,
 							 PGC_USERSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -188,7 +200,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.super_var1",
 							 "Dummy parameter settable by superuser",
 							 NULL,
-							 &REGRESS_suset_variable1,
+							 GUC_ADDR(REGRESS_suset_variable1),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,
@@ -199,7 +211,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("test_oat_hooks.super_var2",
 							 "Dummy parameter settable by superuser",
 							 NULL,
-							 &REGRESS_suset_variable2,
+							 GUC_ADDR(REGRESS_suset_variable2),
 							 false,
 							 PGC_SUSET,
 							 GUC_NOT_IN_SAMPLE,

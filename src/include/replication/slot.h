@@ -319,14 +319,14 @@ ReplicationSlotSetInactiveSince(ReplicationSlot *s, TimestampTz ts,
 /*
  * Pointers to shared memory
  */
-extern PGDLLIMPORT ReplicationSlotCtlData *ReplicationSlotCtl;
-extern PGDLLIMPORT ReplicationSlot *MyReplicationSlot;
+extern PGDLLIMPORT pg_global ReplicationSlotCtlData *ReplicationSlotCtl;
+extern PGDLLIMPORT session_local ReplicationSlot *MyReplicationSlot;
 
 /* GUCs */
-extern PGDLLIMPORT int max_replication_slots;
-extern PGDLLIMPORT int max_repack_replication_slots;
-extern PGDLLIMPORT char *synchronized_standby_slots;
-extern PGDLLIMPORT int idle_replication_slot_timeout_secs;
+extern PGDLLIMPORT postmaster_guc int max_replication_slots;
+extern PGDLLIMPORT postmaster_guc int max_repack_replication_slots;
+extern PGDLLIMPORT sighup_guc char *synchronized_standby_slots;
+extern PGDLLIMPORT sighup_guc int idle_replication_slot_timeout_secs;
 
 /* management of individual slots */
 extern void ReplicationSlotCreate(const char *name, bool db_specific,

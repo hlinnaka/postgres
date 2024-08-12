@@ -15,7 +15,7 @@
 /*
  * The value of the archive_library GUC.
  */
-extern PGDLLIMPORT char *XLogArchiveLibrary;
+extern PGDLLIMPORT sighup_guc char *XLogArchiveLibrary;
 
 typedef struct ArchiveModuleState
 {

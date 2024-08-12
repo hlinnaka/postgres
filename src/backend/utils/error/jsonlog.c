@@ -24,6 +24,7 @@
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/backend_status.h"
+#include "utils/elog_gucs.h"
 #include "utils/guc.h"
 #include "utils/json.h"
 #include "utils/ps_status.h"
@@ -113,7 +114,7 @@ write_jsonlog(ErrorData *edata)
 	char	   *log_time;
 
 	/* static counter for line numbers */
-	static long log_line_number = 0;
+	static session_local long log_line_number = 0;
 
 	/* Has the counter been reset in the current process? */
 	static int	log_my_pid = 0;

@@ -91,7 +91,7 @@ const ShmemCallbacks CommitTsShmemCallbacks = {
 	.init_fn = CommitTsShmemInit,
 };
 
-static SlruDesc CommitTsSlruDesc;
+static pg_global SlruDesc CommitTsSlruDesc;
 
 #define CommitTsCtl (&CommitTsSlruDesc)
 
@@ -113,12 +113,12 @@ typedef struct CommitTimestampShared
 	bool		commitTsActive;
 } CommitTimestampShared;
 
-static CommitTimestampShared *commitTsShared;
+static pg_global CommitTimestampShared *commitTsShared;
 
 static void CommitTsShmemInit(void *arg);
 
 /* GUC variable */
-bool		track_commit_timestamp;
+postmaster_guc bool		track_commit_timestamp;
 
 static void SetXidCommitTsInPage(TransactionId xid, int nsubxids,
 								 TransactionId *subxids, TimestampTz ts,

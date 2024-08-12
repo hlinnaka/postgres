@@ -165,7 +165,7 @@ typedef struct ReplicationStateCtl
 } ReplicationStateCtl;
 
 /* Global variable for per-transaction replication origin state */
-ReplOriginXactState replorigin_xact_state = {
+session_local ReplOriginXactState replorigin_xact_state = {
 	.origin = InvalidReplOriginId,	/* assumed identity */
 	.origin_lsn = InvalidXLogRecPtr,
 	.origin_timestamp = 0
@@ -175,7 +175,7 @@ ReplOriginXactState replorigin_xact_state = {
  * Base address into a shared memory array of replication states of size
  * max_active_replication_origins.
  */
-static ReplicationState *replication_states;
+static pg_global ReplicationState *replication_states;
 
 static void ReplicationOriginShmemRequest(void *arg);
 static void ReplicationOriginShmemInit(void *arg);
@@ -190,7 +190,7 @@ const ShmemCallbacks ReplicationOriginShmemCallbacks = {
 /*
  * Actual shared memory block (replication_states[] is now part of this).
  */
-static ReplicationStateCtl *replication_states_ctl;
+static pg_global ReplicationStateCtl *replication_states_ctl;
 
 /*
  * We keep a pointer to this backend's ReplicationState to avoid having to
@@ -198,7 +198,7 @@ static ReplicationStateCtl *replication_states_ctl;
  * remote commit.  (Ownership of a backend's own entry can only be changed by
  * that backend.)
  */
-static ReplicationState *session_replication_state = NULL;
+static session_local ReplicationState *session_replication_state = NULL;
 
 /* Magic for on disk files. */
 #define REPLICATION_STATE_MAGIC ((uint32) 0x1257DADE)

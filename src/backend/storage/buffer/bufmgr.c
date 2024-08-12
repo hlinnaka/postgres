@@ -187,10 +187,10 @@ typedef struct SMgrSortArray
 } SMgrSortArray;
 
 /* GUC variables */
-bool		zero_damaged_pages = false;
-int			bgwriter_lru_maxpages = 100;
-double		bgwriter_lru_multiplier = 2.0;
-bool		track_io_timing = false;
+session_guc bool		zero_damaged_pages = false;
+sighup_guc int			bgwriter_lru_maxpages = 100;
+sighup_guc double		bgwriter_lru_multiplier = 2.0;
+session_guc bool		track_io_timing = false;
 
 /*
  * How many buffers PrefetchBuffer callers should try to stay ahead of their
@@ -198,14 +198,14 @@ bool		track_io_timing = false;
  * for buffers not belonging to tablespaces that have their
  * effective_io_concurrency parameter set.
  */
-int			effective_io_concurrency = DEFAULT_EFFECTIVE_IO_CONCURRENCY;
+session_guc int			effective_io_concurrency = DEFAULT_EFFECTIVE_IO_CONCURRENCY;
 
 /*
  * Like effective_io_concurrency, but used by maintenance code paths that might
  * benefit from a higher setting because they work on behalf of many sessions.
  * Overridden by the tablespace setting of the same name.
  */
-int			maintenance_io_concurrency = DEFAULT_MAINTENANCE_IO_CONCURRENCY;
+session_guc int			maintenance_io_concurrency = DEFAULT_MAINTENANCE_IO_CONCURRENCY;
 
 /*
  * Limit on how many blocks should be handled in single I/O operations.
@@ -213,20 +213,20 @@ int			maintenance_io_concurrency = DEFAULT_MAINTENANCE_IO_CONCURRENCY;
  * that call smgr APIs directly.  It is computed as the minimum of underlying
  * GUCs io_combine_limit_guc and io_max_combine_limit.
  */
-int			io_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
-int			io_combine_limit_guc = DEFAULT_IO_COMBINE_LIMIT;
-int			io_max_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
+session_local int			io_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
+session_guc int			io_combine_limit_guc = DEFAULT_IO_COMBINE_LIMIT;
+session_guc int			io_max_combine_limit = DEFAULT_IO_COMBINE_LIMIT;
 
 /*
  * GUC variables about triggering kernel writeback for buffers written; OS
  * dependent defaults are set via the GUC mechanism.
  */
-int			checkpoint_flush_after = DEFAULT_CHECKPOINT_FLUSH_AFTER;
-int			bgwriter_flush_after = DEFAULT_BGWRITER_FLUSH_AFTER;
-int			backend_flush_after = DEFAULT_BACKEND_FLUSH_AFTER;
+sighup_guc int			checkpoint_flush_after = DEFAULT_CHECKPOINT_FLUSH_AFTER;
+sighup_guc int			bgwriter_flush_after = DEFAULT_BGWRITER_FLUSH_AFTER;
+session_guc int			backend_flush_after = DEFAULT_BACKEND_FLUSH_AFTER;
 
 /* local state for LockBufferForCleanup */
-static BufferDesc *PinCountWaitBuf = NULL;
+static session_local BufferDesc *PinCountWaitBuf = NULL;
 
 /*
  * Backend-Private refcount management:
@@ -261,13 +261,13 @@ static BufferDesc *PinCountWaitBuf = NULL;
  * memory allocations in NewPrivateRefCountEntry() which can be important
  * because in some scenarios it's called with a spinlock held...
  */
-static Buffer PrivateRefCountArrayKeys[REFCOUNT_ARRAY_ENTRIES];
-static struct PrivateRefCountEntry PrivateRefCountArray[REFCOUNT_ARRAY_ENTRIES];
-static refcount_hash *PrivateRefCountHash = NULL;
-static int32 PrivateRefCountOverflowed = 0;
-static uint32 PrivateRefCountClock = 0;
-static int	ReservedRefCountSlot = -1;
-static int	PrivateRefCountEntryLast = -1;
+static session_local Buffer PrivateRefCountArrayKeys[REFCOUNT_ARRAY_ENTRIES];
+static session_local struct PrivateRefCountEntry PrivateRefCountArray[REFCOUNT_ARRAY_ENTRIES];
+static session_local refcount_hash *PrivateRefCountHash = NULL;
+static session_local int32 PrivateRefCountOverflowed = 0;
+static session_local uint32 PrivateRefCountClock = 0;
+static session_local int	ReservedRefCountSlot = -1;
+static session_local int	PrivateRefCountEntryLast = -1;
 
 static uint32 MaxProportionalPins;
 
@@ -3849,15 +3849,15 @@ BgBufferSync(WritebackContext *wb_context)
 	 * Information saved between calls so we can determine the strategy
 	 * point's advance rate and avoid scanning already-cleaned buffers.
 	 */
-	static bool saved_info_valid = false;
-	static int	prev_strategy_buf_id;
-	static uint32 prev_strategy_passes;
-	static int	next_to_clean;
-	static uint32 next_passes;
+	static session_local bool saved_info_valid = false;
+	static session_local int	prev_strategy_buf_id;
+	static session_local uint32 prev_strategy_passes;
+	static session_local int	next_to_clean;
+	static session_local uint32 next_passes;
 
 	/* Moving averages of allocation rate and clean-buffer density */
-	static float smoothed_alloc = 0;
-	static float smoothed_density = 10.0;
+	static session_local float smoothed_alloc = 0;
+	static session_local float smoothed_density = 10.0;
 
 	/* Potentially these could be tunables, but for now, not */
 	float		smoothing_samples = 16;

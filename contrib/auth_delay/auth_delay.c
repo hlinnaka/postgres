@@ -22,7 +22,8 @@ PG_MODULE_MAGIC_EXT(
 );
 
 /* GUC Variables */
-static int	auth_delay_milliseconds = 0;
+static sighup_guc int	auth_delay_milliseconds = 0;
+DEFINE_INT_GUC_ADDR(auth_delay_milliseconds);
 
 /* Original Hook */
 static ClientAuthentication_hook_type original_client_auth_hook = NULL;
@@ -58,7 +59,7 @@ _PG_init(void)
 	DefineCustomIntVariable("auth_delay.milliseconds",
 							"Milliseconds to delay before reporting authentication failure",
 							NULL,
-							&auth_delay_milliseconds,
+							GUC_ADDR(auth_delay_milliseconds),
 							0,
 							0, INT_MAX / 1000,
 							PGC_SIGHUP,

@@ -20,13 +20,15 @@
 
 PG_MODULE_MAGIC;
 
-static char *ssl_passphrase = NULL;
+static sighup_guc char *ssl_passphrase = NULL;
 
 /* callback function */
 static int	rot13_passphrase(char *buf, int size, int rwflag, void *userdata);
 
 /* hook function to set the callback */
 static void set_rot13(SSL_CTX *context, bool isServerStart);
+
+DEFINE_STRING_GUC_ADDR(ssl_passphrase)
 
 /*
  * Module load callback
@@ -38,7 +40,7 @@ _PG_init(void)
 	DefineCustomStringVariable("ssl_passphrase.passphrase",
 							   "passphrase before transformation",
 							   NULL,
-							   &ssl_passphrase,
+							   GUC_ADDR(ssl_passphrase),
 							   NULL,
 							   PGC_SIGHUP,
 							   0,	/* no flags required */

@@ -24,30 +24,30 @@
 
 
 /* Variables for the holdoff mechanism */
-uint32		InterruptHoldoffCount = 0;
-uint32		CritSectionCount = 0;
+session_local uint32		InterruptHoldoffCount = 0;
+session_local uint32		CritSectionCount = 0;
 
 /*
  * Currently installed interrupt handlers
  */
-static pg_interrupt_handler_t interrupt_handlers[64];
+static session_local pg_interrupt_handler_t interrupt_handlers[64];
 
 /* Bitmask of currently enabled interrupts */
-InterruptMask EnabledInterruptsMask;
+session_local InterruptMask EnabledInterruptsMask;
 
 /* A common WaitEventSet used to implement WaitInterrupt() */
-static WaitEventSet *InterruptWaitSet;
+static session_local WaitEventSet *InterruptWaitSet;
 
 /* The position of the interrupt in InterruptWaitSet. */
 #define InterruptWaitSetInterruptPos 0
 #define InterruptWaitSetPostmasterDeathPos 1
 
-static PendingInterrupts LocalPendingInterrupts;
-PendingInterrupts *MyPendingInterrupts = &LocalPendingInterrupts;
-pg_atomic_uint32 *MyPendingInterruptsFlags = &LocalPendingInterrupts.flags;
+static session_local PendingInterrupts LocalPendingInterrupts;
+session_local PendingInterrupts *MyPendingInterrupts = NULL; // FIXME: &LocalPendingInterrupts;
+session_local pg_atomic_uint32 *MyPendingInterruptsFlags = NULL; // FIXME: &LocalPendingInterrupts.flags;
 const pg_atomic_uint32 ZeroPendingInterruptsFlags;
 
-static int	nextAddinInterruptBit = BEGIN_ADDIN_INTERRUPTS;
+static pg_global int	nextAddinInterruptBit = BEGIN_ADDIN_INTERRUPTS;
 
 /*
  * Install an interrupt handler callback function for the given interrupt.

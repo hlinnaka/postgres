@@ -119,7 +119,7 @@
 #define MAX_SEND_SIZE (XLOG_BLCKSZ * 16)
 
 /* Array of WalSnds in shared memory */
-WalSndCtlData *WalSndCtl = NULL;
+pg_global WalSndCtlData *WalSndCtl = NULL;
 
 static void WalSndShmemRequest(void *arg);
 static void WalSndShmemInit(void *arg);
@@ -130,37 +130,37 @@ const ShmemCallbacks WalSndShmemCallbacks = {
 };
 
 /* My slot in the shared memory array */
-WalSnd	   *MyWalSnd = NULL;
+session_local WalSnd	   *MyWalSnd = NULL;
 
 /* Global state */
-bool		am_walsender = false;	/* Am I a walsender process? */
-bool		am_cascading_walsender = false; /* Am I cascading WAL to another
+session_local bool		am_walsender = false;	/* Am I a walsender process? */
+session_local bool		am_cascading_walsender = false; /* Am I cascading WAL to another
 											 * standby? */
-bool		am_db_walsender = false;	/* Connected to a database? */
+session_local bool		am_db_walsender = false;	/* Connected to a database? */
 
 /* GUC variables */
-int			max_wal_senders = 10;	/* the maximum number of concurrent
+postmaster_guc int			max_wal_senders = 10;	/* the maximum number of concurrent
 									 * walsenders */
-int			wal_sender_timeout = 60 * 1000; /* maximum time to send one WAL
+session_guc int			wal_sender_timeout = 60 * 1000; /* maximum time to send one WAL
 											 * data message */
 
-int			wal_sender_shutdown_timeout = -1;	/* maximum time to wait during
+session_guc int			wal_sender_shutdown_timeout = -1;	/* maximum time to wait during
 												 * shutdown for WAL
 												 * replication */
 
-bool		log_replication_commands = false;
+session_guc bool		log_replication_commands = false;
 
 /*
  * State for WalSndWakeupRequest
  */
-bool		wake_wal_senders = false;
+session_local bool		wake_wal_senders = false;
 
 /*
  * xlogreader used for replication.  Note that a WAL sender doing physical
  * replication does not need xlogreader to read WAL, but it needs one to
  * keep a state of its work.
  */
-static XLogReaderState *xlogreader = NULL;
+static session_local XLogReaderState *xlogreader = NULL;
 
 /*
  * If the UPLOAD_MANIFEST command is used to provide a backup manifest in
@@ -179,33 +179,33 @@ static MemoryContext uploaded_manifest_mcxt = NULL;
  * the timeline is not the latest timeline on this server, and the server's
  * history forked off from that timeline at sendTimeLineValidUpto.
  */
-static TimeLineID sendTimeLine = 0;
-static TimeLineID sendTimeLineNextTLI = 0;
-static bool sendTimeLineIsHistoric = false;
-static XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
+static session_local TimeLineID sendTimeLine = 0;
+static session_local TimeLineID sendTimeLineNextTLI = 0;
+static session_local bool sendTimeLineIsHistoric = false;
+static session_local XLogRecPtr sendTimeLineValidUpto = InvalidXLogRecPtr;
 
 /*
  * How far have we sent WAL already? This is also advertised in
  * MyWalSnd->sentPtr.  (Actually, this is the next WAL location to send.)
  */
-static XLogRecPtr sentPtr = InvalidXLogRecPtr;
+static session_local XLogRecPtr sentPtr = InvalidXLogRecPtr;
 
 /* Buffers for constructing outgoing messages and processing reply messages. */
-static StringInfoData output_message;
-static StringInfoData reply_message;
-static StringInfoData tmpbuf;
+static session_local StringInfoData output_message;
+static session_local StringInfoData reply_message;
+static session_local StringInfoData tmpbuf;
 
 /* Timestamp of last ProcessRepliesIfAny(). */
-static TimestampTz last_processing = 0;
+static session_local TimestampTz last_processing = 0;
 
 /*
  * Timestamp of last ProcessRepliesIfAny() that saw a reply from the
  * standby. Set to 0 if wal_sender_timeout doesn't need to be active.
  */
-static TimestampTz last_reply_timestamp = 0;
+static session_local TimestampTz last_reply_timestamp = 0;
 
 /* Have we sent a heartbeat message asking for reply, since last reply? */
-static bool waiting_for_ping_response = false;
+static session_local bool waiting_for_ping_response = false;
 
 /* Timestamp when walsender received the shutdown request */
 static TimestampTz shutdown_request_timestamp = 0;
@@ -223,14 +223,14 @@ static bool shutdown_stream_done_queued = false;
  * after that. streamingDoneReceiving is set to true when we receive CopyDone
  * from the other end. When both become true, it's time to exit Copy mode.
  */
-static bool streamingDoneSending;
-static bool streamingDoneReceiving;
+static session_local bool streamingDoneSending;
+static session_local bool streamingDoneReceiving;
 
 /* Are we there yet? */
-static bool WalSndCaughtUp = false;
+static session_local bool WalSndCaughtUp = false;
 
 /* Flag set by interrupt handler, if INIT_STOPPING has been received */
-static bool got_STOPPING = false;
+static session_local bool got_STOPPING = false;
 
 /*
  * This is set while we are streaming. When not set
@@ -239,9 +239,9 @@ static bool got_STOPPING = false;
  * INTERRUPT_WALSND_INIT_STOPPING and terminating when it's set (after
  * streaming any remaining WAL).
  */
-static volatile sig_atomic_t replication_active = false;
+static session_local volatile sig_atomic_t replication_active = false;
 
-static LogicalDecodingContext *logical_decoding_ctx = NULL;
+static session_local LogicalDecodingContext *logical_decoding_ctx = NULL;
 
 /* A sample associating a WAL location with the time it was written. */
 typedef struct
@@ -277,7 +277,7 @@ typedef struct
 	WalTimeSample overflowed[NUM_SYNC_REP_WAIT_MODE];
 } LagTracker;
 
-static LagTracker *lag_tracker;
+static session_local LagTracker *lag_tracker;
 
 /* Signal handlers */
 static void WalSndLastCycleHandler(SIGNAL_ARGS);
@@ -1768,7 +1768,7 @@ static void
 WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid,
 					 bool skipped_xact)
 {
-	static TimestampTz sendTime = 0;
+	static session_local TimestampTz sendTime = 0;
 	TimestampTz now = GetCurrentTimestamp();
 	bool		pending_writes = false;
 	bool		end_xact = ctx->end_xact;
@@ -1919,7 +1919,7 @@ WalSndWaitForWal(XLogRecPtr loc)
 {
 	int			wakeEvents;
 	uint32		wait_event = 0;
-	static XLogRecPtr RecentFlushPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr RecentFlushPtr = InvalidXLogRecPtr;
 	TimestampTz last_flush = 0;
 
 	/*
@@ -2550,9 +2550,9 @@ ProcessStandbyReplyMessage(void)
 	TimestampTz now;
 	TimestampTz replyTime;
 
-	static XLogRecPtr prevWritePtr = InvalidXLogRecPtr;
-	static XLogRecPtr prevFlushPtr = InvalidXLogRecPtr;
-	static XLogRecPtr prevApplyPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr prevWritePtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr prevFlushPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr prevApplyPtr = InvalidXLogRecPtr;
 
 	/* the caller already consumed the msgtype byte */
 	writePtr = pq_getmsgint64(&reply_message);
@@ -3681,7 +3681,7 @@ XLogSendLogical(void)
 	 * helpful because GetFlushRecPtr() needs to acquire a heavily-contended
 	 * spinlock.
 	 */
-	static XLogRecPtr flushPtr = InvalidXLogRecPtr;
+	static session_local XLogRecPtr flushPtr = InvalidXLogRecPtr;
 
 	/*
 	 * Don't know whether we've caught up yet. We'll set WalSndCaughtUp to

@@ -391,7 +391,7 @@ typedef struct PGPROC
 }
 PGPROC;
 
-extern PGDLLIMPORT PGPROC *MyProc;
+extern PGDLLIMPORT session_local PGPROC *MyProc;
 
 /*
  * There is one ProcGlobal struct for the whole database cluster.
@@ -509,9 +509,9 @@ typedef struct PROC_HDR
 	int			startupBufferPinWaitBufId;
 } PROC_HDR;
 
-extern PGDLLIMPORT PROC_HDR *ProcGlobal;
+extern PGDLLIMPORT pg_global PROC_HDR *ProcGlobal;
 
-extern PGDLLIMPORT PGPROC *PreparedXactProcs;
+extern PGDLLIMPORT pg_global PGPROC *PreparedXactProcs;
 
 /*
  * Accessors for getting PGPROC given a ProcNumber and vice versa.
@@ -544,13 +544,13 @@ extern PGDLLIMPORT PGPROC *PreparedXactProcs;
 #define FIRST_PREPARED_XACT_PROC_NUMBER	(MaxBackends + NUM_AUXILIARY_PROCS)
 
 /* configurable options */
-extern PGDLLIMPORT int DeadlockTimeout;
-extern PGDLLIMPORT int StatementTimeout;
-extern PGDLLIMPORT int LockTimeout;
-extern PGDLLIMPORT int IdleInTransactionSessionTimeout;
-extern PGDLLIMPORT int TransactionTimeout;
-extern PGDLLIMPORT int IdleSessionTimeout;
-extern PGDLLIMPORT bool log_lock_waits;
+extern PGDLLIMPORT session_guc int DeadlockTimeout;
+extern PGDLLIMPORT session_guc int StatementTimeout;
+extern PGDLLIMPORT session_guc int LockTimeout;
+extern PGDLLIMPORT session_guc int IdleInTransactionSessionTimeout;
+extern PGDLLIMPORT session_guc int TransactionTimeout;
+extern PGDLLIMPORT session_guc int IdleSessionTimeout;
+extern PGDLLIMPORT session_guc bool log_lock_waits;
 
 #ifdef EXEC_BACKEND
 extern PGDLLIMPORT PGPROC *AuxiliaryProcs;

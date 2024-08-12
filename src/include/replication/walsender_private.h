@@ -80,7 +80,7 @@ typedef struct WalSnd
 	ReplicationKind kind;
 } WalSnd;
 
-extern PGDLLIMPORT WalSnd *MyWalSnd;
+extern PGDLLIMPORT session_local WalSnd *MyWalSnd;
 
 /* There is one WalSndCtl struct for the whole database cluster */
 typedef struct
@@ -133,7 +133,7 @@ typedef struct
  */
 #define SYNC_STANDBY_DEFINED		(1 << 1)
 
-extern PGDLLIMPORT WalSndCtlData *WalSndCtl;
+extern PGDLLIMPORT pg_global WalSndCtlData *WalSndCtl;
 
 
 extern void WalSndSetState(WalSndState state);

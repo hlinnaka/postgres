@@ -87,16 +87,16 @@ static const dshash_parameters dsh_params = {
  * pgStatShared->gc_request_count is incremented - which each backend
  * compares to their copy of pgStatSharedRefAge on a regular basis.
  */
-static pgstat_entry_ref_hash_hash *pgStatEntryRefHash = NULL;
-static int	pgStatSharedRefAge = 0; /* cache age of pgStatShared */
+static session_local pgstat_entry_ref_hash_hash *pgStatEntryRefHash = NULL;
+static session_local int	pgStatSharedRefAge = 0; /* cache age of pgStatShared */
 
 /*
  * Memory contexts containing the pgStatEntryRefHash table and the
  * pgStatSharedRef entries respectively. Kept separate to make it easier to
  * track / attribute memory usage.
  */
-static MemoryContext pgStatSharedRefContext = NULL;
-static MemoryContext pgStatEntryRefHashContext = NULL;
+static session_local MemoryContext pgStatSharedRefContext = NULL;
+static session_local MemoryContext pgStatEntryRefHashContext = NULL;
 
 
 /* ------------------------------------------------------------

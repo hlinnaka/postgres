@@ -56,7 +56,7 @@
 
 /* GUC variables */
 #ifdef TRACE_SYNCSCAN
-bool		trace_syncscan = false;
+session_guc bool		trace_syncscan = false;
 #endif
 
 
@@ -121,7 +121,7 @@ const ShmemCallbacks SyncScanShmemCallbacks = {
 };
 
 /* Pointer to struct in shared memory */
-static ss_scan_locations_t *scan_locations;
+static pg_global ss_scan_locations_t *scan_locations;
 
 /* prototypes for internal functions */
 static BlockNumber ss_search(RelFileLocator relfilelocator,

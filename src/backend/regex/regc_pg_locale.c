@@ -21,7 +21,7 @@
 #include "utils/pg_locale.h"
 #include "utils/pg_locale_c.h"
 
-static pg_locale_t pg_regex_locale;
+static session_local pg_locale_t pg_regex_locale;
 
 
 /*

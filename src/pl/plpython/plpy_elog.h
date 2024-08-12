@@ -8,9 +8,9 @@
 #include "plpython.h"
 
 /* global exception classes */
-extern PyObject *PLy_exc_error;
-extern PyObject *PLy_exc_fatal;
-extern PyObject *PLy_exc_spi_error;
+extern session_local PyObject *PLy_exc_error;
+extern session_local PyObject *PLy_exc_fatal;
+extern session_local PyObject *PLy_exc_spi_error;
 
 /*
  * PLy_elog()

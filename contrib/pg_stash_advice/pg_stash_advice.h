@@ -92,8 +92,8 @@ extern dshash_table *pgsa_stash_dshash;
 extern dshash_table *pgsa_entry_dshash;
 
 /* GUC variables */
-extern bool pg_stash_advice_persist;
-extern int	pg_stash_advice_persist_interval;
+extern postmaster_guc bool pg_stash_advice_persist;
+extern sighup_guc int	pg_stash_advice_persist_interval;
 
 /* Function prototypes */
 extern void pgsa_attach(void);

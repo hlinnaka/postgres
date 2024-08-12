@@ -43,10 +43,10 @@ static PLyExecutionContext *PLy_push_execution_context(bool atomic_context);
 static void PLy_pop_execution_context(void);
 
 /* initialize global variables */
-PyObject   *PLy_interp_globals = NULL;
+session_local PyObject   *PLy_interp_globals = NULL;
 
 /* this doesn't need to be global; use PLy_current_execution_context() */
-static PLyExecutionContext *PLy_execution_contexts = NULL;
+static session_local PLyExecutionContext *PLy_execution_contexts = NULL;
 
 
 void

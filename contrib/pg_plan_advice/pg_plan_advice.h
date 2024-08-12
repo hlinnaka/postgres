@@ -52,10 +52,10 @@ typedef char *(*pg_plan_advice_advisor_hook) (PlannerGlobal *glob,
 											  ExplainState *es);
 
 /* GUC variables */
-extern char *pg_plan_advice_advice;
-extern bool pg_plan_advice_always_store_advice_details;
-extern bool pg_plan_advice_feedback_warnings;
-extern bool pg_plan_advice_trace_mask;
+extern userset_guc char *pg_plan_advice_advice;
+extern userset_guc bool pg_plan_advice_always_store_advice_details;
+extern userset_guc bool pg_plan_advice_feedback_warnings;
+extern userset_guc bool pg_plan_advice_trace_mask;
 
 /* Function prototypes (for use by pg_plan_advice itself) */
 extern MemoryContext pg_plan_advice_get_mcxt(void);

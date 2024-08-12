@@ -147,7 +147,7 @@ StaticAssertDecl(lengthof(BuiltinTrancheNames) ==
 				 "missing entries in BuiltinTrancheNames[]");
 
 /* Main array of LWLocks in shared memory */
-LWLockPadded *MainLWLockArray = NULL;
+pg_global LWLockPadded *MainLWLockArray = NULL;
 
 /*
  * We use this structure to keep track of locked LWLocks for release
@@ -163,8 +163,8 @@ typedef struct LWLockHandle
 	LWLockMode	mode;
 } LWLockHandle;
 
-static int	num_held_lwlocks = 0;
-static LWLockHandle held_lwlocks[MAX_SIMUL_LWLOCKS];
+static session_local int	num_held_lwlocks = 0;
+static session_local LWLockHandle held_lwlocks[MAX_SIMUL_LWLOCKS];
 
 /* Maximum number of LWLock tranches that can be assigned by extensions */
 #define MAX_USER_DEFINED_TRANCHES 256
@@ -208,10 +208,10 @@ typedef struct NamedLWLockTrancheRequest
 	int			num_lwlocks;
 } NamedLWLockTrancheRequest;
 
-static List *NamedLWLockTrancheRequests = NIL;
+static session_local List *NamedLWLockTrancheRequests = NIL;
 
 /* Size of MainLWLockArray.  Only valid in postmaster. */
-static int	num_main_array_locks;
+static pg_global int	num_main_array_locks;
 
 static void LWLockShmemRequest(void *arg);
 static void LWLockShmemInit(void *arg);

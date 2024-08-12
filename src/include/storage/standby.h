@@ -23,9 +23,9 @@ typedef struct PGPROC PGPROC;
 typedef struct VirtualTransactionId VirtualTransactionId;
 
 /* User-settable GUC parameters */
-extern PGDLLIMPORT int max_standby_archive_delay;
-extern PGDLLIMPORT int max_standby_streaming_delay;
-extern PGDLLIMPORT bool log_recovery_conflict_waits;
+extern PGDLLIMPORT sighup_guc int max_standby_archive_delay;
+extern PGDLLIMPORT sighup_guc int max_standby_streaming_delay;
+extern PGDLLIMPORT sighup_guc bool log_recovery_conflict_waits;
 
 /* Recovery conflict reasons */
 typedef enum

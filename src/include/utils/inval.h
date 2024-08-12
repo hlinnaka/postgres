@@ -19,7 +19,7 @@
 #include "storage/relfilelocator.h"
 #include "utils/relcache.h"
 
-extern PGDLLIMPORT int debug_discard_caches;
+extern PGDLLIMPORT session_guc int debug_discard_caches;
 
 #define MIN_DEBUG_DISCARD_CACHES 0
 

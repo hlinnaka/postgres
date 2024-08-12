@@ -17,12 +17,12 @@
 #include "utils/timestamp.h"
 
 /* GUCs */
-extern PGDLLIMPORT bool Trace_connection_negotiation;
-extern PGDLLIMPORT uint32 log_connections;
-extern PGDLLIMPORT char *log_connections_string;
+extern PGDLLIMPORT session_guc bool Trace_connection_negotiation;
+extern PGDLLIMPORT session_local uint32 log_connections;
+extern PGDLLIMPORT session_guc char *log_connections_string;
 
 /* Other globals */
-extern PGDLLIMPORT struct ConnectionTiming conn_timing;
+extern PGDLLIMPORT session_local struct ConnectionTiming conn_timing;
 
 /*
  * CAC_state is passed from postmaster to the backend process, to indicate

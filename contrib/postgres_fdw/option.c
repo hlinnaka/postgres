@@ -43,7 +43,8 @@ static PgFdwOption *postgres_fdw_options;
 /*
  * GUC parameters
  */
-char	   *pgfdw_application_name = NULL;
+userset_guc char	   *pgfdw_application_name = NULL;
+DEFINE_STRING_GUC_ADDR(pgfdw_application_name);
 
 /*
  * Helper functions
@@ -583,7 +584,7 @@ _PG_init(void)
 	DefineCustomStringVariable("postgres_fdw.application_name",
 							   "Sets the application name to be used on the remote server.",
 							   NULL,
-							   &pgfdw_application_name,
+							   GUC_ADDR(pgfdw_application_name),
 							   NULL,
 							   PGC_USERSET,
 							   0,

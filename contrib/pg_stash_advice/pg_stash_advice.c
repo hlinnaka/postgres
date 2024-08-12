@@ -44,9 +44,13 @@ static dshash_parameters pgsa_entry_dshash_parameters = {
 };
 
 /* GUC variables */
-static char *pg_stash_advice_stash_name = "";
-bool		pg_stash_advice_persist = true;
-int			pg_stash_advice_persist_interval = 30;
+static userset_guc char *pg_stash_advice_stash_name = "";
+DEFINE_STRING_GUC_ADDR(pg_stash_advice_stash_name);
+postmaster_guc bool		pg_stash_advice_persist = true;
+DEFINE_BOOL_GUC_ADDR(pg_stash_advice_persist);
+sighup_guc int			pg_stash_advice_persist_interval = 30;
+DEFINE_INT_GUC_ADDR(pg_stash_advice_persist_interval);
+
 
 /* Shared memory pointers */
 pgsa_shared_state *pgsa_state;
@@ -95,7 +99,7 @@ _PG_init(void)
 		DefineCustomBoolVariable("pg_stash_advice.persist",
 								 "Save and restore advice stash contents across restarts.",
 								 NULL,
-								 &pg_stash_advice_persist,
+								 GUC_ADDR(pg_stash_advice_persist),
 								 true,
 								 PGC_POSTMASTER,
 								 0,
@@ -108,7 +112,7 @@ _PG_init(void)
 	DefineCustomIntVariable("pg_stash_advice.persist_interval",
 							"Interval between advice stash saves, in seconds.",
 							NULL,
-							&pg_stash_advice_persist_interval,
+							GUC_ADDR(pg_stash_advice_persist_interval),
 							30,
 							0,
 							3600,
@@ -121,7 +125,7 @@ _PG_init(void)
 	DefineCustomStringVariable("pg_stash_advice.stash_name",
 							   "Name of the advice stash to be used in this session.",
 							   NULL,
-							   &pg_stash_advice_stash_name,
+							   GUC_ADDR(pg_stash_advice_stash_name),
 							   "",
 							   PGC_USERSET,
 							   0,

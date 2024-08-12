@@ -96,7 +96,7 @@ typedef struct regexp_matches_ctx
 #endif
 
 /* A parent memory context for regular expressions. */
-static MemoryContext RegexpCacheMemoryContext;
+static session_local MemoryContext RegexpCacheMemoryContext;
 
 /* this structure describes one cached regular expression */
 typedef struct cached_re_str
@@ -109,8 +109,8 @@ typedef struct cached_re_str
 	regex_t		cre_re;			/* the compiled regular expression */
 } cached_re_str;
 
-static int	num_res = 0;		/* # of cached re's */
-static cached_re_str re_array[MAX_CACHED_RES];	/* cached re's */
+static session_local int	num_res = 0;		/* # of cached re's */
+static session_local cached_re_str re_array[MAX_CACHED_RES];	/* cached re's */
 
 
 /* Local functions */

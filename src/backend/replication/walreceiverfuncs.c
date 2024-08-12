@@ -34,7 +34,7 @@
 #include "utils/timestamp.h"
 #include "utils/wait_event.h"
 
-WalRcvData *WalRcv = NULL;
+pg_global WalRcvData *WalRcv = NULL;
 
 static void WalRcvShmemRequest(void *arg);
 static void WalRcvShmemInit(void *arg);

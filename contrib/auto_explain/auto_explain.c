@@ -33,21 +33,37 @@ PG_MODULE_MAGIC_EXT(
 );
 
 /* GUC variables */
-static int	auto_explain_log_min_duration = -1; /* msec or -1 */
-static int	auto_explain_log_parameter_max_length = -1; /* bytes or -1 */
-static bool auto_explain_log_analyze = false;
-static bool auto_explain_log_verbose = false;
-static bool auto_explain_log_buffers = false;
-static bool auto_explain_log_io = false;
-static bool auto_explain_log_wal = false;
-static bool auto_explain_log_triggers = false;
-static bool auto_explain_log_timing = true;
-static bool auto_explain_log_settings = false;
-static int	auto_explain_log_format = EXPLAIN_FORMAT_TEXT;
-static int	auto_explain_log_level = LOG;
-static bool auto_explain_log_nested_statements = false;
-static double auto_explain_sample_rate = 1;
-static char *auto_explain_log_extension_options = NULL;
+static suset_guc int	auto_explain_log_min_duration = -1; /* msec or -1 */
+DEFINE_INT_GUC_ADDR(auto_explain_log_min_duration);
+static suset_guc int	auto_explain_log_parameter_max_length = -1; /* bytes or -1 */
+DEFINE_INT_GUC_ADDR(auto_explain_log_parameter_max_length);
+static suset_guc bool auto_explain_log_analyze = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_analyze);
+static suset_guc bool auto_explain_log_verbose = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_verbose);
+static suset_guc bool auto_explain_log_buffers = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_buffers);
+static suset_guc bool auto_explain_log_io = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_io);
+static suset_guc bool auto_explain_log_wal = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_wal);
+static suset_guc bool auto_explain_log_triggers = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_triggers);
+static suset_guc bool auto_explain_log_timing = true;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_timing);
+static suset_guc bool auto_explain_log_settings = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_settings);
+static suset_guc int	auto_explain_log_format = EXPLAIN_FORMAT_TEXT;
+DEFINE_INT_GUC_ADDR(auto_explain_log_format);
+static suset_guc int	auto_explain_log_level = LOG;
+DEFINE_INT_GUC_ADDR(auto_explain_log_level);
+static suset_guc bool auto_explain_log_nested_statements = false;
+DEFINE_BOOL_GUC_ADDR(auto_explain_log_nested_statements);
+static suset_guc double auto_explain_sample_rate = 1;
+DEFINE_REAL_GUC_ADDR(auto_explain_sample_rate);
+static suset_guc char *auto_explain_log_extension_options = NULL;
+DEFINE_STRING_GUC_ADDR(auto_explain_log_extension_options);
+
 
 /*
  * Parsed form of one option from auto_explain.log_extension_options.
@@ -71,7 +87,7 @@ typedef struct auto_explain_extension_options
 	/* a null-terminated copy of the GUC string follows the array */
 } auto_explain_extension_options;
 
-static auto_explain_extension_options *extension_options = NULL;
+static suset_guc auto_explain_extension_options *extension_options = NULL;
 
 static const struct config_enum_entry format_options[] = {
 	{"text", EXPLAIN_FORMAT_TEXT, false},
@@ -139,7 +155,7 @@ _PG_init(void)
 	DefineCustomIntVariable("auto_explain.log_min_duration",
 							"Sets the minimum execution time above which plans will be logged.",
 							"-1 disables logging plans. 0 means log all plans.",
-							&auto_explain_log_min_duration,
+							GUC_ADDR(auto_explain_log_min_duration),
 							-1,
 							-1, INT_MAX,
 							PGC_SUSET,
@@ -151,7 +167,7 @@ _PG_init(void)
 	DefineCustomIntVariable("auto_explain.log_parameter_max_length",
 							"Sets the maximum length of query parameter values to log.",
 							"-1 means log values in full.",
-							&auto_explain_log_parameter_max_length,
+							GUC_ADDR(auto_explain_log_parameter_max_length),
 							-1,
 							-1, INT_MAX,
 							PGC_SUSET,
@@ -163,7 +179,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_analyze",
 							 "Use EXPLAIN ANALYZE for plan logging.",
 							 NULL,
-							 &auto_explain_log_analyze,
+							 GUC_ADDR(auto_explain_log_analyze),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -174,7 +190,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_settings",
 							 "Log modified configuration parameters affecting query planning.",
 							 NULL,
-							 &auto_explain_log_settings,
+							 GUC_ADDR(auto_explain_log_settings),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -185,7 +201,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_verbose",
 							 "Use EXPLAIN VERBOSE for plan logging.",
 							 NULL,
-							 &auto_explain_log_verbose,
+							 GUC_ADDR(auto_explain_log_verbose),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -196,7 +212,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_buffers",
 							 "Log buffers usage.",
 							 NULL,
-							 &auto_explain_log_buffers,
+							 GUC_ADDR(auto_explain_log_buffers),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -207,7 +223,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_io",
 							 "Log I/O statistics.",
 							 NULL,
-							 &auto_explain_log_io,
+							 GUC_ADDR(auto_explain_log_io),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -218,7 +234,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_wal",
 							 "Log WAL usage.",
 							 NULL,
-							 &auto_explain_log_wal,
+							 GUC_ADDR(auto_explain_log_wal),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -229,7 +245,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_triggers",
 							 "Include trigger statistics in plans.",
 							 "This has no effect unless log_analyze is also set.",
-							 &auto_explain_log_triggers,
+							 GUC_ADDR(auto_explain_log_triggers),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -240,7 +256,7 @@ _PG_init(void)
 	DefineCustomEnumVariable("auto_explain.log_format",
 							 "EXPLAIN format to be used for plan logging.",
 							 NULL,
-							 &auto_explain_log_format,
+							 GUC_ADDR(auto_explain_log_format),
 							 EXPLAIN_FORMAT_TEXT,
 							 format_options,
 							 PGC_SUSET,
@@ -252,7 +268,7 @@ _PG_init(void)
 	DefineCustomEnumVariable("auto_explain.log_level",
 							 "Log level for the plan.",
 							 NULL,
-							 &auto_explain_log_level,
+							 GUC_ADDR(auto_explain_log_level),
 							 LOG,
 							 loglevel_options,
 							 PGC_SUSET,
@@ -264,7 +280,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_nested_statements",
 							 "Log nested statements.",
 							 NULL,
-							 &auto_explain_log_nested_statements,
+							 GUC_ADDR(auto_explain_log_nested_statements),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -275,7 +291,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("auto_explain.log_timing",
 							 "Collect timing data, not just row counts.",
 							 NULL,
-							 &auto_explain_log_timing,
+							 GUC_ADDR(auto_explain_log_timing),
 							 true,
 							 PGC_SUSET,
 							 0,
@@ -286,7 +302,7 @@ _PG_init(void)
 	DefineCustomStringVariable("auto_explain.log_extension_options",
 							   "Extension EXPLAIN options to be added.",
 							   NULL,
-							   &auto_explain_log_extension_options,
+							   GUC_ADDR(auto_explain_log_extension_options),
 							   NULL,
 							   PGC_SUSET,
 							   0,
@@ -297,7 +313,7 @@ _PG_init(void)
 	DefineCustomRealVariable("auto_explain.sample_rate",
 							 "Fraction of queries to process.",
 							 NULL,
-							 &auto_explain_sample_rate,
+							 GUC_ADDR(auto_explain_sample_rate),
 							 1.0,
 							 0.0,
 							 1.0,

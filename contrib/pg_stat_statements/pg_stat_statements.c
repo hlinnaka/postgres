@@ -300,12 +300,17 @@ static const struct config_enum_entry track_options[] =
 	{NULL, 0, false}
 };
 
-static int	pgss_max = 5000;	/* max # statements to track */
-static int	pgss_track = PGSS_TRACK_TOP;	/* tracking level */
-static bool pgss_track_utility = true;	/* whether to track utility commands */
-static bool pgss_track_planning = false;	/* whether to track planning
+static postmaster_guc int	pgss_max = 5000;	/* max # statements to track */
+DEFINE_INT_GUC_ADDR(pgss_max);
+static suset_guc int	pgss_track = PGSS_TRACK_TOP;	/* tracking level */
+DEFINE_ENUM_GUC_ADDR(pgss_track);
+static suset_guc bool pgss_track_utility = true;	/* whether to track utility commands */
+DEFINE_BOOL_GUC_ADDR(pgss_track_utility);
+static suset_guc bool pgss_track_planning = false;	/* whether to track planning
 											 * duration */
-static bool pgss_save = true;	/* whether to save stats across shutdown */
+DEFINE_BOOL_GUC_ADDR(pgss_track_planning);
+static sighup_guc bool pgss_save = true;	/* whether to save stats across shutdown */
+DEFINE_BOOL_GUC_ADDR(pgss_save);
 
 #define pgss_enabled(level) \
 	(!IsParallelWorker() && \
@@ -412,7 +417,7 @@ _PG_init(void)
 	DefineCustomIntVariable("pg_stat_statements.max",
 							"Sets the maximum number of statements tracked by pg_stat_statements.",
 							NULL,
-							&pgss_max,
+							GUC_ADDR(pgss_max),
 							5000,
 							100,
 							INT_MAX / 2,
@@ -425,7 +430,7 @@ _PG_init(void)
 	DefineCustomEnumVariable("pg_stat_statements.track",
 							 "Selects which statements are tracked by pg_stat_statements.",
 							 NULL,
-							 &pgss_track,
+							 GUC_ADDR(pgss_track),
 							 PGSS_TRACK_TOP,
 							 track_options,
 							 PGC_SUSET,
@@ -437,7 +442,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_stat_statements.track_utility",
 							 "Selects whether utility commands are tracked by pg_stat_statements.",
 							 NULL,
-							 &pgss_track_utility,
+							 GUC_ADDR(pgss_track_utility),
 							 true,
 							 PGC_SUSET,
 							 0,
@@ -448,7 +453,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_stat_statements.track_planning",
 							 "Selects whether planning duration is tracked by pg_stat_statements.",
 							 NULL,
-							 &pgss_track_planning,
+							 GUC_ADDR(pgss_track_planning),
 							 false,
 							 PGC_SUSET,
 							 0,
@@ -459,7 +464,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("pg_stat_statements.save",
 							 "Save pg_stat_statements statistics across server shutdowns.",
 							 NULL,
-							 &pgss_save,
+							 GUC_ADDR(pgss_save),
 							 true,
 							 PGC_SIGHUP,
 							 0,

@@ -21,7 +21,7 @@
 #include "utils/pgstat_internal.h"
 
 
-PgStat_BgWriterStats PendingBgWriterStats = {0};
+pg_global PgStat_BgWriterStats PendingBgWriterStats = {0};
 
 
 /*

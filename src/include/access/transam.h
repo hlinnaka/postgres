@@ -330,7 +330,7 @@ TransactionIdFollowsOrEquals(TransactionId id1, TransactionId id2)
 extern bool TransactionStartedDuringRecovery(void);
 
 /* in transam/varsup.c */
-extern PGDLLIMPORT TransamVariablesData *TransamVariables;
+extern PGDLLIMPORT pg_global TransamVariablesData *TransamVariables;
 
 /*
  * prototypes for functions in transam/transam.c

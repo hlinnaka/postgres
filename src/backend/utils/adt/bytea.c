@@ -32,7 +32,7 @@
 #include "varatt.h"
 
 /* GUC variable */
-int			bytea_output = BYTEA_OUTPUT_HEX;
+session_local int			bytea_output = BYTEA_OUTPUT_HEX;
 
 static bytea *bytea_catenate(bytea *t1, bytea *t2);
 static bytea *bytea_substring(Datum str, int S, int L,

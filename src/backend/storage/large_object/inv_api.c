@@ -62,8 +62,8 @@ bool		lo_compat_privileges;
  * execute a slightly klugy maneuver to assign ownership of the
  * Relation reference to TopTransactionResourceOwner.
  */
-static Relation lo_heap_r = NULL;
-static Relation lo_index_r = NULL;
+static session_local Relation lo_heap_r = NULL;
+static session_local Relation lo_index_r = NULL;
 
 
 /*
