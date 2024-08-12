@@ -27,6 +27,25 @@
 #include <getopt.h>				/* IWYU pragma: export */
 #endif
 
+typedef struct 
+{
+	int			nargc;
+	char *const *nargv;
+	const char *ostr;
+
+	char	   *optarg;
+	int			optind;
+	int			opterr;
+	int			optopt;
+
+	/* internal state */
+	char	   *place;
+} pg_getopt_ctx;
+
+extern void pg_getopt_start(pg_getopt_ctx *ctx, int nargc, char *const *nargv, const char *ostr);
+extern int pg_getopt_next(pg_getopt_ctx *ctx);
+
+
 /*
  * If we have <getopt.h>, assume it declares these variables, else do that
  * ourselves.  (We used to just declare them unconditionally, but Cygwin
