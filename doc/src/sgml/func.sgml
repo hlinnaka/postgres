@@ -11307,6 +11307,7 @@ pg_sleep_until ( <type>timestamp with time zone</type> )
 </synopsis>
 
     <function>pg_sleep</function> makes the current session's process
+    (FIXME: or thread in multithreaded mode)
     sleep until the given number of seconds have
     elapsed.  Fractional-second delays can be specified.
     <function>pg_sleep_for</function> is a convenience function to

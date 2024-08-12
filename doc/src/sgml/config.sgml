@@ -12356,7 +12356,7 @@ dynamic_library_path = '/usr/local/lib/postgresql:$libdir'
       <listitem>
        <para>
         The amount of time to delay just after a
-        new server process is forked, before it conducts the
+        new server process or thread is forked, before it conducts the
         authentication procedure.  This is intended to give developers an
         opportunity to attach to the server process with a debugger to
         trace down misbehavior in authentication.

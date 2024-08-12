@@ -1547,7 +1547,7 @@ UPDATE accounts SET balance = balance - 100.00 WHERE acctnum = 22222;
      a lock acquired during a transaction that is later rolled back will still
      be held following the rollback, and likewise an unlock is effective even
      if the calling transaction fails later.  A lock can be acquired multiple
-     times by its owning process; for each completed lock request there must
+     times by its owning session; for each completed lock request there must
      be a corresponding unlock request before the lock is actually released.
      Transaction-level lock requests, on the other hand, behave more like
      regular lock requests: they are automatically released at the end of the

@@ -110,6 +110,7 @@
     The <productname>PostgreSQL</productname> server can handle
     multiple concurrent connections from clients.  To achieve this it
     starts (<quote>forks</quote>) a new process for each connection.
+    FIXME: Or in the experimental multithreaded, a thread.
     From that point on, the client and the new server process
     communicate without intervention by the original
     <filename>postgres</filename> process.  Thus, the
