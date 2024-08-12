@@ -11,6 +11,7 @@ backend_sources += files(
   'launch_backend.c',
   'pgarch.c',
   'postmaster.c',
+  'pmchild.c',
   'startup.c',
   'syslogger.c',
   'walsummarizer.c',
