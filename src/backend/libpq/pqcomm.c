@@ -81,6 +81,7 @@
 #include "storage/ipc.h"
 #include "utils/guc_hooks.h"
 #include "utils/memutils.h"
+#include "utils/resowner.h"
 
 /*
  * Cope with the various platform-specific ways to spell TCP keepalive socket
@@ -279,7 +280,7 @@ pq_init(ClientSocket *client_sock)
 		elog(FATAL, "fcntl(F_SETFD) failed on socket: %m");
 #endif
 
-	FeBeWaitSet = CreateWaitEventSet(NULL, FeBeWaitSetNEvents);
+	FeBeWaitSet = CreateWaitEventSet(SessionResourceOwner, FeBeWaitSetNEvents);
 	socket_pos = AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE,
 								   port->sock, 0, NULL);
 	interrupt_pos = AddWaitEventToSet(FeBeWaitSet, WL_INTERRUPT, PGINVALID_SOCKET,
@@ -363,6 +364,8 @@ socket_close(int code, Datum arg)
 		 * We do set sock to PGINVALID_SOCKET to prevent any further I/O,
 		 * though.
 		 */
+		if (IsMultiThreaded)
+			closesocket(MyProcPort->sock);
 		MyProcPort->sock = PGINVALID_SOCKET;
 	}
 }

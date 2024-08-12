@@ -154,7 +154,7 @@ proc_exit(int code)
 	}
 #endif
 
-	elog(LOG, "exit(%d)", code);
+	elog(DEBUG3, "exit(%d)", code);
 
 	if (IsMultiThreaded)
 	{
