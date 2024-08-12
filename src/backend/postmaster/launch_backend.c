@@ -57,6 +57,7 @@
 #include "tcop/backend_startup.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
+#include "utils/resowner.h"
 
 #ifdef EXEC_BACKEND
 #include "nodes/queryjumble.h"
@@ -350,6 +351,7 @@ backend_thread_main(void *arg)
 	(void) set_stack_base();
 
 	MemoryContextInit();
+	InitResourceOwnerAccess();
 
 	InitializeWaitEventSupport();
 	InitializeInterruptWaitSet();

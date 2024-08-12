@@ -34,6 +34,7 @@ extern PGDLLIMPORT session_local ResourceOwner CurrentResourceOwner;
 extern PGDLLIMPORT session_local ResourceOwner CurTransactionResourceOwner;
 extern PGDLLIMPORT session_local ResourceOwner TopTransactionResourceOwner;
 extern PGDLLIMPORT session_local ResourceOwner AuxProcessResourceOwner;
+extern PGDLLIMPORT session_local ResourceOwner SessionResourceOwner;
 
 /*
  * Resource releasing is done in three phases: pre-locks, locks, and
@@ -134,6 +135,7 @@ typedef void (*ResourceReleaseCallback) (ResourceReleasePhase phase,
  */
 
 /* generic routines */
+extern void InitResourceOwnerAccess(void);
 extern ResourceOwner ResourceOwnerCreate(ResourceOwner parent,
 										 const char *name);
 extern void ResourceOwnerRelease(ResourceOwner owner,

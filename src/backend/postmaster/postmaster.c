@@ -2302,12 +2302,6 @@ process_pm_child_exit(void)
 			continue;
 		}
 
-		ereport(LOG,
-				(errmsg_internal("reaping %s process %d: exit code %d",
-								 GetBackendTypeDesc(pmchild->bkend_type),
-								 (int) pmchild->pid.pid,
-								 exitstatus)));
-
 		/*
 		 * Check if this child was a startup process.
 		 */
@@ -4818,8 +4812,6 @@ thread_pre_exit(pthread_t threadid, int code)
 
 	pending_pm_child_exit = true;
 	RaiseInterrupt(INTERRUPT_TERMINATE);
-
-	elog(LOG, "thread_pre_exit called");
 }
 
 static bool
