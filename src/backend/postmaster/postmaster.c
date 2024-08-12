@@ -409,9 +409,6 @@ static void sigquit_child(pid_t pid);
 static bool SignalSomeChildren(int signal, uint32 targetMask);
 static void TerminateChildren(int signal);
 
-#define SignalChildren(sig)		\
-	SignalSomeChildren(sig, BACKEND_TYPE_ALL & ~(1 << B_DEAD_END_BACKEND))
-
 static int	CountChildren(uint32 targetMask);
 static Backend *assign_backendlist_entry(void);
 static void LaunchMissingBackgroundProcesses(void);
@@ -1963,7 +1960,7 @@ process_pm_reload_request(void)
 		ereport(LOG,
 				(errmsg("received SIGHUP, reloading configuration files")));
 		ProcessConfigFile(PGC_SIGHUP);
-		SignalChildren(SIGHUP);
+		SignalSomeChildren(SIGHUP, BACKEND_TYPE_ALL & ~(1 << B_DEAD_END_BACKEND));
 		if (StartupPID != 0)
 			signal_child(StartupPID, SIGHUP);
 		if (BgWriterPID != 0)
@@ -2381,7 +2378,7 @@ process_pm_child_exit(void)
 				 * Waken walsenders for the last time. No regular backends
 				 * should be around anymore.
 				 */
-				SignalChildren(SIGUSR2);
+				SignalSomeChildren(SIGUSR2, BACKEND_TYPE_ALL & (1 << B_DEAD_END_BACKEND));
 
 				pmState = PM_SHUTDOWN_2;
 			}
@@ -2874,7 +2871,7 @@ PostmasterStateMachine(void)
 		 */
 		ForgetUnstartedBackgroundWorkers();
 
-		/* Signal all backend children except walsenders */
+		/* Signal all backend children except walsenders and dead-end backends */
 		SignalSomeChildren(SIGTERM,
 						   BACKEND_TYPE_ALL & ~(1 << B_WAL_SENDER | 1 << B_DEAD_END_BACKEND));
 		/* and the autovac launcher too */
@@ -2932,10 +2929,11 @@ PostmasterStateMachine(void)
 			if (Shutdown >= ImmediateShutdown || FatalError)
 			{
 				/*
-				 * Start waiting for dead_end children to die.  This state
-				 * change causes ServerLoop to stop creating new ones.
+				 * Stop any dead_end children and stop creating new ones.
 				 */
 				pmState = PM_WAIT_DEAD_END;
+				ConfigurePostmasterWaitSet(false);
+				SignalSomeChildren(SIGQUIT, 1 << B_DEAD_END_BACKEND);
 
 				/*
 				 * We already SIGQUIT'd the archiver and stats processes, if
@@ -2974,9 +2972,10 @@ PostmasterStateMachine(void)
 					 */
 					FatalError = true;
 					pmState = PM_WAIT_DEAD_END;
+					ConfigurePostmasterWaitSet(false);
 
-					/* Kill the walsenders and archiver too */
-					SignalChildren(SIGQUIT);
+					/* Kill the walsenders and archiver, too */
+					SignalSomeChildren(SIGQUIT, BACKEND_TYPE_ALL);
 					if (PgArchPID != 0)
 						signal_child(PgArchPID, SIGQUIT);
 				}
@@ -2994,15 +2993,14 @@ PostmasterStateMachine(void)
 		 */
 		if (PgArchPID == 0 && CountChildren(BACKEND_TYPE_ALL & ~(1 << B_DEAD_END_BACKEND)) == 0)
 		{
+			ConfigurePostmasterWaitSet(false);
+			SignalSomeChildren(SIGTERM, 1 << B_DEAD_END_BACKEND);
 			pmState = PM_WAIT_DEAD_END;
 		}
 	}
 
 	if (pmState == PM_WAIT_DEAD_END)
 	{
-		/* Don't allow any new socket connection events. */
-		ConfigurePostmasterWaitSet(false);
-
 		/*
 		 * PM_WAIT_DEAD_END state ends when the BackendList is entirely empty
 		 * (ie, no dead_end children remain), and the archiver is gone too.
@@ -3290,8 +3288,7 @@ sigquit_child(pid_t pid)
 }
 
 /*
- * Send a signal to the targeted children (but NOT special children;
- * dead_end children are never signaled, either XXX).
+ * Send a signal to the targeted children (but NOT special children).
  */
 static bool
 SignalSomeChildren(int signal, uint32 targetMask)
@@ -3322,8 +3319,8 @@ SignalSomeChildren(int signal, uint32 targetMask)
 		}
 
 		ereport(DEBUG4,
-				(errmsg_internal("sending signal %d to process %d",
-								 signal, (int) bp->pid)));
+				(errmsg_internal("sending signal %d to %s process %d",
+								 signal, GetBackendTypeDesc(bp->bkend_type), (int) bp->pid)));
 		signal_child(bp->pid, signal);
 		signaled = true;
 	}
@@ -3332,12 +3329,12 @@ SignalSomeChildren(int signal, uint32 targetMask)
 
 /*
  * Send a termination signal to children.  This considers all of our children
- * processes, except syslogger and dead_end backends.
+ * processes, except syslogger.
  */
 static void
 TerminateChildren(int signal)
 {
-	SignalChildren(signal);
+	SignalSomeChildren(signal, BACKEND_TYPE_ALL);
 	if (StartupPID != 0)
 	{
 		signal_child(StartupPID, signal);
