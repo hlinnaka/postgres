@@ -1483,7 +1483,7 @@ DO 'elog(WARNING, join ", ", sort keys %INC)' LANGUAGE plperl;
         to execute <literal>plperl.on_init</literal> afresh.  Also, on Windows there
         will be no savings whatsoever from preloading, since the Perl
         interpreter created in the postmaster process does not propagate to
-        child processes.
+        child processes. FIXME: also not relevant in a multi-threaded server.
        </para>
        <para>
        This parameter can only be set in the <filename>postgresql.conf</filename> file or on the server command line.

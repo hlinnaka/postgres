@@ -11,7 +11,7 @@
   <filename>auth_delay</filename> causes the server to pause briefly before
   reporting authentication failure, to make brute-force attacks on database
   passwords more difficult.  Note that it does nothing to prevent
-  denial-of-service attacks, and may even exacerbate them, since processes
+  denial-of-service attacks, and may even exacerbate them, since backends
   that are waiting before reporting authentication failure will still consume
   connection slots.
  </para>
