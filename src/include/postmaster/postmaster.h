@@ -47,25 +47,25 @@ typedef struct
 } PMChild;
 
 /* GUC options */
-extern PGDLLIMPORT bool EnableSSL;
-extern PGDLLIMPORT int SuperuserReservedConnections;
-extern PGDLLIMPORT int ReservedConnections;
-extern PGDLLIMPORT int PostPortNumber;
-extern PGDLLIMPORT int Unix_socket_permissions;
-extern PGDLLIMPORT char *Unix_socket_group;
-extern PGDLLIMPORT char *Unix_socket_directories;
-extern PGDLLIMPORT char *ListenAddresses;
-extern PGDLLIMPORT bool ClientAuthInProgress;
-extern PGDLLIMPORT int PreAuthDelay;
-extern PGDLLIMPORT int AuthenticationTimeout;
-extern PGDLLIMPORT bool Log_connections;
-extern PGDLLIMPORT bool log_hostname;
-extern PGDLLIMPORT bool enable_bonjour;
-extern PGDLLIMPORT char *bonjour_name;
-extern PGDLLIMPORT bool restart_after_crash;
-extern PGDLLIMPORT bool remove_temp_files_after_crash;
-extern PGDLLIMPORT bool send_abort_for_crash;
-extern PGDLLIMPORT bool send_abort_for_kill;
+extern PGDLLIMPORT sighup_guc bool EnableSSL;
+extern PGDLLIMPORT postmaster_guc int SuperuserReservedConnections;
+extern PGDLLIMPORT postmaster_guc int ReservedConnections;
+extern PGDLLIMPORT postmaster_guc int PostPortNumber;
+extern PGDLLIMPORT postmaster_guc int Unix_socket_permissions;
+extern PGDLLIMPORT postmaster_guc char *Unix_socket_group;
+extern PGDLLIMPORT postmaster_guc char *Unix_socket_directories;
+extern PGDLLIMPORT postmaster_guc char *ListenAddresses;
+extern PGDLLIMPORT session_local bool ClientAuthInProgress;
+extern PGDLLIMPORT sighup_guc int PreAuthDelay;
+extern PGDLLIMPORT sighup_guc int AuthenticationTimeout;
+extern PGDLLIMPORT session_guc bool Log_connections;
+extern PGDLLIMPORT sighup_guc bool log_hostname;
+extern PGDLLIMPORT postmaster_guc bool enable_bonjour;
+extern PGDLLIMPORT postmaster_guc char *bonjour_name;
+extern PGDLLIMPORT sighup_guc bool restart_after_crash;
+extern PGDLLIMPORT sighup_guc bool remove_temp_files_after_crash;
+extern PGDLLIMPORT sighup_guc bool send_abort_for_crash;
+extern PGDLLIMPORT sighup_guc bool send_abort_for_kill;
 
 #ifdef WIN32
 extern PGDLLIMPORT HANDLE PostmasterHandle;
@@ -99,7 +99,7 @@ extern void pgwin32_register_deadchild_callback(HANDLE procHandle, DWORD procId)
 #endif
 
 /* defined in globals.c */
-extern PGDLLIMPORT struct ClientSocket *MyClientSocket;
+extern PGDLLIMPORT session_local struct ClientSocket *MyClientSocket;
 
 /* prototypes for functions in launch_backend.c */
 extern pid_t postmaster_child_launch(BackendType child_type,

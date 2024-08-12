@@ -289,13 +289,13 @@ typedef struct VacDeadItemsInfo
 } VacDeadItemsInfo;
 
 /* GUC parameters */
-extern PGDLLIMPORT int default_statistics_target;	/* PGDLLIMPORT for PostGIS */
-extern PGDLLIMPORT int vacuum_freeze_min_age;
-extern PGDLLIMPORT int vacuum_freeze_table_age;
-extern PGDLLIMPORT int vacuum_multixact_freeze_min_age;
-extern PGDLLIMPORT int vacuum_multixact_freeze_table_age;
-extern PGDLLIMPORT int vacuum_failsafe_age;
-extern PGDLLIMPORT int vacuum_multixact_failsafe_age;
+extern PGDLLIMPORT session_guc int default_statistics_target;	/* PGDLLIMPORT for PostGIS */
+extern PGDLLIMPORT session_guc int vacuum_freeze_min_age;
+extern PGDLLIMPORT session_guc int vacuum_freeze_table_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_freeze_min_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_freeze_table_age;
+extern PGDLLIMPORT session_guc int vacuum_failsafe_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_failsafe_age;
 
 /*
  * Maximum value for default_statistics_target and per-column statistics
@@ -305,13 +305,13 @@ extern PGDLLIMPORT int vacuum_multixact_failsafe_age;
 #define MAX_STATISTICS_TARGET 10000
 
 /* Variables for cost-based parallel vacuum */
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumSharedCostBalance;
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumActiveNWorkers;
-extern PGDLLIMPORT int VacuumCostBalanceLocal;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumSharedCostBalance;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumActiveNWorkers;
+extern PGDLLIMPORT session_local int VacuumCostBalanceLocal;
 
-extern PGDLLIMPORT bool VacuumFailsafeActive;
-extern PGDLLIMPORT double vacuum_cost_delay;
-extern PGDLLIMPORT int vacuum_cost_limit;
+extern PGDLLIMPORT session_local bool VacuumFailsafeActive;
+extern PGDLLIMPORT session_guc double vacuum_cost_delay;
+extern PGDLLIMPORT session_guc int vacuum_cost_limit;
 
 /* in commands/vacuum.c */
 extern void ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel);

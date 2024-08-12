@@ -119,10 +119,10 @@ static inline int pg_popcount64_fast(uint64 word);
 static uint64 pg_popcount_fast(const char *buf, int bytes);
 static uint64 pg_popcount_masked_fast(const char *buf, int bytes, bits8 mask);
 
-int			(*pg_popcount32) (uint32 word) = pg_popcount32_choose;
-int			(*pg_popcount64) (uint64 word) = pg_popcount64_choose;
-uint64		(*pg_popcount_optimized) (const char *buf, int bytes) = pg_popcount_choose;
-uint64		(*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask) = pg_popcount_masked_choose;
+dynamic_singleton int			(*pg_popcount32) (uint32 word) = pg_popcount32_choose;
+dynamic_singleton int			(*pg_popcount64) (uint64 word) = pg_popcount64_choose;
+dynamic_singleton uint64		(*pg_popcount_optimized) (const char *buf, int bytes) = pg_popcount_choose;
+dynamic_singleton uint64		(*pg_popcount_masked_optimized) (const char *buf, int bytes, bits8 mask) = pg_popcount_masked_choose;
 #endif							/* TRY_POPCNT_FAST */
 
 #ifdef TRY_POPCNT_FAST

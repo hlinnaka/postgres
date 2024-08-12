@@ -142,13 +142,13 @@ struct WritebackContext;
 struct SMgrRelationData;
 
 /* in globals.c ... this duplicates miscadmin.h */
-extern PGDLLIMPORT int NBuffers;
+extern PGDLLIMPORT postmaster_guc int NBuffers;
 
 /* in bufmgr.c */
-extern PGDLLIMPORT bool zero_damaged_pages;
-extern PGDLLIMPORT int bgwriter_lru_maxpages;
-extern PGDLLIMPORT double bgwriter_lru_multiplier;
-extern PGDLLIMPORT bool track_io_timing;
+extern PGDLLIMPORT session_guc bool zero_damaged_pages;
+extern PGDLLIMPORT sighup_guc int bgwriter_lru_maxpages;
+extern PGDLLIMPORT sighup_guc double bgwriter_lru_multiplier;
+extern PGDLLIMPORT session_guc bool track_io_timing;
 
 /* only applicable when prefetching is available */
 #ifdef USE_PREFETCH
@@ -158,24 +158,24 @@ extern PGDLLIMPORT bool track_io_timing;
 #define DEFAULT_EFFECTIVE_IO_CONCURRENCY 0
 #define DEFAULT_MAINTENANCE_IO_CONCURRENCY 0
 #endif
-extern PGDLLIMPORT int effective_io_concurrency;
-extern PGDLLIMPORT int maintenance_io_concurrency;
+extern PGDLLIMPORT session_guc int effective_io_concurrency;
+extern PGDLLIMPORT session_guc int maintenance_io_concurrency;
 
 #define MAX_IO_COMBINE_LIMIT PG_IOV_MAX
 #define DEFAULT_IO_COMBINE_LIMIT Min(MAX_IO_COMBINE_LIMIT, (128 * 1024) / BLCKSZ)
-extern PGDLLIMPORT int io_combine_limit;
+extern PGDLLIMPORT session_guc int io_combine_limit;
 
-extern PGDLLIMPORT int checkpoint_flush_after;
-extern PGDLLIMPORT int backend_flush_after;
-extern PGDLLIMPORT int bgwriter_flush_after;
+extern PGDLLIMPORT session_guc int checkpoint_flush_after;
+extern PGDLLIMPORT session_guc int backend_flush_after;
+extern PGDLLIMPORT sighup_guc int bgwriter_flush_after;
 
 /* in buf_init.c */
-extern PGDLLIMPORT char *BufferBlocks;
+extern PGDLLIMPORT global char *BufferBlocks;
 
 /* in localbuf.c */
-extern PGDLLIMPORT int NLocBuffer;
-extern PGDLLIMPORT Block *LocalBufferBlockPointers;
-extern PGDLLIMPORT int32 *LocalRefCount;
+extern PGDLLIMPORT session_local int NLocBuffer;
+extern PGDLLIMPORT session_local Block *LocalBufferBlockPointers;
+extern PGDLLIMPORT session_local int32 *LocalRefCount;
 
 /* upper limit for effective_io_concurrency */
 #define MAX_IO_CONCURRENCY 1000

@@ -41,19 +41,24 @@ static const struct config_enum_entry variable_conflict_options[] = {
 	{NULL, 0, false}
 };
 
-int			plpgsql_variable_conflict = PLPGSQL_RESOLVE_ERROR;
+session_guc int			plpgsql_variable_conflict = PLPGSQL_RESOLVE_ERROR;
+static int *plpgsql_variable_conflict_address(void) { return &plpgsql_variable_conflict; }
 
-bool		plpgsql_print_strict_params = false;
+session_guc bool		plpgsql_print_strict_params = false;
+static bool *plpgsql_print_strict_params_address(void) { return &plpgsql_print_strict_params; }
 
-bool		plpgsql_check_asserts = true;
+session_guc bool		plpgsql_check_asserts = true;
+static bool *plpgsql_check_asserts_address(void) { return &plpgsql_check_asserts; }
 
-static char *plpgsql_extra_warnings_string = NULL;
-static char *plpgsql_extra_errors_string = NULL;
-int			plpgsql_extra_warnings;
-int			plpgsql_extra_errors;
+static session_guc char *plpgsql_extra_warnings_string = NULL;
+static char **plpgsql_extra_warnings_string_address(void) { return &plpgsql_extra_warnings_string; }
+static session_guc char *plpgsql_extra_errors_string = NULL;
+static char **plpgsql_extra_errors_string_address(void) { return &plpgsql_extra_errors_string; }
+session_local int			plpgsql_extra_warnings;
+session_local int			plpgsql_extra_errors;
 
 /* Hook for plugins */
-PLpgSQL_plugin **plpgsql_plugin_ptr = NULL;
+session_local PLpgSQL_plugin **plpgsql_plugin_ptr = NULL;
 
 
 static bool
@@ -155,7 +160,7 @@ _PG_init(void)
 	DefineCustomEnumVariable("plpgsql.variable_conflict",
 							 gettext_noop("Sets handling of conflicts between PL/pgSQL variable names and table column names."),
 							 NULL,
-							 &plpgsql_variable_conflict,
+							 &plpgsql_variable_conflict_address,
 							 PLPGSQL_RESOLVE_ERROR,
 							 variable_conflict_options,
 							 PGC_SUSET, 0,
@@ -164,7 +169,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("plpgsql.print_strict_params",
 							 gettext_noop("Print information about parameters in the DETAIL part of the error messages generated on INTO ... STRICT failures."),
 							 NULL,
-							 &plpgsql_print_strict_params,
+							 &plpgsql_print_strict_params_address,
 							 false,
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
@@ -172,7 +177,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("plpgsql.check_asserts",
 							 gettext_noop("Perform checks given in ASSERT statements."),
 							 NULL,
-							 &plpgsql_check_asserts,
+							 &plpgsql_check_asserts_address,
 							 true,
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
@@ -180,7 +185,7 @@ _PG_init(void)
 	DefineCustomStringVariable("plpgsql.extra_warnings",
 							   gettext_noop("List of programming constructs that should produce a warning."),
 							   NULL,
-							   &plpgsql_extra_warnings_string,
+							   &plpgsql_extra_warnings_string_address,
 							   "none",
 							   PGC_USERSET, GUC_LIST_INPUT,
 							   plpgsql_extra_checks_check_hook,
@@ -190,7 +195,7 @@ _PG_init(void)
 	DefineCustomStringVariable("plpgsql.extra_errors",
 							   gettext_noop("List of programming constructs that should produce an error."),
 							   NULL,
-							   &plpgsql_extra_errors_string,
+							   &plpgsql_extra_errors_string_address,
 							   "none",
 							   PGC_USERSET, GUC_LIST_INPUT,
 							   plpgsql_extra_checks_check_hook,

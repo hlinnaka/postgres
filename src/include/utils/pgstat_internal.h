@@ -500,7 +500,6 @@ typedef struct PgStat_Snapshot
  */
 typedef struct PgStat_LocalState
 {
-	PgStat_ShmemControl *shmem;
 	dsa_area   *dsa;
 	dshash_table *shared_hash;
 
@@ -702,21 +701,22 @@ extern void pgstat_create_transactional(PgStat_Kind kind, Oid dboid, Oid objoid)
  * Variables in pgstat.c
  */
 
-extern PGDLLIMPORT PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT session_local PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT global PgStat_ShmemControl *pgStatShared;
 
 
 /*
  * Variables in pgstat_io.c
  */
 
-extern PGDLLIMPORT bool have_iostats;
+extern PGDLLIMPORT session_local bool have_iostats;
 
 
 /*
  * Variables in pgstat_slru.c
  */
 
-extern PGDLLIMPORT bool have_slrustats;
+extern PGDLLIMPORT session_local bool have_slrustats;
 
 
 /*
@@ -856,7 +856,7 @@ pgstat_get_custom_shmem_data(PgStat_Kind kind)
 	Assert(pgstat_is_kind_custom(kind));
 	Assert(pgstat_get_kind_info(kind)->fixed_amount);
 
-	return pgStatLocal.shmem->custom_data[idx];
+	return pgStatShared->custom_data[idx];
 }
 
 /*

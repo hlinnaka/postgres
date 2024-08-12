@@ -44,14 +44,14 @@ static PLyExecutionContext *PLy_push_execution_context(bool atomic_context);
 static void PLy_pop_execution_context(void);
 
 /* static state for Python library conflict detection */
-static int *plpython_version_bitmask_ptr = NULL;
-static int	plpython_version_bitmask = 0;
+static session_local int *plpython_version_bitmask_ptr = NULL;
+static session_local int	plpython_version_bitmask = 0;
 
 /* initialize global variables */
-PyObject   *PLy_interp_globals = NULL;
+session_local PyObject   *PLy_interp_globals = NULL;
 
 /* this doesn't need to be global; use PLy_current_execution_context() */
-static PLyExecutionContext *PLy_execution_contexts = NULL;
+static session_local PLyExecutionContext *PLy_execution_contexts = NULL;
 
 
 void

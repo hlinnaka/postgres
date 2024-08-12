@@ -15,7 +15,7 @@
 #define BACKEND_STARTUP_H
 
 /* GUCs */
-extern PGDLLIMPORT bool Trace_connection_negotiation;
+extern PGDLLIMPORT session_guc bool Trace_connection_negotiation;
 
 /*
  * CAC_state is passed from postmaster to the backend process, to indicate

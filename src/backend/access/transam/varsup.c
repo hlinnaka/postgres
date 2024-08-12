@@ -31,7 +31,7 @@
 #define VAR_OID_PREFETCH		8192
 
 /* pointer to variables struct in shared memory */
-TransamVariablesData *TransamVariables = NULL;
+global TransamVariablesData *TransamVariables = NULL;
 
 
 /*

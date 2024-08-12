@@ -26,6 +26,51 @@
 #include "pg_config_ext.h"
 
 /*
+ * Annotations on global variables.
+ *
+ * PostgreSQL source code uses global variables for many different things.
+ * Some global variables are nearly constants, like lookup tables initialized
+ * at postmaster startup and never modified after that. Others are used to
+ * hold values of GUCs. Some hold per-session state, others are reset at every
+ * transaction.
+ *
+ * These annotations help to document how a global variable is used. These are
+ * currently optional, and if the compiler doesn't support the
+ * __attribute__(annotate) syntax, they are defined to nothing. In the future,
+ * we could have additional assertions based on the annotations.
+ *
+ * When we switch to multithreaded thread-per-connection model, the per-session
+ * variables are turned into thread-local variables.
+ *
+ * The 'pgguclifetimes' program (in src/tools/pgguclifetimes) can be used to check
+ * that all global variables have been annotated.
+ */
+#if __has_attribute (annotate)
+#define global __attribute__((annotate("global")))
+#define dynamic_singleton __attribute__((annotate("dynamic_singleton")))
+#define static_singleton __attribute__((annotate("static_singleton")))
+#define session_local __thread __attribute__((annotate("session_local")))
+#else
+#define global
+#define dynamic_singleton
+#define static_singleton
+#define session_local __thread
+#endif
+
+#define DEFINE_BOOL_GUC_ADDR(guc) \
+	static bool *guc##_address(void) { return &guc; }
+#define DEFINE_INT_GUC_ADDR(guc) \
+	static int *guc##_address(void) { return &guc; }
+#define DEFINE_REAL_GUC_ADDR(guc) \
+	static float8 *guc##_address(void) { return &guc; }
+#define DEFINE_STRING_GUC_ADDR(guc) \
+	static char **guc##_address(void) { return &guc; }
+#define DEFINE_ENUM_GUC_ADDR(guc) \
+	static int *guc##_address(void) { return &guc; }
+
+#define GUC_ADDR(guc) &guc##_address
+
+/*
  * Object ID is a fundamental type in Postgres.
  */
 typedef unsigned int Oid;

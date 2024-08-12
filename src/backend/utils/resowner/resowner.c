@@ -162,10 +162,10 @@ struct ResourceOwnerData
  *	  GLOBAL MEMORY															 *
  *****************************************************************************/
 
-ResourceOwner CurrentResourceOwner = NULL;
-ResourceOwner CurTransactionResourceOwner = NULL;
-ResourceOwner TopTransactionResourceOwner = NULL;
-ResourceOwner AuxProcessResourceOwner = NULL;
+ResourceOwner session_local CurrentResourceOwner = NULL;
+ResourceOwner session_local CurTransactionResourceOwner = NULL;
+ResourceOwner session_local TopTransactionResourceOwner = NULL;
+ResourceOwner session_local AuxProcessResourceOwner = NULL;
 
 /* #define RESOWNER_STATS */
 
@@ -184,7 +184,7 @@ typedef struct ResourceReleaseCallbackItem
 	void	   *arg;
 } ResourceReleaseCallbackItem;
 
-static ResourceReleaseCallbackItem *ResourceRelease_callbacks = NULL;
+static session_local ResourceReleaseCallbackItem *ResourceRelease_callbacks = NULL;
 
 
 /* Internal routines */

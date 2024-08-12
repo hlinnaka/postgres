@@ -45,8 +45,8 @@
 #define PARALLEL_SEQSCAN_MAX_CHUNK_SIZE		8192
 
 /* GUC variables */
-char	   *default_table_access_method = DEFAULT_TABLE_ACCESS_METHOD;
-bool		synchronize_seqscans = true;
+session_guc char	   *default_table_access_method = DEFAULT_TABLE_ACCESS_METHOD;
+session_guc bool		synchronize_seqscans = true;
 
 
 /* ----------------------------------------------------------------------------

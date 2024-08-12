@@ -222,7 +222,7 @@ typedef struct ParallelApplyWorkerEntry
  * A hash table used to cache the state of streaming transactions being applied
  * by the parallel apply workers.
  */
-static HTAB *ParallelApplyTxnHash = NULL;
+static session_local HTAB *ParallelApplyTxnHash = NULL;
 
 /*
 * A list (pool) of active parallel apply workers. The information for
@@ -231,28 +231,28 @@ static HTAB *ParallelApplyTxnHash = NULL;
 * pool at the end of the transaction. For more information about the worker
 * pool, see comments atop this file.
  */
-static List *ParallelApplyWorkerPool = NIL;
+static session_local List *ParallelApplyWorkerPool = NIL;
 
 /*
  * Information shared between leader apply worker and parallel apply worker.
  */
-ParallelApplyWorkerShared *MyParallelShared = NULL;
+session_local ParallelApplyWorkerShared *MyParallelShared = NULL;
 
 /*
  * Is there a message sent by a parallel apply worker that the leader apply
  * worker needs to receive?
  */
-volatile sig_atomic_t ParallelApplyMessagePending = false;
+session_local volatile sig_atomic_t ParallelApplyMessagePending = false;
 
 /*
  * Cache the parallel apply worker information required for applying the
  * current streaming transaction. It is used to save the cost of searching the
  * hash table when applying the changes between STREAM_START and STREAM_STOP.
  */
-static ParallelApplyWorkerInfo *stream_apply_worker = NULL;
+static session_local ParallelApplyWorkerInfo *stream_apply_worker = NULL;
 
 /* A list to maintain subtransactions, if any. */
-static List *subxactlist = NIL;
+static session_local List *subxactlist = NIL;
 
 static void pa_free_worker_info(ParallelApplyWorkerInfo *winfo);
 static ParallelTransState pa_get_xact_state(ParallelApplyWorkerShared *wshared);
@@ -1065,7 +1065,7 @@ HandleParallelApplyMessages(void)
 	ListCell   *lc;
 	MemoryContext oldcontext;
 
-	static MemoryContext hpam_context = NULL;
+	static session_local MemoryContext hpam_context = NULL;
 
 	/*
 	 * This is invoked from ProcessInterrupts(), and since some of the

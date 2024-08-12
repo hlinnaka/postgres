@@ -55,7 +55,7 @@
 
 /* GUC variables */
 #ifdef TRACE_SYNCSCAN
-bool		trace_syncscan = false;
+session_guc bool		trace_syncscan = false;
 #endif
 
 
@@ -112,7 +112,7 @@ typedef struct ss_scan_locations_t
 	(offsetof(ss_scan_locations_t, items) + (N) * sizeof(ss_lru_item_t))
 
 /* Pointer to struct in shared memory */
-static ss_scan_locations_t *scan_locations;
+static global ss_scan_locations_t *scan_locations;
 
 /* prototypes for internal functions */
 static BlockNumber ss_search(RelFileLocator relfilelocator,

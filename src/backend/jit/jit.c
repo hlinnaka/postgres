@@ -29,20 +29,20 @@
 #include "utils/fmgrprotos.h"
 
 /* GUCs */
-bool		jit_enabled = true;
-char	   *jit_provider = NULL;
-bool		jit_debugging_support = false;
-bool		jit_dump_bitcode = false;
-bool		jit_expressions = true;
-bool		jit_profiling_support = false;
-bool		jit_tuple_deforming = true;
-double		jit_above_cost = 100000;
-double		jit_inline_above_cost = 500000;
-double		jit_optimize_above_cost = 500000;
+session_guc bool		jit_enabled = true;
+postmaster_guc char	   *jit_provider = NULL;
+session_guc bool		jit_debugging_support = false;
+session_guc bool		jit_dump_bitcode = false;
+session_guc bool		jit_expressions = true;
+session_guc bool		jit_profiling_support = false;
+session_guc bool		jit_tuple_deforming = true;
+session_guc double		jit_above_cost = 100000;
+session_guc double		jit_inline_above_cost = 500000;
+session_guc double		jit_optimize_above_cost = 500000;
 
-static JitProviderCallbacks provider;
-static bool provider_successfully_loaded = false;
-static bool provider_failed_loading = false;
+static session_local JitProviderCallbacks provider;
+static session_local bool provider_successfully_loaded = false;
+static session_local bool provider_failed_loading = false;
 
 
 static bool provider_init(void);

@@ -20,7 +20,9 @@
 #include "storage/off.h"
 
 /* GUC variable */
-extern PGDLLIMPORT bool ignore_checksum_failure;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc bool ignore_checksum_failure;
+#endif
 
 /*
  * A postgres disk page is an abstraction layered on top of a postgres

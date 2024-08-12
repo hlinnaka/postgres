@@ -24,7 +24,7 @@
 
 
 /* GUC variable */
-bool		ignore_checksum_failure = false;
+session_guc bool		ignore_checksum_failure = false;
 
 
 /* ----------------------------------------------------------------
@@ -1509,7 +1509,7 @@ PageIndexTupleOverwrite(Page page, OffsetNumber offnum,
 char *
 PageSetChecksumCopy(Page page, BlockNumber blkno)
 {
-	static char *pageCopy = NULL;
+	static session_local char *pageCopy = NULL;
 
 	/* If we don't need a checksum, just return the passed-in data */
 	if (PageIsNew(page) || !DataChecksumsEnabled())

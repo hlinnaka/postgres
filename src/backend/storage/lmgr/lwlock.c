@@ -177,15 +177,15 @@ StaticAssertDecl(lengthof(BuiltinTrancheNames) ==
  * stores the names of all dynamically-created tranches known to the current
  * process.  Any unused entries in the array will contain NULL.
  */
-static const char **LWLockTrancheNames = NULL;
-static int	LWLockTrancheNamesAllocated = 0;
+static session_local const char **LWLockTrancheNames = NULL;
+static session_local int	LWLockTrancheNamesAllocated = 0;
 
 /*
  * This points to the main array of LWLocks in shared memory.  Backends inherit
  * the pointer by fork from the postmaster (except in the EXEC_BACKEND case,
  * where we have special measures to pass it down).
  */
-LWLockPadded *MainLWLockArray = NULL;
+global LWLockPadded *MainLWLockArray = NULL;
 
 /*
  * We use this structure to keep track of locked LWLocks for release
@@ -202,8 +202,8 @@ typedef struct LWLockHandle
 	LWLockMode	mode;
 } LWLockHandle;
 
-static int	num_held_lwlocks = 0;
-static LWLockHandle held_lwlocks[MAX_SIMUL_LWLOCKS];
+static session_local int	num_held_lwlocks = 0;
+static session_local LWLockHandle held_lwlocks[MAX_SIMUL_LWLOCKS];
 
 /* struct representing the LWLock tranche request for named tranche */
 typedef struct NamedLWLockTrancheRequest
@@ -212,8 +212,8 @@ typedef struct NamedLWLockTrancheRequest
 	int			num_lwlocks;
 } NamedLWLockTrancheRequest;
 
-static NamedLWLockTrancheRequest *NamedLWLockTrancheRequestArray = NULL;
-static int	NamedLWLockTrancheRequestsAllocated = 0;
+static session_local NamedLWLockTrancheRequest *NamedLWLockTrancheRequestArray = NULL;
+static session_local int	NamedLWLockTrancheRequestsAllocated = 0;
 
 /*
  * NamedLWLockTrancheRequests is both the valid length of the request array,
@@ -221,10 +221,10 @@ static int	NamedLWLockTrancheRequestsAllocated = 0;
  * This variable and NamedLWLockTrancheArray are non-static so that
  * postmaster.c can copy them to child processes in EXEC_BACKEND builds.
  */
-int			NamedLWLockTrancheRequests = 0;
+session_local int			NamedLWLockTrancheRequests = 0;
 
 /* points to data in shared memory: */
-NamedLWLockTranche *NamedLWLockTrancheArray = NULL;
+global NamedLWLockTranche *NamedLWLockTrancheArray = NULL;
 
 static void InitializeLWLocks(void);
 static inline void LWLockReportWaitStart(LWLock *lock);

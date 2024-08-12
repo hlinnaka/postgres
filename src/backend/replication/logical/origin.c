@@ -152,9 +152,9 @@ typedef struct ReplicationStateCtl
 } ReplicationStateCtl;
 
 /* external variables */
-RepOriginId replorigin_session_origin = InvalidRepOriginId; /* assumed identity */
-XLogRecPtr	replorigin_session_origin_lsn = InvalidXLogRecPtr;
-TimestampTz replorigin_session_origin_timestamp = 0;
+session_local RepOriginId replorigin_session_origin = InvalidRepOriginId; /* assumed identity */
+session_local XLogRecPtr	replorigin_session_origin_lsn = InvalidXLogRecPtr;
+session_local TimestampTz replorigin_session_origin_timestamp = 0;
 
 /*
  * Base address into a shared memory array of replication states of size
@@ -163,12 +163,12 @@ TimestampTz replorigin_session_origin_timestamp = 0;
  * XXX: Should we use a separate variable to size this rather than
  * max_replication_slots?
  */
-static ReplicationState *replication_states;
+static global ReplicationState *replication_states;
 
 /*
  * Actual shared memory block (replication_states[] is now part of this).
  */
-static ReplicationStateCtl *replication_states_ctl;
+static global ReplicationStateCtl *replication_states_ctl;
 
 /*
  * We keep a pointer to this backend's ReplicationState to avoid having to
@@ -176,7 +176,7 @@ static ReplicationStateCtl *replication_states_ctl;
  * remote commit.  (Ownership of a backend's own entry can only be changed by
  * that backend.)
  */
-static ReplicationState *session_replication_state = NULL;
+static session_local ReplicationState *session_replication_state = NULL;
 
 /* Magic for on disk files. */
 #define REPLICATION_STATE_MAGIC ((uint32) 0x1257DADE)

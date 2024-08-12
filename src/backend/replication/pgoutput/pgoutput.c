@@ -207,7 +207,7 @@ typedef struct PGOutputTxnData
 } PGOutputTxnData;
 
 /* Map used to remember which relation schemas we sent. */
-static HTAB *RelationSyncCache = NULL;
+static session_local HTAB *RelationSyncCache = NULL;
 
 static void init_rel_sync_cache(MemoryContext cachectx);
 static void cleanup_rel_sync_cache(TransactionId xid, bool is_commit);

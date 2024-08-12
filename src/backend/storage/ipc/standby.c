@@ -36,9 +36,9 @@
 #include "utils/timestamp.h"
 
 /* User-settable GUC parameters */
-int			max_standby_archive_delay = 30 * 1000;
-int			max_standby_streaming_delay = 30 * 1000;
-bool		log_recovery_conflict_waits = false;
+sighup_guc int			max_standby_archive_delay = 30 * 1000;
+sighup_guc int			max_standby_streaming_delay = 30 * 1000;
+sighup_guc bool		log_recovery_conflict_waits = false;
 
 /*
  * Keep track of all the exclusive locks owned by original transactions.
@@ -61,13 +61,13 @@ typedef struct RecoveryLockXidEntry
 	struct RecoveryLockEntry *head; /* chain head */
 } RecoveryLockXidEntry;
 
-static HTAB *RecoveryLockHash = NULL;
-static HTAB *RecoveryLockXidHash = NULL;
+static session_local HTAB *RecoveryLockHash = NULL;
+static session_local HTAB *RecoveryLockXidHash = NULL;
 
 /* Flags set by timeout handlers */
-static volatile sig_atomic_t got_standby_deadlock_timeout = false;
-static volatile sig_atomic_t got_standby_delay_timeout = false;
-static volatile sig_atomic_t got_standby_lock_timeout = false;
+static session_local volatile sig_atomic_t got_standby_deadlock_timeout = false;
+static session_local volatile sig_atomic_t got_standby_delay_timeout = false;
+static session_local volatile sig_atomic_t got_standby_lock_timeout = false;
 
 static void ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
 												   ProcSignalReason reason,
@@ -222,7 +222,7 @@ GetStandbyLimitTime(void)
 }
 
 #define STANDBY_INITIAL_WAIT_US  1000
-static int	standbyWait_us = STANDBY_INITIAL_WAIT_US;
+static session_local int	standbyWait_us = STANDBY_INITIAL_WAIT_US;
 
 /*
  * Standby wait logic for ResolveRecoveryConflictWithVirtualXIDs.

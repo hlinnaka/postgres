@@ -129,7 +129,7 @@ typedef struct
 	PGPROC	   *blocking_autovacuum_proc;
 }			Workspace;
 
-static Workspace * workspace;
+static session_local Workspace *workspace;
 
 /*
  * InitDeadLockChecking -- initialize deadlock checker during backend startup

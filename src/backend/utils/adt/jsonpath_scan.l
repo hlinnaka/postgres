@@ -30,12 +30,12 @@
 }
 
 %{
-static JsonPathString scanstring;
+static session_local JsonPathString scanstring;
 
 /* Handles to the buffer that the lexer uses internally */
-static YY_BUFFER_STATE scanbufhandle;
-static char *scanbuf;
-static int	scanbuflen;
+static session_local YY_BUFFER_STATE scanbufhandle;
+static session_local char *scanbuf;
+static session_local int	scanbuflen;
 
 static void addstring(bool init, char *s, int l);
 static void addchar(bool init, char c);

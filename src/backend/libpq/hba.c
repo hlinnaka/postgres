@@ -76,21 +76,21 @@ typedef struct
  * HBA or ident configuration files.  This is created when opening the first
  * file (depth of CONF_FILE_START_DEPTH).
  */
-static MemoryContext tokenize_context = NULL;
+static global MemoryContext tokenize_context = NULL;
 
 /*
  * pre-parsed content of HBA config file: list of HbaLine structs.
  * parsed_hba_context is the memory context where it lives.
  */
-static List *parsed_hba_lines = NIL;
-static MemoryContext parsed_hba_context = NULL;
+static global List *parsed_hba_lines = NIL;
+static global MemoryContext parsed_hba_context = NULL;
 
 /*
  * pre-parsed content of ident mapping file: list of IdentLine structs.
  * parsed_ident_context is the memory context where it lives.
  */
-static List *parsed_ident_lines = NIL;
-static MemoryContext parsed_ident_context = NULL;
+static global List *parsed_ident_lines = NIL;
+static global MemoryContext parsed_ident_context = NULL;
 
 /*
  * The following character array represents the names of the authentication

@@ -19,7 +19,7 @@
 #define DEFAULT_UPDATE_PROCESS_TITLE true
 #endif
 
-extern PGDLLIMPORT bool update_process_title;
+extern PGDLLIMPORT session_guc bool update_process_title;
 
 extern char **save_ps_display_args(int argc, char **argv);
 

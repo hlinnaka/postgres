@@ -54,10 +54,10 @@ static void cleanup(void);
  * ----------------
  */
 
-Relation	boot_reldesc;		/* current relation descriptor */
+global Relation	boot_reldesc;		/* current relation descriptor */
 
-Form_pg_attribute attrtypes[MAXATTR];	/* points to attribute info */
-int			numattr;			/* number of attributes for cur. rel */
+global Form_pg_attribute attrtypes[MAXATTR];	/* points to attribute info */
+global int			numattr;			/* number of attributes for cur. rel */
 
 
 /*
@@ -144,13 +144,13 @@ struct typmap
 	FormData_pg_type am_typ;
 };
 
-static List *Typ = NIL;			/* List of struct typmap* */
-static struct typmap *Ap = NULL;
+static global List *Typ = NIL;			/* List of struct typmap* */
+static global struct typmap *Ap = NULL;
 
-static Datum values[MAXATTR];	/* current row's attribute values */
-static bool Nulls[MAXATTR];
+static global Datum values[MAXATTR];	/* current row's attribute values */
+static global bool Nulls[MAXATTR];
 
-static MemoryContext nogc = NULL;	/* special no-gc mem context */
+static global MemoryContext nogc = NULL;	/* special no-gc mem context */
 
 /*
  *	At bootstrap time, we first declare all the indices to be built, and
@@ -166,7 +166,7 @@ typedef struct _IndexList
 	struct _IndexList *il_next;
 } IndexList;
 
-static IndexList *ILHead = NULL;
+static global IndexList *ILHead = NULL;
 
 
 /*

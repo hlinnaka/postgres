@@ -98,8 +98,8 @@ typedef struct WorkerInstrumentation
 	Instrumentation instrument[FLEXIBLE_ARRAY_MEMBER];
 } WorkerInstrumentation;
 
-extern PGDLLIMPORT BufferUsage pgBufferUsage;
-extern PGDLLIMPORT WalUsage pgWalUsage;
+extern PGDLLIMPORT session_local BufferUsage pgBufferUsage;
+extern PGDLLIMPORT session_local WalUsage pgWalUsage;
 
 extern Instrumentation *InstrAlloc(int n, int instrument_options,
 								   bool async_mode);

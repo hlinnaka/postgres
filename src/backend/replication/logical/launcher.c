@@ -47,11 +47,11 @@
 #define DEFAULT_NAPTIME_PER_CYCLE 180000L
 
 /* GUC variables */
-int			max_logical_replication_workers = 4;
-int			max_sync_workers_per_subscription = 2;
-int			max_parallel_apply_workers_per_subscription = 2;
+postmaster_guc int			max_logical_replication_workers = 4;
+sighup_guc int			max_sync_workers_per_subscription = 2;
+sighup_guc int			max_parallel_apply_workers_per_subscription = 2;
 
-LogicalRepWorker *MyLogicalRepWorker = NULL;
+session_local LogicalRepWorker *MyLogicalRepWorker = NULL;
 
 typedef struct LogicalRepCtxStruct
 {
@@ -66,7 +66,7 @@ typedef struct LogicalRepCtxStruct
 	LogicalRepWorker workers[FLEXIBLE_ARRAY_MEMBER];
 } LogicalRepCtxStruct;
 
-static LogicalRepCtxStruct *LogicalRepCtx;
+static global LogicalRepCtxStruct *LogicalRepCtx;
 
 /* an entry in the last-start-times shared hash table */
 typedef struct LauncherLastStartTimesEntry
@@ -85,10 +85,10 @@ static const dshash_parameters dsh_params = {
 	LWTRANCHE_LAUNCHER_HASH
 };
 
-static dsa_area *last_start_times_dsa = NULL;
-static dshash_table *last_start_times = NULL;
+static session_local dsa_area *last_start_times_dsa = NULL;
+static session_local dshash_table *last_start_times = NULL;
 
-static bool on_commit_launcher_wakeup = false;
+static session_local bool on_commit_launcher_wakeup = false;
 
 
 static void ApplyLauncherWakeup(void);

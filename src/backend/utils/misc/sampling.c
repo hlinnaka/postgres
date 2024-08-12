@@ -259,8 +259,8 @@ sampler_random_fract(pg_prng_state *randstate)
  * sampler_random_fract/reservoir_init_selection_state/reservoir_get_next_S,
  * except that a common random state is used across all callers.
  */
-static ReservoirStateData oldrs;
-static bool oldrs_initialized = false;
+static session_local ReservoirStateData oldrs;
+static session_local bool oldrs_initialized = false;
 
 double
 anl_random_fract(void)

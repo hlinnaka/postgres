@@ -21,7 +21,7 @@
 #include "utils/inval.h"
 
 
-uint64		SharedInvalidMessageCounter;
+session_local uint64		SharedInvalidMessageCounter;
 
 
 /*
@@ -36,7 +36,7 @@ uint64		SharedInvalidMessageCounter;
  * interrupted while doing so, ProcessClientReadInterrupt() will call
  * ProcessCatchupEvent().
  */
-volatile sig_atomic_t catchupInterruptPending = false;
+session_local volatile sig_atomic_t catchupInterruptPending = false;
 
 
 /*
@@ -70,14 +70,14 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 							 void (*resetFunction) (void))
 {
 #define MAXINVALMSGS 32
-	static SharedInvalidationMessage messages[MAXINVALMSGS];
+	static session_local SharedInvalidationMessage messages[MAXINVALMSGS];
 
 	/*
 	 * We use volatile here to prevent bugs if a compiler doesn't realize that
 	 * recursion is a possibility ...
 	 */
-	static volatile int nextmsg = 0;
-	static volatile int nummsgs = 0;
+	static session_local volatile int nextmsg = 0;
+	static session_local volatile int nummsgs = 0;
 
 	/* Deal with any messages still pending from an outer recursion */
 	while (nextmsg < nummsgs)

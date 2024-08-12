@@ -25,16 +25,16 @@
 static bool pgstat_should_report_connstat(void);
 
 
-PgStat_Counter pgStatBlockReadTime = 0;
-PgStat_Counter pgStatBlockWriteTime = 0;
-PgStat_Counter pgStatActiveTime = 0;
-PgStat_Counter pgStatTransactionIdleTime = 0;
-SessionEndType pgStatSessionEndCause = DISCONNECT_NORMAL;
+session_local PgStat_Counter pgStatBlockReadTime = 0;
+session_local PgStat_Counter pgStatBlockWriteTime = 0;
+session_local PgStat_Counter pgStatActiveTime = 0;
+session_local PgStat_Counter pgStatTransactionIdleTime = 0;
+session_local SessionEndType pgStatSessionEndCause = DISCONNECT_NORMAL;
 
 
-static int	pgStatXactCommit = 0;
-static int	pgStatXactRollback = 0;
-static PgStat_Counter pgLastSessionReportTime = 0;
+static session_local int	pgStatXactCommit = 0;
+static session_local int	pgStatXactRollback = 0;
+static session_local PgStat_Counter pgLastSessionReportTime = 0;
 
 
 /*

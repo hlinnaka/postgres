@@ -103,11 +103,11 @@
 /*
  * Configuration options
  */
-int			Unix_socket_permissions;
-char	   *Unix_socket_group;
+postmaster_guc int			Unix_socket_permissions;
+postmaster_guc char	   *Unix_socket_group;
 
 /* Where the Unix socket files are (list of palloc'd strings) */
-static List *sock_paths = NIL;
+static global List *sock_paths = NIL;
 
 /* Internal functions */
 static void socket_comm_reset(void);
@@ -137,7 +137,7 @@ static const PQcommMethods PqCommSocketMethods = {
 
 const PQcommMethods *PqCommMethods = &PqCommSocketMethods;
 
-WaitEventSet *FeBeWaitSet;
+session_local WaitEventSet *FeBeWaitSet;
 
 
 /* --------------------------------

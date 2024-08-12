@@ -73,28 +73,28 @@
 
 /* Hook for plugins to get control in ExecutorStart() */
 typedef void (*ExecutorStart_hook_type) (QueryDesc *queryDesc, int eflags);
-extern PGDLLIMPORT ExecutorStart_hook_type ExecutorStart_hook;
+extern PGDLLIMPORT session_local ExecutorStart_hook_type ExecutorStart_hook;
 
 /* Hook for plugins to get control in ExecutorRun() */
 typedef void (*ExecutorRun_hook_type) (QueryDesc *queryDesc,
 									   ScanDirection direction,
 									   uint64 count,
 									   bool execute_once);
-extern PGDLLIMPORT ExecutorRun_hook_type ExecutorRun_hook;
+extern PGDLLIMPORT session_local ExecutorRun_hook_type ExecutorRun_hook;
 
 /* Hook for plugins to get control in ExecutorFinish() */
 typedef void (*ExecutorFinish_hook_type) (QueryDesc *queryDesc);
-extern PGDLLIMPORT ExecutorFinish_hook_type ExecutorFinish_hook;
+extern PGDLLIMPORT session_local ExecutorFinish_hook_type ExecutorFinish_hook;
 
 /* Hook for plugins to get control in ExecutorEnd() */
 typedef void (*ExecutorEnd_hook_type) (QueryDesc *queryDesc);
-extern PGDLLIMPORT ExecutorEnd_hook_type ExecutorEnd_hook;
+extern PGDLLIMPORT session_local ExecutorEnd_hook_type ExecutorEnd_hook;
 
 /* Hook for plugins to get control in ExecCheckPermissions() */
 typedef bool (*ExecutorCheckPerms_hook_type) (List *rangeTable,
 											  List *rtePermInfos,
 											  bool ereport_on_violation);
-extern PGDLLIMPORT ExecutorCheckPerms_hook_type ExecutorCheckPerms_hook;
+extern PGDLLIMPORT session_local ExecutorCheckPerms_hook_type ExecutorCheckPerms_hook;
 
 
 /*

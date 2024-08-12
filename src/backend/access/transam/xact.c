@@ -74,16 +74,16 @@
 /*
  *	User-tweakable parameters
  */
-int			DefaultXactIsoLevel = XACT_READ_COMMITTED;
-int			XactIsoLevel = XACT_READ_COMMITTED;
+session_guc int			DefaultXactIsoLevel = XACT_READ_COMMITTED;
+session_guc int			XactIsoLevel = XACT_READ_COMMITTED;
 
-bool		DefaultXactReadOnly = false;
-bool		XactReadOnly;
+session_guc bool		DefaultXactReadOnly = false;
+session_guc bool		XactReadOnly;
 
-bool		DefaultXactDeferrable = false;
-bool		XactDeferrable;
+session_guc bool		DefaultXactDeferrable = false;
+session_guc bool		XactDeferrable;
 
-int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
+session_guc int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
 
 /*
  * CheckXidAlive is a xid value pointing to a possibly ongoing (sub)
@@ -95,8 +95,8 @@ int			synchronous_commit = SYNCHRONOUS_COMMIT_ON;
  * directly access the tableam or heap APIs because we are checking for the
  * concurrent aborts only in systable_* APIs.
  */
-TransactionId CheckXidAlive = InvalidTransactionId;
-bool		bsysscan = false;
+session_local TransactionId CheckXidAlive = InvalidTransactionId;
+session_local bool		bsysscan = false;
 
 /*
  * When running as a parallel worker, we place only a single
@@ -121,9 +121,9 @@ bool		bsysscan = false;
  * The XIDs are stored sorted in numerical order (not logical order) to make
  * lookups as fast as possible.
  */
-static FullTransactionId XactTopFullTransactionId = {InvalidTransactionId};
-static int	nParallelCurrentXids = 0;
-static TransactionId *ParallelCurrentXids;
+static session_local FullTransactionId XactTopFullTransactionId = {InvalidTransactionId};
+static session_local int	nParallelCurrentXids = 0;
+static session_local TransactionId *ParallelCurrentXids;
 
 /*
  * Miscellaneous flag bits to record events which occur on the top level
@@ -132,7 +132,7 @@ static TransactionId *ParallelCurrentXids;
  * globally accessible, so can be set from anywhere in the code that requires
  * recording flags.
  */
-int			MyXactFlags;
+session_local int			MyXactFlags;
 
 /*
  *	transaction states - transaction state from server perspective
@@ -243,7 +243,7 @@ typedef struct SerializedTransactionState
  * block.  It will point to TopTransactionStateData when not in a
  * transaction at all, or when in a top-level transaction.
  */
-static TransactionStateData TopTransactionStateData = {
+static static_singleton TransactionStateData TopTransactionStateData = {
 	.state = TRANS_DEFAULT,
 	.blockState = TBLOCK_DEFAULT,
 	.topXidLogged = false,
@@ -253,18 +253,18 @@ static TransactionStateData TopTransactionStateData = {
  * unreportedXids holds XIDs of all subtransactions that have not yet been
  * reported in an XLOG_XACT_ASSIGNMENT record.
  */
-static int	nUnreportedXids;
-static TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
+static session_local int	nUnreportedXids;
+static session_local TransactionId unreportedXids[PGPROC_MAX_CACHED_SUBXIDS];
 
-static TransactionState CurrentTransactionState = &TopTransactionStateData;
+static session_local TransactionState CurrentTransactionState = &TopTransactionStateData;
 
 /*
  * The subtransaction ID and command ID assignment counters are global
  * to a whole transaction, so we do not keep them in the state stack.
  */
-static SubTransactionId currentSubTransactionId;
-static CommandId currentCommandId;
-static bool currentCommandIdUsed;
+static session_local SubTransactionId currentSubTransactionId;
+static session_local CommandId currentCommandId;
+static session_local bool currentCommandIdUsed;
 
 /*
  * xactStartTimestamp is the value of transaction_timestamp().
@@ -276,30 +276,30 @@ static bool currentCommandIdUsed;
  * These do not change as we enter and exit subtransactions, so we don't
  * keep them inside the TransactionState stack.
  */
-static TimestampTz xactStartTimestamp;
-static TimestampTz stmtStartTimestamp;
-static TimestampTz xactStopTimestamp;
+static session_local TimestampTz xactStartTimestamp;
+static session_local TimestampTz stmtStartTimestamp;
+static session_local TimestampTz xactStopTimestamp;
 
 /*
  * GID to be used for preparing the current transaction.  This is also
  * global to a whole transaction, so we don't keep it in the state stack.
  */
-static char *prepareGID;
+static session_local char *prepareGID;
 
 /*
  * Some commands want to force synchronous commit.
  */
-static bool forceSyncCommit = false;
+static session_local bool forceSyncCommit = false;
 
 /* Flag for logging statements in a transaction. */
-bool		xact_is_sampled = false;
+session_local bool		xact_is_sampled = false;
 
 /*
  * Private context for transaction-abort work --- we reserve space for this
  * at startup to ensure that AbortTransaction and AbortSubTransaction can work
  * when we've run out of memory.
  */
-static MemoryContext TransactionAbortContext = NULL;
+static session_local MemoryContext TransactionAbortContext = NULL;
 
 /*
  * List of add-on start- and end-of-xact callbacks
@@ -311,7 +311,7 @@ typedef struct XactCallbackItem
 	void	   *arg;
 } XactCallbackItem;
 
-static XactCallbackItem *Xact_callbacks = NULL;
+static session_local XactCallbackItem *Xact_callbacks = NULL;
 
 /*
  * List of add-on start- and end-of-subxact callbacks
@@ -323,7 +323,7 @@ typedef struct SubXactCallbackItem
 	void	   *arg;
 } SubXactCallbackItem;
 
-static SubXactCallbackItem *SubXact_callbacks = NULL;
+static session_local SubXactCallbackItem *SubXact_callbacks = NULL;
 
 
 /* local function prototypes */

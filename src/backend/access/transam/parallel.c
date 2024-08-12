@@ -109,22 +109,22 @@ typedef struct FixedParallelState
  * and < the number of workers before any user code is invoked; each parallel
  * worker will get a different parallel worker number.
  */
-int			ParallelWorkerNumber = -1;
+session_local int			ParallelWorkerNumber = -1;
 
 /* Is there a parallel message pending which we need to receive? */
-volatile sig_atomic_t ParallelMessagePending = false;
+session_local volatile sig_atomic_t ParallelMessagePending = false;
 
 /* Are we initializing a parallel worker? */
-bool		InitializingParallelWorker = false;
+session_local bool		InitializingParallelWorker = false;
 
 /* Pointer to our fixed parallel state. */
-static FixedParallelState *MyFixedParallelState;
+static session_local FixedParallelState *MyFixedParallelState;
 
 /* List of active parallel contexts. */
-static dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
+static /* FIXME: session_local */ dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
 
 /* Backend-local copy of data from FixedParallelState. */
-static pid_t ParallelLeaderPid;
+static session_local pid_t ParallelLeaderPid;
 
 /*
  * List of internal parallel worker entry points.  We need this for
@@ -1029,7 +1029,7 @@ HandleParallelMessages(void)
 	dlist_iter	iter;
 	MemoryContext oldcontext;
 
-	static MemoryContext hpm_context = NULL;
+	static session_local MemoryContext hpm_context = NULL;
 
 	/*
 	 * This is invoked from ProcessInterrupts(), and since some of the

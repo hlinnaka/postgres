@@ -31,8 +31,8 @@ static void pgstat_reset_slru_counter_internal(int index, TimestampTz ts);
  * SLRU counters are reported within critical sections so we use static memory
  * in order to avoid memory allocation.
  */
-static PgStat_SLRUStats pending_SLRUStats[SLRU_NUM_ELEMENTS];
-bool		have_slrustats = false;
+static session_local PgStat_SLRUStats pending_SLRUStats[SLRU_NUM_ELEMENTS];
+session_local bool		have_slrustats = false;
 
 
 /*
@@ -155,7 +155,7 @@ pgstat_get_slru_index(const char *name)
 bool
 pgstat_slru_flush(bool nowait)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 	int			i;
 
 	if (!have_slrustats)
@@ -210,7 +210,7 @@ pgstat_slru_reset_all_cb(TimestampTz ts)
 void
 pgstat_slru_snapshot_cb(void)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 
 	LWLockAcquire(&stats_shmem->lock, LW_SHARED);
 
@@ -245,7 +245,7 @@ get_slru_entry(int slru_idx)
 static void
 pgstat_reset_slru_counter_internal(int index, TimestampTz ts)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
 
