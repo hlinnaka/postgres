@@ -66,7 +66,9 @@
 #include "postmaster/postmaster.h"
 #include "storage/dsm_impl.h"
 #include "storage/fd.h"
+#include "storage/lwlock.h"
 #include "utils/guc.h"
+#include "utils/hsearch.h"
 #include "utils/memutils.h"
 
 #ifdef USE_DSM_POSIX
@@ -90,6 +92,9 @@ static bool dsm_impl_mmap(dsm_op op, dsm_handle handle, Size request_size,
 						  void **impl_private, void **mapped_address,
 						  Size *mapped_size, int elevel);
 #endif
+static bool dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
+							  void **impl_private, void **mapped_address,
+							  Size *mapped_size, int elevel);
 static int	errcode_for_dynamic_shared_memory(void);
 
 const struct config_enum_entry dynamic_shared_memory_options[] = {
@@ -109,10 +114,10 @@ const struct config_enum_entry dynamic_shared_memory_options[] = {
 };
 
 /* Implementation selector. */
-postmaster_guc int			dynamic_shared_memory_type = DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE;
+postmaster_guc int dynamic_shared_memory_type = DEFAULT_DYNAMIC_SHARED_MEMORY_TYPE;
 
 /* Amount of space reserved for DSM segments in the main area. */
-postmaster_guc int			min_dynamic_shared_memory;
+postmaster_guc int min_dynamic_shared_memory;
 
 /* Size of buffer to be used for zero-filling. */
 #define ZBUFFER_SIZE				8192
@@ -163,6 +168,10 @@ dsm_impl_op(dsm_op op, dsm_handle handle, Size request_size,
 	Assert(op == DSM_OP_CREATE || request_size == 0);
 	Assert((op != DSM_OP_CREATE && op != DSM_OP_ATTACH) ||
 		   (*mapped_address == NULL && *mapped_size == 0));
+
+	if (IsMultiThreaded)
+		return dsm_impl_threaded(op, handle, request_size, impl_private,
+								 mapped_address, mapped_size, elevel);
 
 	switch (dynamic_shared_memory_type)
 	{
@@ -1050,4 +1059,125 @@ errcode_for_dynamic_shared_memory(void)
 		return errcode(ERRCODE_OUT_OF_MEMORY);
 	else
 		return errcode_for_file_access();
+}
+
+typedef struct dsm_hash_entry
+{
+	dsm_handle	handle;
+	size_t		size;
+	void	   *ptr;
+}			dsm_hash_entry;
+
+static global HTAB *dsm_hash = NULL;
+
+/*
+ * Trivial implementation when running in multithreaded mode.
+ *
+ * In multithreaded mode, everything runs in a single process and shared
+ * memory is just regular memory.
+ */
+static bool
+dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
+				  void **impl_private, void **mapped_address, Size *mapped_size,
+				  int elevel)
+{
+	dsm_hash_entry *entry;
+	bool		locked = false;
+
+	if (IsUnderPostmaster)
+	{
+		LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
+		locked = true;
+	}
+
+	if (dsm_hash == NULL)
+	{
+		HASHCTL		ctl;
+
+		ctl.keysize = sizeof(dsm_handle);
+		ctl.entrysize = sizeof(struct dsm_hash_entry);
+		ctl.hcxt = MultiThreadGlobalContext;
+		dsm_hash = hash_create("dsm adapter hash",
+							   32, &ctl, HASH_ELEM | HASH_BLOBS);
+	}
+
+	/* Handle teardown cases. */
+	if (op == DSM_OP_DETACH)
+	{
+		if (locked)
+			LWLockRelease(ShmemIndexLock);
+		return true;			/* no op */
+	}
+
+	if (op == DSM_OP_DESTROY)
+	{
+		*mapped_address = NULL;
+		*mapped_size = 0;
+
+		entry = (dsm_hash_entry *) hash_search(dsm_hash, &handle, HASH_REMOVE, NULL);
+		if (!entry)
+			ereport(elevel,
+					(errcode_for_dynamic_shared_memory(),
+					 errmsg("could not remove shared memory segment \"%d\": %m",
+							handle)));
+		else
+			pfree(entry->ptr);
+		if (locked)
+			LWLockRelease(ShmemIndexLock);
+		return true;
+	}
+
+	/*
+	 * If we're attaching the segment, determine the current size; if we are
+	 * creating the segment, set the size to the requested value.
+	 */
+	if (op == DSM_OP_ATTACH)
+	{
+		entry = (dsm_hash_entry *) hash_search(dsm_hash, &handle, HASH_FIND, NULL);
+		if (!entry)
+		{
+			if (locked)
+				LWLockRelease(ShmemIndexLock);
+			ereport(elevel,
+					(errcode_for_dynamic_shared_memory(),
+					 errmsg("could not find shared memory segment \"%d\": %m",
+							handle)));
+			return false;
+		}
+		*mapped_address = entry->ptr;
+		*mapped_size = entry->size;
+		if (locked)
+			LWLockRelease(ShmemIndexLock);
+		return true;
+	}
+	if (op == DSM_OP_CREATE)
+	{
+		void	   *ptr;
+		bool		found;
+
+		entry = (dsm_hash_entry *) hash_search(dsm_hash, &handle, HASH_ENTER, &found);
+		if (found)
+		{
+			ereport(DEBUG1,
+					(errcode_for_dynamic_shared_memory(),
+					 errmsg("shared memory segment \"%d\" already exists", handle)));
+			if (locked)
+				LWLockRelease(ShmemIndexLock);
+			return false;
+		}
+
+		/* FIXME: handle OOM */
+		ptr = MemoryContextAlloc(MultiThreadGlobalContext, request_size);
+		entry->ptr = ptr;
+		entry->size = request_size;
+
+		*mapped_address = ptr;
+		*mapped_size = request_size;
+		if (locked)
+			LWLockRelease(ShmemIndexLock);
+		return true;
+	}
+
+	elog(ERROR, "unexpected DSM op %d", op);
+	return false;
 }
