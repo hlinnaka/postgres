@@ -30,7 +30,7 @@
 #include "utils/typcache.h"
 
 /* Hook for plugins to get control in add_paths_to_joinrel() */
-set_join_pathlist_hook_type set_join_pathlist_hook = NULL;
+session_local set_join_pathlist_hook_type set_join_pathlist_hook = NULL;
 
 /*
  * Paths parameterized by a parent rel can be considered to be parameterized

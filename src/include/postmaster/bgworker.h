@@ -138,7 +138,7 @@ extern const char *GetBackgroundWorkerTypeByPid(pid_t pid);
 extern void TerminateBackgroundWorker(BackgroundWorkerHandle *handle);
 
 /* This is valid in a running worker */
-extern PGDLLIMPORT BackgroundWorker *MyBgworkerEntry;
+extern PGDLLIMPORT session_local BackgroundWorker *MyBgworkerEntry;
 
 /*
  * Connect to the specified database, as the specified user.  Only a worker

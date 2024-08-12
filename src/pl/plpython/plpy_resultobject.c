@@ -22,9 +22,9 @@ static PyObject *PLy_result_str(PyObject *arg);
 static PyObject *PLy_result_subscript(PyObject *arg, PyObject *item);
 static int	PLy_result_ass_subscript(PyObject *arg, PyObject *item, PyObject *value);
 
-static char PLy_result_doc[] = "Results of a PostgreSQL query";
+static static_singleton char PLy_result_doc[] = "Results of a PostgreSQL query";
 
-static PyMethodDef PLy_result_methods[] = {
+static static_singleton PyMethodDef PLy_result_methods[] = {
 	{"colnames", PLy_result_colnames, METH_NOARGS, NULL},
 	{"coltypes", PLy_result_coltypes, METH_NOARGS, NULL},
 	{"coltypmods", PLy_result_coltypmods, METH_NOARGS, NULL},
@@ -33,7 +33,7 @@ static PyMethodDef PLy_result_methods[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-static PyType_Slot PLyResult_slots[] =
+static static_singleton PyType_Slot PLyResult_slots[] =
 {
 	{
 		Py_tp_dealloc, PLy_result_dealloc

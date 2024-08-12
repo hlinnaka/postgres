@@ -58,7 +58,7 @@ extern const PGDLLIMPORT PQcommMethods *PqCommMethods;
 /*
  * prototypes for functions in pqcomm.c
  */
-extern PGDLLIMPORT WaitEventSet *FeBeWaitSet;
+extern PGDLLIMPORT session_local WaitEventSet *FeBeWaitSet;
 
 #define FeBeWaitSetSocketPos 0
 #define FeBeWaitSetInterruptPos 1
@@ -99,23 +99,23 @@ extern ssize_t secure_raw_write(Port *port, const void *ptr, size_t len);
 /*
  * declarations for variables defined in be-secure.c
  */
-extern PGDLLIMPORT char *ssl_library;
-extern PGDLLIMPORT char *ssl_ca_file;
-extern PGDLLIMPORT char *ssl_cert_file;
-extern PGDLLIMPORT char *ssl_crl_file;
-extern PGDLLIMPORT char *ssl_crl_dir;
-extern PGDLLIMPORT char *ssl_key_file;
-extern PGDLLIMPORT int ssl_min_protocol_version;
-extern PGDLLIMPORT int ssl_max_protocol_version;
-extern PGDLLIMPORT char *ssl_passphrase_command;
-extern PGDLLIMPORT bool ssl_passphrase_command_supports_reload;
-extern PGDLLIMPORT char *ssl_dh_params_file;
-extern PGDLLIMPORT char *SSLCipherSuites;
-extern PGDLLIMPORT char *SSLCipherList;
-extern PGDLLIMPORT char *SSLECDHCurve;
-extern PGDLLIMPORT bool SSLPreferServerCiphers;
+extern PGDLLIMPORT pg_global char *ssl_library;
+extern PGDLLIMPORT sighup_guc char *ssl_ca_file;
+extern PGDLLIMPORT sighup_guc char *ssl_cert_file;
+extern PGDLLIMPORT sighup_guc char *ssl_crl_file;
+extern PGDLLIMPORT sighup_guc char *ssl_crl_dir;
+extern PGDLLIMPORT sighup_guc char *ssl_key_file;
+extern PGDLLIMPORT sighup_guc int ssl_min_protocol_version;
+extern PGDLLIMPORT sighup_guc int ssl_max_protocol_version;
+extern PGDLLIMPORT sighup_guc char *ssl_passphrase_command;
+extern PGDLLIMPORT sighup_guc bool ssl_passphrase_command_supports_reload;
+extern PGDLLIMPORT sighup_guc char *ssl_dh_params_file;
+extern PGDLLIMPORT sighup_guc char *SSLCipherSuites;
+extern PGDLLIMPORT sighup_guc char *SSLCipherList;
+extern PGDLLIMPORT sighup_guc char *SSLECDHCurve;
+extern PGDLLIMPORT sighup_guc bool SSLPreferServerCiphers;
 #ifdef USE_SSL
-extern PGDLLIMPORT bool ssl_loaded_verify_locations;
+extern PGDLLIMPORT pg_global bool ssl_loaded_verify_locations;
 #endif
 
 /*

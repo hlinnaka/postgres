@@ -40,7 +40,7 @@
 /*
  * GUC parameter
  */
-bool		Array_nulls = true;
+session_guc bool		Array_nulls = true;
 
 /*
  * Local definitions

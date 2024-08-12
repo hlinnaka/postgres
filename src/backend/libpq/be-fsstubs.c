@@ -68,11 +68,11 @@
  * dynamically allocated in that context.  Its current allocated size is
  * cookies_size entries, of which any unused entries will be NULL.
  */
-static LargeObjectDesc **cookies = NULL;
-static int	cookies_size = 0;
+static session_local LargeObjectDesc **cookies = NULL;
+static session_local int	cookies_size = 0;
 
-static bool lo_cleanup_needed = false;
-static MemoryContext fscxt = NULL;
+static session_local bool lo_cleanup_needed = false;
+static session_local MemoryContext fscxt = NULL;
 
 static int	newLOfd(void);
 static void closeLOfd(int fd);

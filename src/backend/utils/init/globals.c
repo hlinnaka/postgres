@@ -27,22 +27,22 @@
 #include "storage/procsignal.h"
 
 
-ProtocolVersion FrontendProtocol;
+session_local ProtocolVersion FrontendProtocol;
 
-volatile uint32 InterruptHoldoffCount = 0;
-volatile uint32 QueryCancelHoldoffCount = 0;
-volatile uint32 CritSectionCount = 0;
+session_local volatile uint32 InterruptHoldoffCount = 0;
+session_local volatile uint32 QueryCancelHoldoffCount = 0;
+session_local volatile uint32 CritSectionCount = 0;
 
-volatile uint32 CheckForInterruptsMask = 0;
+session_local volatile uint32 CheckForInterruptsMask = 0;
 
-int			MyProcPid;
-pg_time_t	MyStartTime;
-TimestampTz MyStartTimestamp;
-struct ClientSocket *MyClientSocket;
-struct Port *MyProcPort;
-uint8		MyCancelKey[MAX_CANCEL_KEY_LENGTH];
-int			MyCancelKeyLength = 0;
-int			MyPMChildSlot;
+session_local int			MyProcPid;
+session_local pg_time_t	MyStartTime;
+session_local TimestampTz MyStartTimestamp;
+session_local struct ClientSocket *MyClientSocket;
+session_local struct Port *MyProcPort;
+session_local uint8		MyCancelKey[MAX_CANCEL_KEY_LENGTH];
+session_local int			MyCancelKeyLength = 0;
+session_local int			MyPMChildSlot;
 
 /*
  * DataDir is the absolute path to the top level of the PGDATA directory tree.
@@ -50,18 +50,18 @@ int			MyPMChildSlot;
  * most code therefore can simply use relative paths and not reference DataDir
  * explicitly.
  */
-char	   *DataDir = NULL;
+pg_global char	   *DataDir = NULL;
 
 /*
  * Mode of the data directory.  The default is 0700 but it may be changed in
  * checkDataDir() to 0750 if the data directory actually has that mode.
  */
-int			data_directory_mode = PG_DIR_MODE_OWNER;
+session_local int			data_directory_mode = PG_DIR_MODE_OWNER;
 
-char		OutputFileName[MAXPGPATH];	/* debugging output file */
+dynamic_singleton char		OutputFileName[MAXPGPATH];	/* debugging output file */
 
-char		my_exec_path[MAXPGPATH];	/* full path to my executable */
-char		pkglib_path[MAXPGPATH]; /* full path to lib directory */
+dynamic_singleton char		my_exec_path[MAXPGPATH];	/* full path to my executable */
+dynamic_singleton char		pkglib_path[MAXPGPATH]; /* full path to lib directory */
 
 #ifdef EXEC_BACKEND
 char		postgres_exec_path[MAXPGPATH];	/* full path to backend */
@@ -69,23 +69,23 @@ char		postgres_exec_path[MAXPGPATH];	/* full path to backend */
 /* note: currently this is not valid in backend processes */
 #endif
 
-ProcNumber	MyProcNumber = INVALID_PROC_NUMBER;
+session_local ProcNumber	MyProcNumber = INVALID_PROC_NUMBER;
 
-ProcNumber	ParallelLeaderProcNumber = INVALID_PROC_NUMBER;
+session_local ProcNumber	ParallelLeaderProcNumber = INVALID_PROC_NUMBER;
 
-Oid			MyDatabaseId = InvalidOid;
+session_local Oid			MyDatabaseId = InvalidOid;
 
-Oid			MyDatabaseTableSpace = InvalidOid;
+session_local Oid			MyDatabaseTableSpace = InvalidOid;
 
-bool		MyDatabaseHasLoginEventTriggers = false;
+session_local bool		MyDatabaseHasLoginEventTriggers = false;
 
 /*
  * DatabasePath is the path (relative to DataDir) of my database's
  * primary directory, ie, its directory in the default tablespace.
  */
-char	   *DatabasePath = NULL;
+session_local char	   *DatabasePath = NULL;
 
-pid_t		PostmasterPid = 0;
+pg_global pid_t	PostmasterPid = 0;
 
 /*
  * IsPostmasterEnvironment is true in a postmaster process and any postmaster
@@ -98,22 +98,22 @@ pid_t		PostmasterPid = 0;
  *
  * These are initialized for the bootstrap/standalone case.
  */
-bool		IsPostmasterEnvironment = false;
-bool		IsUnderPostmaster = false;
-bool		IsBinaryUpgrade = false;
+pg_global bool		IsPostmasterEnvironment = false;
+session_local bool		IsUnderPostmaster = false;
+pg_global bool		IsBinaryUpgrade = false;
 
-bool		ExitOnAnyError = false;
+session_guc bool		ExitOnAnyError = false;
 
-int			DateStyle = USE_ISO_DATES;
-int			DateOrder = DATEORDER_MDY;
-int			IntervalStyle = INTSTYLE_POSTGRES;
+session_local int			DateStyle = USE_ISO_DATES;
+session_local int			DateOrder = DATEORDER_MDY;
+session_guc int			IntervalStyle = INTSTYLE_POSTGRES;
 
-bool		enableFsync = true;
-bool		allowSystemTableMods = false;
-int			work_mem = 4096;
-double		hash_mem_multiplier = 2.0;
-int			maintenance_work_mem = 65536;
-int			max_parallel_maintenance_workers = 2;
+sighup_guc bool		enableFsync = true;
+session_guc bool		allowSystemTableMods = false;
+session_guc int			work_mem = 4096;
+session_guc double		hash_mem_multiplier = 2.0;
+session_guc int			maintenance_work_mem = 65536;
+session_guc int			max_parallel_maintenance_workers = 2;
 
 /*
  * Primary determinants of sizes of shared-memory structures.
@@ -121,29 +121,29 @@ int			max_parallel_maintenance_workers = 2;
  * MaxBackends is computed by PostmasterMain after modules have had a chance to
  * register background workers.
  */
-int			NBuffers = 16384;
-int			MaxConnections = 100;
-int			max_worker_processes = 8;
-int			max_parallel_workers = 8;
-int			MaxBackends = 0;
+postmaster_guc int		NBuffers = 16384;
+postmaster_guc int		MaxConnections = 100;
+postmaster_guc int		max_worker_processes = 8;
+session_guc int			max_parallel_workers = 8;
+dynamic_singleton int	MaxBackends = 0;
 
 /* GUC parameters for vacuum */
-int			VacuumBufferUsageLimit = 2048;
+session_guc int			VacuumBufferUsageLimit = 2048;
 
-int			VacuumCostPageHit = 1;
-int			VacuumCostPageMiss = 2;
-int			VacuumCostPageDirty = 20;
-int			VacuumCostLimit = 200;
-double		VacuumCostDelay = 0;
+session_guc int			VacuumCostPageHit = 1;
+session_guc int			VacuumCostPageMiss = 2;
+session_guc int			VacuumCostPageDirty = 20;
+session_guc int			VacuumCostLimit = 200;
+session_guc double		VacuumCostDelay = 0;
 
-int			VacuumCostBalance = 0;	/* working state for vacuum */
-bool		VacuumCostActive = false;
+session_local int			VacuumCostBalance = 0;	/* working state for vacuum */
+session_local bool		VacuumCostActive = false;
 
 /* configurable SLRU buffer sizes */
-int			commit_timestamp_buffers = 0;
-int			multixact_member_buffers = 32;
-int			multixact_offset_buffers = 16;
-int			notify_buffers = 16;
-int			serializable_buffers = 32;
-int			subtransaction_buffers = 0;
-int			transaction_buffers = 0;
+postmaster_guc int			commit_timestamp_buffers = 0;
+postmaster_guc int			multixact_member_buffers = 32;
+postmaster_guc int			multixact_offset_buffers = 16;
+postmaster_guc int			notify_buffers = 16;
+postmaster_guc int			serializable_buffers = 32;
+postmaster_guc int			subtransaction_buffers = 0;
+postmaster_guc int			transaction_buffers = 0;

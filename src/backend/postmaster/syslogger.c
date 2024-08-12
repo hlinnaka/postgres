@@ -48,6 +48,7 @@
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 #include "tcop/tcopprot.h"
+#include "utils/elog_gucs.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
@@ -67,27 +68,27 @@
  * GUC parameters.  Logging_collector cannot be changed after postmaster
  * start, but the rest can change at SIGHUP.
  */
-bool		Logging_collector = false;
-int			Log_RotationAge = HOURS_PER_DAY * MINS_PER_HOUR;
-int			Log_RotationSize = 10 * 1024;
-char	   *Log_directory = NULL;
-char	   *Log_filename = NULL;
-bool		Log_truncate_on_rotation = false;
-int			Log_file_mode = S_IRUSR | S_IWUSR;
+postmaster_guc bool		Logging_collector = false;
+sighup_guc int			Log_RotationAge = HOURS_PER_DAY * MINS_PER_HOUR;
+sighup_guc int			Log_RotationSize = 10 * 1024;
+sighup_guc char	   *Log_directory = NULL;
+sighup_guc char	   *Log_filename = NULL;
+sighup_guc bool		Log_truncate_on_rotation = false;
+sighup_guc int			Log_file_mode = S_IRUSR | S_IWUSR;
 
 /*
  * Private state
  */
-static pg_time_t next_rotation_time;
-static bool pipe_eof_seen = false;
-static bool rotation_disabled = false;
-static FILE *syslogFile = NULL;
-static FILE *csvlogFile = NULL;
-static FILE *jsonlogFile = NULL;
-NON_EXEC_STATIC pg_time_t first_syslogger_file_time = 0;
-static char *last_sys_file_name = NULL;
-static char *last_csv_file_name = NULL;
-static char *last_json_file_name = NULL;
+static pg_global pg_time_t next_rotation_time;
+static pg_global bool pipe_eof_seen = false;
+static pg_global bool rotation_disabled = false;
+static pg_global FILE *syslogFile = NULL;
+static pg_global FILE *csvlogFile = NULL;
+static pg_global FILE *jsonlogFile = NULL;
+NON_EXEC_STATIC pg_global pg_time_t first_syslogger_file_time = 0;
+static pg_global char *last_sys_file_name = NULL;
+static pg_global char *last_csv_file_name = NULL;
+static pg_global char *last_json_file_name = NULL;
 
 /*
  * Buffers for saving partial messages from different backends.
@@ -107,13 +108,13 @@ typedef struct
 } save_buffer;
 
 #define NBUFFER_LISTS 256
-static List *buffer_lists[NBUFFER_LISTS];
+static pg_global List *buffer_lists[NBUFFER_LISTS];
 
 /* These must be exported for EXEC_BACKEND case ... annoying */
 #ifndef WIN32
-int			syslogPipe[2] = {-1, -1};
+pg_global int			syslogPipe[2] = {-1, -1};
 #else
-HANDLE		syslogPipe[2] = {0, 0};
+pg_global HANDLE		syslogPipe[2] = {0, 0};
 #endif
 
 #ifdef WIN32
@@ -124,7 +125,7 @@ static CRITICAL_SECTION sysloggerSection;
 /*
  * Flags set by interrupt handlers for later service in the main loop.
  */
-static volatile sig_atomic_t rotation_requested = false;
+static pg_global volatile sig_atomic_t rotation_requested = false;
 
 
 /* Local subroutines */

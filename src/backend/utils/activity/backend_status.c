@@ -39,34 +39,34 @@
  * GUC parameters
  * ----------
  */
-bool		pgstat_track_activities = false;
-int			pgstat_track_activity_query_size = 1024;
+session_guc bool		pgstat_track_activities = false;
+postmaster_guc int			pgstat_track_activity_query_size = 1024;
 
 
 /* exposed so that backend_progress.c can access it */
-PgBackendStatus *MyBEEntry = NULL;
+session_local PgBackendStatus *MyBEEntry = NULL;
 
 
-static PgBackendStatus *BackendStatusArray = NULL;
-static char *BackendAppnameBuffer = NULL;
-static char *BackendClientHostnameBuffer = NULL;
-static char *BackendActivityBuffer = NULL;
-static Size BackendActivityBufferSize = 0;
+static pg_global PgBackendStatus *BackendStatusArray = NULL;
+static pg_global char *BackendAppnameBuffer = NULL;
+static pg_global char *BackendClientHostnameBuffer = NULL;
+static pg_global char *BackendActivityBuffer = NULL;
+static pg_global Size BackendActivityBufferSize = 0;
 #ifdef USE_SSL
-static PgBackendSSLStatus *BackendSslStatusBuffer = NULL;
+static pg_global PgBackendSSLStatus *BackendSslStatusBuffer = NULL;
 #endif
 #ifdef ENABLE_GSS
-static PgBackendGSSStatus *BackendGssStatusBuffer = NULL;
+static pg_global PgBackendGSSStatus *BackendGssStatusBuffer = NULL;
 #endif
 
 
 /* Status for backends including auxiliary */
-static LocalPgBackendStatus *localBackendStatusTable = NULL;
+static session_local LocalPgBackendStatus *localBackendStatusTable = NULL;
 
 /* Total number of backends including auxiliary */
-static int	localNumBackends = 0;
+static session_local int	localNumBackends = 0;
 
-static MemoryContext backendStatusSnapContext;
+static session_local MemoryContext backendStatusSnapContext;
 
 
 static void pgstat_beshutdown_hook(int code, Datum arg);

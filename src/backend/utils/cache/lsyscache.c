@@ -51,7 +51,7 @@
 #include "utils/typcache.h"
 
 /* Hook for plugins to get control in get_attavgwidth() */
-get_attavgwidth_hook_type get_attavgwidth_hook = NULL;
+session_local get_attavgwidth_hook_type get_attavgwidth_hook = NULL;
 
 
 /*				---------- AMOP CACHES ----------						 */

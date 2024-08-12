@@ -176,7 +176,7 @@ extern int	ExtractConnectionOptions(List *defelems,
 extern List *ExtractExtensionList(const char *extensionsString,
 								  bool warnOnMissing);
 extern char *process_pgfdw_appname(const char *appname);
-extern char *pgfdw_application_name;
+extern userset_guc char *pgfdw_application_name;
 
 /* in deparse.c */
 extern void classifyConditions(PlannerInfo *root,

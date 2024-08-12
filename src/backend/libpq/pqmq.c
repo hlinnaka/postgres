@@ -24,9 +24,9 @@
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 
-static shm_mq_handle *pq_mq_handle;
-static bool pq_mq_busy = false;
-static ProcNumber pq_mq_parallel_leader_proc_number = INVALID_PROC_NUMBER;
+static session_local shm_mq_handle *pq_mq_handle;
+static session_local bool pq_mq_busy = false;
+static session_local ProcNumber pq_mq_parallel_leader_proc_number = INVALID_PROC_NUMBER;
 
 static void pq_cleanup_redirect_to_shm_mq(dsm_segment *seg, Datum arg);
 static void mq_comm_reset(void);

@@ -95,8 +95,8 @@ struct ProcSignalHeader
 #define BARRIER_CLEAR_BIT(flags, type) \
 	((flags) &= ~(((uint32) 1) << (uint32) (type)))
 
-NON_EXEC_STATIC ProcSignalHeader *ProcSignal = NULL;
-static ProcSignalSlot *MyProcSignalSlot = NULL;
+NON_EXEC_STATIC pg_global ProcSignalHeader *ProcSignal = NULL;
+static session_local ProcSignalSlot *MyProcSignalSlot = NULL;
 
 static void CleanupProcSignalState(int status, Datum arg);
 static void ResetProcSignalBarrierBits(uint32 flags);

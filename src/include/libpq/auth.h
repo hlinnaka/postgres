@@ -32,9 +32,9 @@
  */
 #define PG_MAX_AUTH_TOKEN_LENGTH	65535
 
-extern PGDLLIMPORT char *pg_krb_server_keyfile;
-extern PGDLLIMPORT bool pg_krb_caseins_users;
-extern PGDLLIMPORT bool pg_gss_accept_delegation;
+extern PGDLLIMPORT sighup_guc char *pg_krb_server_keyfile;
+extern PGDLLIMPORT sighup_guc bool pg_krb_caseins_users;
+extern PGDLLIMPORT sighup_guc bool pg_gss_accept_delegation;
 
 extern void ClientAuthentication(Port *port);
 extern void sendAuthRequest(Port *port, AuthRequest areq, const void *extradata,
@@ -43,7 +43,7 @@ extern void set_authn_id(Port *port, const char *id);
 
 /* Hook for plugins to get control in ClientAuthentication() */
 typedef void (*ClientAuthentication_hook_type) (Port *, int);
-extern PGDLLIMPORT ClientAuthentication_hook_type ClientAuthentication_hook;
+extern PGDLLIMPORT session_local ClientAuthentication_hook_type ClientAuthentication_hook;
 
 /* hook type for password manglers */
 typedef char *(*auth_password_hook_typ) (char *input);

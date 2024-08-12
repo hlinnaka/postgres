@@ -554,7 +554,6 @@ typedef struct PgStat_Snapshot
  */
 typedef struct PgStat_LocalState
 {
-	PgStat_ShmemControl *shmem;
 	dsa_area   *dsa;
 	dshash_table *shared_hash;
 
@@ -778,7 +777,8 @@ extern void pgstat_create_transactional(PgStat_Kind kind, Oid dboid, uint64 obji
  * Variables in pgstat.c
  */
 
-extern PGDLLIMPORT PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT session_local PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT pg_global PgStat_ShmemControl *pgStatShared;
 
 
 /*
@@ -918,7 +918,7 @@ pgstat_get_custom_shmem_data(PgStat_Kind kind)
 	Assert(pgstat_is_kind_custom(kind));
 	Assert(pgstat_get_kind_info(kind)->fixed_amount);
 
-	return pgStatLocal.shmem->custom_data[idx];
+	return pgStatShared->custom_data[idx];
 }
 
 /*

@@ -27,13 +27,13 @@ static PyObject *PLy_cursor_close(PyObject *self, PyObject *unused);
 
 static const char PLy_cursor_doc[] = "Wrapper around a PostgreSQL cursor";
 
-static PyMethodDef PLy_cursor_methods[] = {
+static static_singleton PyMethodDef PLy_cursor_methods[] = {
 	{"fetch", PLy_cursor_fetch, METH_VARARGS, NULL},
 	{"close", PLy_cursor_close, METH_NOARGS, NULL},
 	{NULL, NULL, 0, NULL}
 };
 
-static PyType_Slot PLyCursor_slots[] =
+static static_singleton PyType_Slot PLyCursor_slots[] =
 {
 	{
 		Py_tp_dealloc, PLy_cursor_dealloc

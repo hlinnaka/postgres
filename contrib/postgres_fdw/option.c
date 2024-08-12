@@ -48,7 +48,7 @@ static PQconninfoOption *libpq_options;
 /*
  * GUC parameters
  */
-char	   *pgfdw_application_name = NULL;
+userset_guc char	   *pgfdw_application_name = NULL;
 
 /*
  * Helper functions

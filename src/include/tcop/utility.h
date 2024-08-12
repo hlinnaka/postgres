@@ -75,7 +75,7 @@ typedef void (*ProcessUtility_hook_type) (PlannedStmt *pstmt,
 										  ParamListInfo params,
 										  QueryEnvironment *queryEnv,
 										  DestReceiver *dest, QueryCompletion *qc);
-extern PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
+extern PGDLLIMPORT session_local ProcessUtility_hook_type ProcessUtility_hook;
 
 extern void ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 						   bool readOnlyTree,

@@ -242,8 +242,8 @@ typedef struct pltcl_call_state
 /**********************************************************************
  * Global data
  **********************************************************************/
-static char *pltcl_start_proc = NULL;
-static char *pltclu_start_proc = NULL;
+static suset_guc char *pltcl_start_proc = NULL;
+static suset_guc char *pltclu_start_proc = NULL;
 static bool pltcl_pm_init_done = false;
 static Tcl_Interp *pltcl_hold_interp = NULL;
 static HTAB *pltcl_interp_htab = NULL;
@@ -338,6 +338,9 @@ static HeapTuple pltcl_build_tuple_result(Tcl_Interp *interp,
 										  pltcl_call_state *call_state);
 static void pltcl_init_tuple_store(pltcl_call_state *call_state);
 
+
+DEFINE_STRING_GUC_ADDR(pltcl_start_proc)
+DEFINE_STRING_GUC_ADDR(pltclu_start_proc)
 
 /*
  * Hack to override Tcl's builtin Notifier subsystem.  This prevents the
@@ -469,14 +472,14 @@ _PG_init(void)
 	DefineCustomStringVariable("pltcl.start_proc",
 							   gettext_noop("PL/Tcl function to call once when pltcl is first used."),
 							   NULL,
-							   &pltcl_start_proc,
+							   GUC_ADDR(pltcl_start_proc),
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
 	DefineCustomStringVariable("pltclu.start_proc",
 							   gettext_noop("PL/TclU function to call once when pltclu is first used."),
 							   NULL,
-							   &pltclu_start_proc,
+							   GUC_ADDR(pltclu_start_proc),
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);

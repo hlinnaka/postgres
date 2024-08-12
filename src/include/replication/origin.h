@@ -40,9 +40,9 @@ typedef struct xl_replorigin_drop
  */
 #define MAX_RONAME_LEN	512
 
-extern PGDLLIMPORT RepOriginId replorigin_session_origin;
-extern PGDLLIMPORT XLogRecPtr replorigin_session_origin_lsn;
-extern PGDLLIMPORT TimestampTz replorigin_session_origin_timestamp;
+extern PGDLLIMPORT session_local RepOriginId replorigin_session_origin;
+extern PGDLLIMPORT session_local XLogRecPtr replorigin_session_origin_lsn;
+extern PGDLLIMPORT session_local TimestampTz replorigin_session_origin_timestamp;
 
 /* GUCs */
 extern PGDLLIMPORT int max_active_replication_origins;

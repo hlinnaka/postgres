@@ -29,8 +29,8 @@ extern PGDLLIMPORT char *Extension_control_path;
  * scripts can drop member objects without having to explicitly dissociate
  * them from the extension first.
  */
-extern PGDLLIMPORT bool creating_extension;
-extern PGDLLIMPORT Oid CurrentExtensionObject;
+extern PGDLLIMPORT session_local bool creating_extension;
+extern PGDLLIMPORT session_local Oid CurrentExtensionObject;
 
 
 extern ObjectAddress CreateExtension(ParseState *pstate, CreateExtensionStmt *stmt);

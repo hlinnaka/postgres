@@ -27,7 +27,7 @@
  * GUC parameters
  * ----------
  */
-int			pgstat_track_functions = TRACK_FUNC_OFF;
+session_guc int			pgstat_track_functions = TRACK_FUNC_OFF;
 
 
 /*
@@ -35,7 +35,7 @@ int			pgstat_track_functions = TRACK_FUNC_OFF;
  * We use this to help separate "self" and "other" time charges.
  * (We assume this initializes to zero.)
  */
-static instr_time total_func_time;
+static session_local instr_time total_func_time;
 
 
 /*

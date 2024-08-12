@@ -142,35 +142,35 @@ StaticAssertDecl(lengthof(SlotInvalidationCauses) == (RS_INVAL_MAX_CAUSES + 1),
 #define SLOT_VERSION	5		/* version for new files */
 
 /* Control array for replication slot management */
-ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
+pg_global ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
 
 /* My backend's replication slot in the shared memory array */
-ReplicationSlot *MyReplicationSlot = NULL;
+session_local ReplicationSlot *MyReplicationSlot = NULL;
 
 /* GUC variables */
-int			max_replication_slots = 10; /* the maximum number of replication
+postmaster_guc int			max_replication_slots = 10; /* the maximum number of replication
 										 * slots */
 
 /*
  * Invalidate replication slots that have remained idle longer than this
  * duration; '0' disables it.
  */
-int			idle_replication_slot_timeout_mins = 0;
+sighup_guc int			idle_replication_slot_timeout_mins = 0;
 
 /*
  * This GUC lists streaming replication standby server slot names that
  * logical WAL sender processes will wait for.
  */
-char	   *synchronized_standby_slots;
+sighup_guc char	   *synchronized_standby_slots;
 
 /* This is the parsed and cached configuration for synchronized_standby_slots */
-static SyncStandbySlotsConfigData *synchronized_standby_slots_config;
+static session_local SyncStandbySlotsConfigData *synchronized_standby_slots_config;
 
 /*
  * Oldest LSN that has been confirmed to be flushed to the standbys
  * corresponding to the physical slots specified in the synchronized_standby_slots GUC.
  */
-static XLogRecPtr ss_oldest_flush_lsn = InvalidXLogRecPtr;
+static session_local XLogRecPtr ss_oldest_flush_lsn = InvalidXLogRecPtr;
 
 static void ReplicationSlotShmemExit(int code, Datum arg);
 static void ReplicationSlotDropPtr(ReplicationSlot *slot);

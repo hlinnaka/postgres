@@ -115,8 +115,8 @@ static int	apw_compare_blockinfo(const void *p, const void *q);
 static AutoPrewarmSharedState *apw_state = NULL;
 
 /* GUC variables. */
-static bool autoprewarm = true; /* start worker? */
-static int	autoprewarm_interval = 300; /* dump interval */
+static postmaster_guc bool autoprewarm = true; /* start worker? */
+static sighup_guc int	autoprewarm_interval = 300; /* dump interval */
 
 /*
  * Module load callback.

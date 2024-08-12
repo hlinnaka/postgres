@@ -74,14 +74,14 @@ const struct config_enum_entry io_method_options[] = {
 };
 
 /* GUCs */
-int			io_method = DEFAULT_IO_METHOD;
-int			io_max_concurrency = -1;
+postmaster_guc int			io_method = DEFAULT_IO_METHOD;
+postmaster_guc int			io_max_concurrency = -1;
 
 /* global control for AIO */
-PgAioCtl   *pgaio_ctl;
+pg_global PgAioCtl   *pgaio_ctl;
 
 /* current backend's per-backend state */
-PgAioBackend *pgaio_my_backend;
+session_local PgAioBackend *pgaio_my_backend;
 
 
 static const IoMethodOps *const pgaio_method_ops_table[] = {

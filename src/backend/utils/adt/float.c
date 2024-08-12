@@ -37,17 +37,17 @@
  * get round-trip-accurate results. If 0 or less, then use the old, slow,
  * decimal rounding method.
  */
-int			extra_float_digits = 1;
+session_guc int			extra_float_digits = 1;
 
 /* Cached constants for degree-based trig functions */
-static bool degree_consts_set = false;
-static float8 sin_30 = 0;
-static float8 one_minus_cos_60 = 0;
-static float8 asin_0_5 = 0;
-static float8 acos_0_5 = 0;
-static float8 atan_1_0 = 0;
-static float8 tan_45 = 0;
-static float8 cot_45 = 0;
+static dynamic_singleton bool degree_consts_set = false;
+static dynamic_singleton float8 sin_30 = 0;
+static dynamic_singleton float8 one_minus_cos_60 = 0;
+static dynamic_singleton float8 asin_0_5 = 0;
+static dynamic_singleton float8 acos_0_5 = 0;
+static dynamic_singleton float8 atan_1_0 = 0;
+static dynamic_singleton float8 tan_45 = 0;
+static dynamic_singleton float8 cot_45 = 0;
 
 /*
  * These are intentionally not static; don't "fix" them.  They will never
@@ -63,11 +63,11 @@ extern float8 degree_c_forty_five;
 extern float8 degree_c_sixty;
 extern float8 degree_c_one_half;
 extern float8 degree_c_one;
-float8		degree_c_thirty = 30.0;
-float8		degree_c_forty_five = 45.0;
-float8		degree_c_sixty = 60.0;
-float8		degree_c_one_half = 0.5;
-float8		degree_c_one = 1.0;
+static_singleton float8		degree_c_thirty = 30.0;
+static_singleton float8		degree_c_forty_five = 45.0;
+static_singleton float8		degree_c_sixty = 60.0;
+static_singleton float8		degree_c_one_half = 0.5;
+static_singleton float8		degree_c_one = 1.0;
 
 /* Local function prototypes */
 static double sind_q1(double x);

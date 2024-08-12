@@ -57,15 +57,17 @@ typedef int File;
 
 
 /* GUC parameter */
-extern PGDLLIMPORT int max_files_per_process;
-extern PGDLLIMPORT bool data_sync_retry;
-extern PGDLLIMPORT int recovery_init_sync_method;
-extern PGDLLIMPORT int io_direct_flags;
+#ifndef FRONTEND
+extern PGDLLIMPORT postmaster_guc int max_files_per_process;
+extern PGDLLIMPORT postmaster_guc bool data_sync_retry;
+extern PGDLLIMPORT sighup_guc int recovery_init_sync_method;
+extern PGDLLIMPORT postmaster_guc int io_direct_flags;
+#endif
 
 /*
  * This is private to fd.c, but exported for save/restore_backend_variables()
  */
-extern PGDLLIMPORT int max_safe_fds;
+extern PGDLLIMPORT dynamic_singleton int max_safe_fds;
 
 /*
  * On Windows, we have to interpret EACCES as possibly meaning the same as

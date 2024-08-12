@@ -13,6 +13,8 @@
 #ifndef PQSIGNAL_H
 #define PQSIGNAL_H
 
+#include "postgres.h"
+
 #include <signal.h>
 
 #ifdef WIN32
@@ -45,9 +47,9 @@ extern int	pqsigaction(int signum, const struct sigaction *act,
 #define sigdelset(set, signum)	(*(set) &= ~(sigmask(signum)))
 #endif							/* WIN32 */
 
-extern PGDLLIMPORT sigset_t UnBlockSig;
-extern PGDLLIMPORT sigset_t BlockSig;
-extern PGDLLIMPORT sigset_t StartupBlockSig;
+extern PGDLLIMPORT session_local sigset_t UnBlockSig;
+extern PGDLLIMPORT session_local sigset_t BlockSig;
+extern PGDLLIMPORT session_local sigset_t StartupBlockSig;
 
 extern void pqinitmask(void);
 

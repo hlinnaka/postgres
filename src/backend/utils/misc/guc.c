@@ -73,14 +73,14 @@
  */
 #define GUC_SAFE_SEARCH_PATH "pg_catalog, pg_temp"
 
-static int	GUC_check_errcode_value;
+static session_local int	GUC_check_errcode_value;
 
-static List *reserved_class_prefix = NIL;
+static session_local List *reserved_class_prefix = NIL;
 
 /* global variables for check hook support */
-char	   *GUC_check_errmsg_string;
-char	   *GUC_check_errdetail_string;
-char	   *GUC_check_errhint_string;
+session_local char	   *GUC_check_errmsg_string;
+session_local char	   *GUC_check_errdetail_string;
+session_local char	   *GUC_check_errhint_string;
 
 
 /*
@@ -196,7 +196,7 @@ static const char *const map_old_guc_names[] = {
 
 
 /* Memory context holding all GUC-related data */
-static MemoryContext GUCMemoryContext;
+static session_local MemoryContext GUCMemoryContext;
 
 /*
  * We use a dynahash table to look up GUCs by name, or to iterate through
@@ -209,7 +209,7 @@ typedef struct
 	struct config_generic *gucvar;	/* -> GUC's defining structure */
 } GUCHashEntry;
 
-static HTAB *guc_hashtab;		/* entries are GUCHashEntrys */
+static session_local HTAB *guc_hashtab;		/* entries are GUCHashEntrys */
 
 /*
  * In addition to the hash table, variables having certain properties are
@@ -219,16 +219,16 @@ static HTAB *guc_hashtab;		/* entries are GUCHashEntrys */
  * and report lists is stylized enough that they can be slists, but the
  * nondef list has to be a dlist to avoid O(N) deletes in common cases.
  */
-static dlist_head guc_nondef_list;	/* list of variables that have source
+static session_local dlist_head guc_nondef_list;	/* list of variables that have source
 									 * different from PGC_S_DEFAULT */
-static slist_head guc_stack_list;	/* list of variables that have non-NULL
+static session_local slist_head guc_stack_list;	/* list of variables that have non-NULL
 									 * stack */
-static slist_head guc_report_list;	/* list of variables that have the
+static session_local slist_head guc_report_list;	/* list of variables that have the
 									 * GUC_NEEDS_REPORT bit set in status */
 
-static bool reporting_enabled;	/* true to enable GUC_REPORT */
+static session_local bool reporting_enabled;	/* true to enable GUC_REPORT */
 
-static int	GUCNestLevel = 0;	/* 1 when in main transaction */
+static session_local int	GUCNestLevel = 0;	/* 1 when in main transaction */
 
 
 static int	guc_var_compare(const void *a, const void *b);
@@ -709,7 +709,7 @@ string_field_used(struct config_string *conf, char *strval)
 {
 	GucStack   *stack;
 
-	if (strval == *(conf->variable) ||
+	if (strval == *(conf->variable_addr()) ||
 		strval == conf->reset_val ||
 		strval == conf->boot_val)
 		return true;
@@ -815,24 +815,24 @@ set_stack_value(struct config_generic *gconf, config_var_value *val)
 	{
 		case PGC_BOOL:
 			val->val.boolval =
-				*((struct config_bool *) gconf)->variable;
+				*((struct config_bool *) gconf)->variable_addr();
 			break;
 		case PGC_INT:
 			val->val.intval =
-				*((struct config_int *) gconf)->variable;
+				*((struct config_int *) gconf)->variable_addr();
 			break;
 		case PGC_REAL:
 			val->val.realval =
-				*((struct config_real *) gconf)->variable;
+				*((struct config_real *) gconf)->variable_addr();
 			break;
 		case PGC_STRING:
 			set_string_field((struct config_string *) gconf,
 							 &(val->val.stringval),
-							 *((struct config_string *) gconf)->variable);
+							 *((struct config_string *) gconf)->variable_addr());
 			break;
 		case PGC_ENUM:
 			val->val.enumval =
-				*((struct config_enum *) gconf)->variable;
+				*((struct config_enum *) gconf)->variable_addr();
 			break;
 	}
 	set_extra_field(gconf, &(val->extra), gconf->extra);
@@ -1670,7 +1670,7 @@ InitializeOneGUCOption(struct config_generic *gconf)
 						 conf->gen.name, (int) newval);
 				if (conf->assign_hook)
 					conf->assign_hook(newval, extra);
-				*conf->variable = conf->reset_val = newval;
+				*conf->variable_addr() = conf->reset_val = newval;
 				conf->gen.extra = conf->reset_extra = extra;
 				break;
 			}
@@ -1688,7 +1688,7 @@ InitializeOneGUCOption(struct config_generic *gconf)
 						 conf->gen.name, newval);
 				if (conf->assign_hook)
 					conf->assign_hook(newval, extra);
-				*conf->variable = conf->reset_val = newval;
+				*conf->variable_addr() = conf->reset_val = newval;
 				conf->gen.extra = conf->reset_extra = extra;
 				break;
 			}
@@ -1706,7 +1706,7 @@ InitializeOneGUCOption(struct config_generic *gconf)
 						 conf->gen.name, newval);
 				if (conf->assign_hook)
 					conf->assign_hook(newval, extra);
-				*conf->variable = conf->reset_val = newval;
+				*conf->variable_addr() = conf->reset_val = newval;
 				conf->gen.extra = conf->reset_extra = extra;
 				break;
 			}
@@ -1728,7 +1728,7 @@ InitializeOneGUCOption(struct config_generic *gconf)
 						 conf->gen.name, newval ? newval : "");
 				if (conf->assign_hook)
 					conf->assign_hook(newval, extra);
-				*conf->variable = conf->reset_val = newval;
+				*conf->variable_addr() = conf->reset_val = newval;
 				conf->gen.extra = conf->reset_extra = extra;
 				break;
 			}
@@ -1744,7 +1744,7 @@ InitializeOneGUCOption(struct config_generic *gconf)
 						 conf->gen.name, newval);
 				if (conf->assign_hook)
 					conf->assign_hook(newval, extra);
-				*conf->variable = conf->reset_val = newval;
+				*conf->variable_addr() = conf->reset_val = newval;
 				conf->gen.extra = conf->reset_extra = extra;
 				break;
 			}

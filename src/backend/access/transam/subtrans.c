@@ -69,7 +69,7 @@ TransactionIdToPage(TransactionId xid)
 /*
  * Link to shared-memory data structures for SUBTRANS control
  */
-static SlruCtlData SubTransCtlData;
+static pg_global SlruCtlData SubTransCtlData;
 
 #define SubTransCtl  (&SubTransCtlData)
 

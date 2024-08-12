@@ -27,7 +27,7 @@
  * happens between pgstat_report_wal() calls, by subtracting
  * the previous counters from the current ones.
  */
-static WalUsage prevWalUsage;
+static session_local WalUsage prevWalUsage;
 
 
 /*
@@ -81,12 +81,12 @@ pgstat_fetch_stat_wal(void)
 bool
 pgstat_wal_flush_cb(bool nowait)
 {
-	PgStatShared_Wal *stats_shmem = &pgStatLocal.shmem->wal;
+	PgStatShared_Wal *stats_shmem = &pgStatShared->wal;
 	WalUsage	wal_usage_diff = {0};
 
 	Assert(IsUnderPostmaster || !IsPostmasterEnvironment);
-	Assert(pgStatLocal.shmem != NULL &&
-		   !pgStatLocal.shmem->is_shutdown);
+	Assert(pgStatShared != NULL &&
+		   !pgStatShared->is_shutdown);
 
 	/*
 	 * This function can be called even if nothing at all has happened. Avoid
@@ -156,7 +156,7 @@ pgstat_wal_init_shmem_cb(void *stats)
 void
 pgstat_wal_reset_all_cb(TimestampTz ts)
 {
-	PgStatShared_Wal *stats_shmem = &pgStatLocal.shmem->wal;
+	PgStatShared_Wal *stats_shmem = &pgStatShared->wal;
 
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
 	memset(&stats_shmem->stats, 0, sizeof(stats_shmem->stats));
@@ -167,7 +167,7 @@ pgstat_wal_reset_all_cb(TimestampTz ts)
 void
 pgstat_wal_snapshot_cb(void)
 {
-	PgStatShared_Wal *stats_shmem = &pgStatLocal.shmem->wal;
+	PgStatShared_Wal *stats_shmem = &pgStatShared->wal;
 
 	LWLockAcquire(&stats_shmem->lock, LW_SHARED);
 	memcpy(&pgStatLocal.snapshot.wal, &stats_shmem->stats,

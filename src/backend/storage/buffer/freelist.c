@@ -63,7 +63,7 @@ typedef struct
 } BufferStrategyControl;
 
 /* Pointers to shared state */
-static BufferStrategyControl *StrategyControl = NULL;
+static pg_global BufferStrategyControl *StrategyControl = NULL;
 
 /*
  * Private (non-shared) state for managing a ring of shared buffers to re-use.

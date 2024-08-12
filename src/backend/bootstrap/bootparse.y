@@ -43,7 +43,7 @@
 #define YYMALLOC palloc
 #define YYFREE   pfree
 
-static MemoryContext per_line_ctx = NULL;
+static pg_global MemoryContext per_line_ctx = NULL;
 
 static void
 do_start(void)
@@ -73,7 +73,7 @@ do_end(void)
 }
 
 
-static int num_columns_read = 0;
+static pg_global int num_columns_read = 0;
 
 %}
 

@@ -49,32 +49,32 @@ typedef enum RecoveryPauseState
 } RecoveryPauseState;
 
 /* User-settable GUC parameters */
-extern PGDLLIMPORT bool recoveryTargetInclusive;
-extern PGDLLIMPORT int recoveryTargetAction;
-extern PGDLLIMPORT int recovery_min_apply_delay;
-extern PGDLLIMPORT char *PrimaryConnInfo;
-extern PGDLLIMPORT char *PrimarySlotName;
-extern PGDLLIMPORT char *recoveryRestoreCommand;
-extern PGDLLIMPORT char *recoveryEndCommand;
-extern PGDLLIMPORT char *archiveCleanupCommand;
+extern PGDLLIMPORT postmaster_guc bool recoveryTargetInclusive;
+extern PGDLLIMPORT postmaster_guc int recoveryTargetAction;
+extern PGDLLIMPORT sighup_guc int recovery_min_apply_delay;
+extern PGDLLIMPORT sighup_guc char *PrimaryConnInfo;
+extern PGDLLIMPORT sighup_guc char *PrimarySlotName;
+extern PGDLLIMPORT sighup_guc char *recoveryRestoreCommand;
+extern PGDLLIMPORT sighup_guc char *recoveryEndCommand;
+extern PGDLLIMPORT sighup_guc char *archiveCleanupCommand;
 
 /* indirectly set via GUC system */
-extern PGDLLIMPORT TransactionId recoveryTargetXid;
-extern PGDLLIMPORT char *recovery_target_time_string;
-extern PGDLLIMPORT TimestampTz recoveryTargetTime;
-extern PGDLLIMPORT const char *recoveryTargetName;
-extern PGDLLIMPORT XLogRecPtr recoveryTargetLSN;
-extern PGDLLIMPORT RecoveryTargetType recoveryTarget;
-extern PGDLLIMPORT bool wal_receiver_create_temp_slot;
-extern PGDLLIMPORT RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal;
-extern PGDLLIMPORT TimeLineID recoveryTargetTLIRequested;
-extern PGDLLIMPORT TimeLineID recoveryTargetTLI;
+extern PGDLLIMPORT session_local TransactionId recoveryTargetXid;
+extern PGDLLIMPORT postmaster_guc char *recovery_target_time_string;
+extern PGDLLIMPORT session_local TimestampTz recoveryTargetTime;
+extern PGDLLIMPORT session_local const char *recoveryTargetName;
+extern PGDLLIMPORT session_local XLogRecPtr recoveryTargetLSN;
+extern PGDLLIMPORT session_local RecoveryTargetType recoveryTarget;
+extern PGDLLIMPORT session_local bool wal_receiver_create_temp_slot;
+extern PGDLLIMPORT session_local RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal;
+extern PGDLLIMPORT session_local TimeLineID recoveryTargetTLIRequested;
+extern PGDLLIMPORT session_local TimeLineID recoveryTargetTLI;
 
 /* Have we already reached a consistent database state? */
-extern PGDLLIMPORT bool reachedConsistency;
+extern PGDLLIMPORT pg_global bool reachedConsistency;
 
 /* Are we currently in standby mode? */
-extern PGDLLIMPORT bool StandbyMode;
+extern PGDLLIMPORT pg_global bool StandbyMode;
 
 extern Size XLogRecoveryShmemSize(void);
 extern void XLogRecoveryShmemInit(void);

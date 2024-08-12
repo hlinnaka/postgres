@@ -251,13 +251,13 @@ static const datetkn deltatktbl[] = {
 
 static const int szdeltatktbl = sizeof deltatktbl / sizeof deltatktbl[0];
 
-static TimeZoneAbbrevTable *zoneabbrevtbl = NULL;
+static userset_guc TimeZoneAbbrevTable *zoneabbrevtbl = NULL;
 
 /* Caches of recent lookup results in the above tables */
 
-static const datetkn *datecache[MAXDATEFIELDS] = {NULL};
+static session_local const datetkn *datecache[MAXDATEFIELDS] = {NULL};
 
-static const datetkn *deltacache[MAXDATEFIELDS] = {NULL};
+static session_local const datetkn *deltacache[MAXDATEFIELDS] = {NULL};
 
 /* Cache for results of timezone abbreviation lookups */
 
@@ -269,7 +269,7 @@ typedef struct TzAbbrevCache
 	pg_tz	   *tz;				/* relevant zone, if variable-offset */
 } TzAbbrevCache;
 
-static TzAbbrevCache tzabbrevcache[MAXDATEFIELDS];
+static session_local TzAbbrevCache tzabbrevcache[MAXDATEFIELDS];
 
 
 /*
@@ -406,11 +406,11 @@ GetCurrentTimeUsec(struct pg_tm *tm, fsec_t *fsec, int *tzp)
 	 * however, it might need another look if we ever allow entries in that
 	 * hash to be recycled.
 	 */
-	static TimestampTz cache_ts = 0;
-	static pg_tz *cache_timezone = NULL;
-	static struct pg_tm cache_tm;
-	static fsec_t cache_fsec;
-	static int	cache_tz;
+	static session_local TimestampTz cache_ts = 0;
+	static session_local pg_tz *cache_timezone = NULL;
+	static session_local struct pg_tm cache_tm;
+	static session_local fsec_t cache_fsec;
+	static session_local int	cache_tz;
 
 	if (cur_ts != cache_ts || session_timezone != cache_timezone)
 	{

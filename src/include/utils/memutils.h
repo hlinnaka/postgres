@@ -75,16 +75,16 @@
  * Only TopMemoryContext and ErrorContext are initialized by
  * MemoryContextInit() itself.
  */
-extern PGDLLIMPORT MemoryContext TopMemoryContext;
-extern PGDLLIMPORT MemoryContext ErrorContext;
-extern PGDLLIMPORT MemoryContext PostmasterContext;
-extern PGDLLIMPORT MemoryContext CacheMemoryContext;
-extern PGDLLIMPORT MemoryContext MessageContext;
-extern PGDLLIMPORT MemoryContext TopTransactionContext;
-extern PGDLLIMPORT MemoryContext CurTransactionContext;
+extern PGDLLIMPORT session_local MemoryContext TopMemoryContext;
+extern PGDLLIMPORT session_local MemoryContext ErrorContext;
+extern PGDLLIMPORT session_local MemoryContext PostmasterContext;
+extern PGDLLIMPORT session_local MemoryContext CacheMemoryContext;
+extern PGDLLIMPORT session_local MemoryContext MessageContext;
+extern PGDLLIMPORT session_local MemoryContext TopTransactionContext;
+extern PGDLLIMPORT session_local MemoryContext CurTransactionContext;
 
 /* This is a transient link to the active portal's memory context: */
-extern PGDLLIMPORT MemoryContext PortalContext;
+extern PGDLLIMPORT session_local MemoryContext PortalContext;
 
 
 /*
@@ -393,7 +393,7 @@ typedef struct MemoryStatsContextId
 
 extern PGDLLIMPORT MemoryStatsBackendState *memCxtState;
 extern PGDLLIMPORT MemoryStatsCtl *memCxtArea;
-extern PGDLLIMPORT dsa_area *MemoryStatsDsaArea;
+extern PGDLLIMPORT session_local dsa_area *MemoryStatsDsaArea;
 extern void ProcessGetMemoryContextInterrupt(void);
 extern const char *ContextTypeToString(NodeTag type);
 extern void HandleGetMemoryContextInterrupt(void);

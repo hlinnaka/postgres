@@ -222,25 +222,25 @@ typedef struct plperl_array_info
  * Global data
  **********************************************************************/
 
-static HTAB *plperl_interp_hash = NULL;
-static HTAB *plperl_proc_hash = NULL;
-static plperl_interp_desc *plperl_active_interp = NULL;
+static session_local HTAB *plperl_interp_hash = NULL;
+static session_local HTAB *plperl_proc_hash = NULL;
+static session_local plperl_interp_desc *plperl_active_interp = NULL;
 
 /* If we have an unassigned "held" interpreter, it's stored here */
-static PerlInterpreter *plperl_held_interp = NULL;
+static session_local PerlInterpreter *plperl_held_interp = NULL;
 
 /* GUC variables */
-static bool plperl_use_strict = false;
-static char *plperl_on_init = NULL;
-static char *plperl_on_plperl_init = NULL;
-static char *plperl_on_plperlu_init = NULL;
+static userset_guc bool plperl_use_strict = false;
+static sighup_guc char *plperl_on_init = NULL;
+static suset_guc char *plperl_on_plperl_init = NULL;
+static suset_guc char *plperl_on_plperlu_init = NULL;
 
-static bool plperl_ending = false;
-static OP  *(*pp_require_orig) (pTHX) = NULL;
-static char plperl_opmask[MAXO];
+static session_local bool plperl_ending = false;
+static session_local OP  *(*pp_require_orig) (pTHX) = NULL;
+static session_local char plperl_opmask[MAXO];
 
 /* this is saved and restored by plperl_call_handler */
-static plperl_call_data *current_call_data = NULL;
+static session_local plperl_call_data *current_call_data = NULL;
 
 /**********************************************************************
  * Forward declarations

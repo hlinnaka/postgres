@@ -37,7 +37,7 @@
 #include "utils/rel.h"
 
 /* GUC variables */
-int			wal_skip_threshold = 2048;	/* in kilobytes */
+session_guc int			wal_skip_threshold = 2048;	/* in kilobytes */
 
 /*
  * We keep a list of all relations (represented as RelFileLocator values)
@@ -74,8 +74,8 @@ typedef struct PendingRelSync
 	bool		is_truncated;	/* Has the file experienced truncation? */
 } PendingRelSync;
 
-static PendingRelDelete *pendingDeletes = NULL; /* head of linked list */
-static HTAB *pendingSyncHash = NULL;
+static session_local PendingRelDelete *pendingDeletes = NULL; /* head of linked list */
+static session_local HTAB *pendingSyncHash = NULL;
 
 
 /*

@@ -148,8 +148,8 @@
  * Starting a transaction -- which we need to do while exporting a snapshot --
  * removes knowledge about the previously used resowner, so we save it here.
  */
-static ResourceOwner SavedResourceOwnerDuringExport = NULL;
-static bool ExportInProgress = false;
+static session_local ResourceOwner SavedResourceOwnerDuringExport = NULL;
+static session_local bool ExportInProgress = false;
 
 /* ->committed and ->catchange manipulation */
 static void SnapBuildPurgeOlderTxn(SnapBuild *builder);

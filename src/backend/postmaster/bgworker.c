@@ -36,7 +36,7 @@
 /*
  * The postmaster's list of registered background workers, in private memory.
  */
-dlist_head	BackgroundWorkerList = DLIST_STATIC_INIT(BackgroundWorkerList);
+pg_global dlist_head	BackgroundWorkerList = DLIST_STATIC_INIT(BackgroundWorkerList);
 
 /*
  * BackgroundWorkerSlots exist in shared memory and can be accessed (via
@@ -106,7 +106,7 @@ struct BackgroundWorkerHandle
 	uint64		generation;
 };
 
-static BackgroundWorkerArray *BackgroundWorkerData;
+static pg_global BackgroundWorkerArray *BackgroundWorkerData;
 
 /*
  * List of internal background worker entry points.  We need this for

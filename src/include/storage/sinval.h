@@ -135,7 +135,7 @@ typedef union
 
 
 /* Counter of messages processed; don't worry about overflow. */
-extern PGDLLIMPORT uint64 SharedInvalidMessageCounter;
+extern PGDLLIMPORT session_local uint64 SharedInvalidMessageCounter;
 
 extern void SendSharedInvalidMessages(const SharedInvalidationMessage *msgs,
 									  int n);

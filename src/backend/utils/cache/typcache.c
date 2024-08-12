@@ -76,7 +76,7 @@
 
 
 /* The main type cache hashtable searched by lookup_type_cache */
-static HTAB *TypeCacheHash = NULL;
+static session_local HTAB *TypeCacheHash = NULL;
 
 /*
  * The mapping of relation's OID to the corresponding composite type OID.
@@ -93,7 +93,7 @@ typedef struct RelIdToTypeIdCacheEntry
 } RelIdToTypeIdCacheEntry;
 
 /* List of type cache entries for domain types */
-static TypeCacheEntry *firstDomainTypeEntry = NULL;
+static session_local TypeCacheEntry *firstDomainTypeEntry = NULL;
 
 /* Private flag bits in the TypeCacheEntry.flags field */
 #define TCFLAGS_HAVE_PG_TYPE_DATA			0x000001
@@ -292,7 +292,7 @@ static const dshash_parameters srtr_typmod_table_params = {
 };
 
 /* hashtable for recognizing registered record types */
-static HTAB *RecordCacheHash = NULL;
+static session_local HTAB *RecordCacheHash = NULL;
 
 typedef struct RecordCacheArrayEntry
 {
@@ -301,16 +301,16 @@ typedef struct RecordCacheArrayEntry
 } RecordCacheArrayEntry;
 
 /* array of info about registered record types, indexed by assigned typmod */
-static RecordCacheArrayEntry *RecordCacheArray = NULL;
-static int32 RecordCacheArrayLen = 0;	/* allocated length of above array */
-static int32 NextRecordTypmod = 0;	/* number of entries used */
+static session_local RecordCacheArrayEntry *RecordCacheArray = NULL;
+static session_local int32 RecordCacheArrayLen = 0;	/* allocated length of above array */
+static session_local int32 NextRecordTypmod = 0;	/* number of entries used */
 
 /*
  * Process-wide counter for generating unique tupledesc identifiers.
  * Zero and one (INVALID_TUPLEDESC_IDENTIFIER) aren't allowed to be chosen
  * as identifiers, so we start the counter at INVALID_TUPLEDESC_IDENTIFIER.
  */
-static uint64 tupledesc_id_counter = INVALID_TUPLEDESC_IDENTIFIER;
+static session_local uint64 tupledesc_id_counter = INVALID_TUPLEDESC_IDENTIFIER;
 
 static void load_typcache_tupdesc(TypeCacheEntry *typentry);
 static void load_rangetype_info(TypeCacheEntry *typentry);

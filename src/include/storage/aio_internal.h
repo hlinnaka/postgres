@@ -422,8 +422,8 @@ extern PGDLLIMPORT const IoMethodOps pgaio_uring_ops;
 #endif
 
 extern PGDLLIMPORT const IoMethodOps *pgaio_method_ops;
-extern PGDLLIMPORT PgAioCtl *pgaio_ctl;
-extern PGDLLIMPORT PgAioBackend *pgaio_my_backend;
+extern PGDLLIMPORT pg_global PgAioCtl *pgaio_ctl;
+extern PGDLLIMPORT session_local PgAioBackend *pgaio_my_backend;
 
 
 

@@ -15,8 +15,8 @@
 #define DEFAULT_WAL_WRITER_FLUSH_AFTER ((1024 * 1024) / XLOG_BLCKSZ)
 
 /* GUC options */
-extern PGDLLIMPORT int WalWriterDelay;
-extern PGDLLIMPORT int WalWriterFlushAfter;
+extern PGDLLIMPORT sighup_guc int WalWriterDelay;
+extern PGDLLIMPORT sighup_guc int WalWriterFlushAfter;
 
 pg_noreturn extern void WalWriterMain(const void *startup_data, size_t startup_data_len);
 

@@ -59,12 +59,12 @@
 
 #define DIRECTORY_LOCK_FILE		"postmaster.pid"
 
-ProcessingMode Mode = InitProcessing;
+session_local ProcessingMode Mode = InitProcessing;
 
-BackendType MyBackendType;
+session_local BackendType MyBackendType;
 
 /* List of lock files to be removed at proc exit */
-static List *lock_files = NIL;
+static pg_global List *lock_files = NIL;
 
 /* ----------------------------------------------------------------
  *		ignoring system indexes support stuff
@@ -76,7 +76,7 @@ static List *lock_files = NIL;
  * ----------------------------------------------------------------
  */
 
-bool		IgnoreSystemIndexes = false;
+session_local bool		IgnoreSystemIndexes = false;
 
 
 /* ----------------------------------------------------------------
@@ -451,19 +451,19 @@ ChangeToDataDir(void)
  * convenient way to do it.
  * ----------------------------------------------------------------
  */
-static Oid	AuthenticatedUserId = InvalidOid;
-static Oid	SessionUserId = InvalidOid;
-static Oid	OuterUserId = InvalidOid;
-static Oid	CurrentUserId = InvalidOid;
-static const char *SystemUser = NULL;
+static session_local Oid	AuthenticatedUserId = InvalidOid;
+static session_local Oid	SessionUserId = InvalidOid;
+static session_local Oid	OuterUserId = InvalidOid;
+static session_local Oid	CurrentUserId = InvalidOid;
+static session_local const char *SystemUser = NULL;
 
 /* We also have to remember the superuser state of the session user */
-static bool SessionUserIsSuperuser = false;
+static session_local bool SessionUserIsSuperuser = false;
 
-static int	SecurityRestrictionContext = 0;
+static session_local int	SecurityRestrictionContext = 0;
 
 /* We also remember if a SET ROLE is currently active */
-static bool SetRoleIsActive = false;
+static session_local bool SetRoleIsActive = false;
 
 /*
  * GetUserId - get the current effective user ID.
@@ -1020,7 +1020,7 @@ GetUserNameFromId(Oid roleid, bool noerr)
  *-------------------------------------------------------------------------
  */
 
-ClientConnectionInfo MyClientConnectionInfo;
+session_local ClientConnectionInfo MyClientConnectionInfo;
 
 /*
  * Intermediate representation of ClientConnectionInfo for easier
@@ -1791,7 +1791,7 @@ char	   *local_preload_libraries_string = NULL;
 bool		process_shared_preload_libraries_in_progress = false;
 bool		process_shared_preload_libraries_done = false;
 
-shmem_request_hook_type shmem_request_hook = NULL;
+pg_global shmem_request_hook_type shmem_request_hook = NULL;
 bool		process_shmem_requests_in_progress = false;
 
 /*

@@ -58,23 +58,23 @@
  * we can just keep all this state in static variables.  The char *
  * variables point to buffers that are allocated once and re-used.
  */
-static char *PqGSSSendBuffer;	/* Encrypted data waiting to be sent */
-static int	PqGSSSendLength;	/* End of data available in PqGSSSendBuffer */
-static int	PqGSSSendNext;		/* Next index to send a byte from
-								 * PqGSSSendBuffer */
-static int	PqGSSSendConsumed;	/* Number of source bytes encrypted but not
-								 * yet reported as sent */
+static session_local char *PqGSSSendBuffer;	/* Encrypted data waiting to be sent */
+static session_local int	PqGSSSendLength;	/* End of data available in PqGSSSendBuffer */
+static session_local int	PqGSSSendNext;		/* Next index to send a byte from
+												 * PqGSSSendBuffer */
+static session_local int	PqGSSSendConsumed;	/* Number of source bytes encrypted but not
+												 * yet reported as sent */
 
-static char *PqGSSRecvBuffer;	/* Received, encrypted data */
-static int	PqGSSRecvLength;	/* End of data available in PqGSSRecvBuffer */
+static session_local char *PqGSSRecvBuffer;	/* Received, encrypted data */
+static session_local int	PqGSSRecvLength;	/* End of data available in PqGSSRecvBuffer */
 
-static char *PqGSSResultBuffer; /* Decryption of data in gss_RecvBuffer */
-static int	PqGSSResultLength;	/* End of data available in PqGSSResultBuffer */
-static int	PqGSSResultNext;	/* Next index to read a byte from
-								 * PqGSSResultBuffer */
+static session_local char *PqGSSResultBuffer; /* Decryption of data in gss_RecvBuffer */
+static session_local int	PqGSSResultLength;	/* End of data available in PqGSSResultBuffer */
+static session_local int	PqGSSResultNext;	/* Next index to read a byte from
+												 * PqGSSResultBuffer */
 
-static uint32 PqGSSMaxPktSize;	/* Maximum size we can encrypt and fit the
-								 * results into our output buffer */
+static session_local uint32 PqGSSMaxPktSize;	/* Maximum size we can encrypt and fit the
+												 * results into our output buffer */
 
 
 /*

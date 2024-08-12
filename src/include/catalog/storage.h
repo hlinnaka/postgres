@@ -20,7 +20,7 @@
 #include "utils/relcache.h"
 
 /* GUC variables */
-extern PGDLLIMPORT int wal_skip_threshold;
+extern PGDLLIMPORT session_guc int wal_skip_threshold;
 
 extern SMgrRelation RelationCreateStorage(RelFileLocator rlocator,
 										  char relpersistence,

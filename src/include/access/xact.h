@@ -38,8 +38,9 @@
 #define XACT_REPEATABLE_READ	2
 #define XACT_SERIALIZABLE		3
 
-extern PGDLLIMPORT int DefaultXactIsoLevel;
-extern PGDLLIMPORT int XactIsoLevel;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int DefaultXactIsoLevel;
+extern PGDLLIMPORT session_guc int XactIsoLevel;
 
 /*
  * We implement three isolation levels internally.
@@ -52,18 +53,21 @@ extern PGDLLIMPORT int XactIsoLevel;
 #define IsolationIsSerializable() (XactIsoLevel == XACT_SERIALIZABLE)
 
 /* Xact read-only state */
-extern PGDLLIMPORT bool DefaultXactReadOnly;
-extern PGDLLIMPORT bool XactReadOnly;
+
+extern PGDLLIMPORT session_guc bool DefaultXactReadOnly;
+extern PGDLLIMPORT session_guc bool XactReadOnly;
 
 /* flag for logging statements in this transaction */
-extern PGDLLIMPORT bool xact_is_sampled;
+extern PGDLLIMPORT session_local bool xact_is_sampled;
 
 /*
  * Xact is deferrable -- only meaningful (currently) for read only
  * SERIALIZABLE transactions
  */
-extern PGDLLIMPORT bool DefaultXactDeferrable;
-extern PGDLLIMPORT bool XactDeferrable;
+extern PGDLLIMPORT session_guc bool DefaultXactDeferrable;
+extern PGDLLIMPORT session_guc bool XactDeferrable;
+
+#endif	/* FRONTEND */
 
 typedef enum
 {
@@ -80,11 +84,13 @@ typedef enum
 #define SYNCHRONOUS_COMMIT_ON	SYNCHRONOUS_COMMIT_REMOTE_FLUSH
 
 /* Synchronous commit level */
-extern PGDLLIMPORT int synchronous_commit;
+#ifndef FRONTEND
+extern PGDLLIMPORT session_guc int synchronous_commit;
+#endif
 
 /* used during logical streaming of a transaction */
-extern PGDLLIMPORT TransactionId CheckXidAlive;
-extern PGDLLIMPORT bool bsysscan;
+extern PGDLLIMPORT session_local TransactionId CheckXidAlive;
+extern PGDLLIMPORT session_local bool bsysscan;
 
 /*
  * Miscellaneous flag bits to record events which occur on the top level
@@ -93,7 +99,7 @@ extern PGDLLIMPORT bool bsysscan;
  * globally accessible, so can be set from anywhere in the code which requires
  * recording flags.
  */
-extern PGDLLIMPORT int MyXactFlags;
+extern PGDLLIMPORT session_local int MyXactFlags;
 
 /*
  * XACT_FLAGS_ACCESSEDTEMPNAMESPACE - set when a temporary object is accessed.

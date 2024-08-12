@@ -64,7 +64,7 @@
 int			SessionReplicationRole = SESSION_REPLICATION_ROLE_ORIGIN;
 
 /* How many levels deep into trigger execution are we? */
-static int	MyTriggerDepth = 0;
+static session_local int	MyTriggerDepth = 0;
 
 /* Local function prototypes */
 static void renametrig_internal(Relation tgrel, Relation targetrel,
@@ -3887,7 +3887,7 @@ struct AfterTriggersTableData
 	TupleTableSlot *storeslot;	/* for converting to tuplestore's format */
 };
 
-static AfterTriggersData afterTriggers;
+static session_local AfterTriggersData afterTriggers;
 
 static void AfterTriggerExecute(EState *estate,
 								AfterTriggerEvent event,

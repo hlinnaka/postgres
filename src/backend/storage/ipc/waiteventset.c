@@ -169,25 +169,25 @@ struct WaitEventSet
 
 #ifndef WIN32
 /* Are we currently on a WaitEventSet? The signal handler would like to know. */
-static volatile sig_atomic_t waiting = false;
+static session_local volatile sig_atomic_t waiting = false;
 #endif
 
 #ifdef WAIT_USE_SIGNALFD
 /* On Linux, we'll receive SIGURG via a signalfd file descriptor. */
-static int	signal_fd = -1;
+static session_local int	signal_fd = -1; /* This will require some additional changes. See comment in InitializeLatchSupport */
 #endif
 
 #ifdef WAIT_USE_SELF_PIPE
 /* Read and write ends of the self-pipe */
-static int	selfpipe_readfd = -1;
-static int	selfpipe_writefd = -1;
+static session_local int	selfpipe_readfd = -1;
+static session_local int	selfpipe_writefd = -1;
 
 /* Process owning the self-pipe --- needed for checking purposes */
-static int	selfpipe_owner_pid = 0;
+static session_local int	selfpipe_owner_pid = 0;
 #endif
 
 #ifdef WAIT_USE_WIN32
-static HANDLE LocalInterruptWakeupEvent;
+static session_local HANDLE LocalInterruptWakeupEvent;
 #endif
 
 /* Private function prototypes */

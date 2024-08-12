@@ -54,11 +54,11 @@
 #include "utils/memutils.h"
 
 /* GUCs */
-int			shared_memory_type = DEFAULT_SHARED_MEMORY_TYPE;
+postmaster_guc int			shared_memory_type = DEFAULT_SHARED_MEMORY_TYPE;
 
-shmem_startup_hook_type shmem_startup_hook = NULL;
+session_local shmem_startup_hook_type shmem_startup_hook = NULL;
 
-static Size total_addin_request = 0;
+static session_local Size total_addin_request = 0;
 
 static void CreateOrAttachShmemStructs(void);
 

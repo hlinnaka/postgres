@@ -71,10 +71,10 @@ typedef struct SyncRepConfigData
 	char		member_names[FLEXIBLE_ARRAY_MEMBER];
 } SyncRepConfigData;
 
-extern PGDLLIMPORT SyncRepConfigData *SyncRepConfig;
+extern PGDLLIMPORT session_local SyncRepConfigData *SyncRepConfig;
 
 /* user-settable parameters for synchronous replication */
-extern PGDLLIMPORT char *SyncRepStandbyNames;
+extern PGDLLIMPORT sighup_guc char *SyncRepStandbyNames;
 
 /* called by user backend */
 extern void SyncRepWaitForLSN(XLogRecPtr lsn, bool commit);

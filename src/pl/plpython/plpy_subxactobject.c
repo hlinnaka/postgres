@@ -12,16 +12,16 @@
 #include "plpy_util.h"
 #include "utils/memutils.h"
 
-List	   *explicit_subtransactions = NIL;
+session_local List	   *explicit_subtransactions = NIL;
 
 
 static PyObject *PLy_subtransaction_enter(PyObject *self, PyObject *unused);
 static PyObject *PLy_subtransaction_exit(PyObject *self, PyObject *args);
 
-static char PLy_subtransaction_doc[] =
+static static_singleton char PLy_subtransaction_doc[] =
 "PostgreSQL subtransaction context manager";
 
-static PyMethodDef PLy_subtransaction_methods[] = {
+static static_singleton PyMethodDef PLy_subtransaction_methods[] = {
 	{"__enter__", PLy_subtransaction_enter, METH_VARARGS, NULL},
 	{"__exit__", PLy_subtransaction_exit, METH_VARARGS, NULL},
 	/* user-friendly names for Python <2.6 */
@@ -30,7 +30,7 @@ static PyMethodDef PLy_subtransaction_methods[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-static PyType_Slot PLySubtransaction_slots[] =
+static static_singleton PyType_Slot PLySubtransaction_slots[] =
 {
 	{
 		Py_tp_doc, (char *) PLy_subtransaction_doc

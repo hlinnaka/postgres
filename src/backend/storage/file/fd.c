@@ -143,7 +143,7 @@
  * This GUC parameter lets the DBA limit max_safe_fds to something less than
  * what the postmaster's initial probe suggests will work.
  */
-int			max_files_per_process = 1000;
+postmaster_guc int			max_files_per_process = 1000;
 
 /*
  * Maximum number of file descriptors to open for operations that fd.c knows
@@ -156,16 +156,16 @@ int			max_files_per_process = 1000;
  * Note: the value of max_files_per_process is taken into account while
  * setting this variable, and so need not be tested separately.
  */
-int			max_safe_fds = FD_MINFREE;	/* default if not changed */
+dynamic_singleton int			max_safe_fds = FD_MINFREE;	/* default if not changed */
 
 /* Whether it is safe to continue running after fsync() fails. */
-bool		data_sync_retry = false;
+postmaster_guc bool		data_sync_retry = false;
 
 /* How SyncDataDirectory() should do its job. */
-int			recovery_init_sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
+sighup_guc int			recovery_init_sync_method = DATA_DIR_SYNC_METHOD_FSYNC;
 
 /* Which kinds of files should be opened with PG_O_DIRECT. */
-int			io_direct_flags;
+postmaster_guc int			io_direct_flags;
 
 /* Debugging.... */
 
@@ -213,19 +213,19 @@ typedef struct vfd
  * needed.  'File' values are indexes into this array.
  * Note that VfdCache[0] is not a usable VFD, just a list header.
  */
-static Vfd *VfdCache;
-static Size SizeVfdCache = 0;
+static session_local Vfd *VfdCache;
+static session_local Size SizeVfdCache = 0;
 
 /*
  * Number of file descriptors known to be in use by VFD entries.
  */
-static int	nfile = 0;
+static session_local int	nfile = 0;
 
 /*
  * Flag to tell whether it's worth scanning VfdCache looking for temp files
  * to close
  */
-static bool have_xact_temporary_files = false;
+static session_local bool have_xact_temporary_files = false;
 
 /*
  * Tracks the total size of all temporary files.  Note: when temp_file_limit
@@ -233,11 +233,11 @@ static bool have_xact_temporary_files = false;
  * than INT_MAX kilobytes.  When not enforcing, it could theoretically
  * overflow, but we don't care.
  */
-static uint64 temporary_files_size = 0;
+static session_local uint64 temporary_files_size = 0;
 
 /* Temporary file access initialized and not yet shut down? */
 #ifdef USE_ASSERT_CHECKING
-static bool temporary_files_allowed = false;
+static session_local bool temporary_files_allowed = false;
 #endif
 
 /*
@@ -264,20 +264,20 @@ typedef struct
 	}			desc;
 } AllocateDesc;
 
-static int	numAllocatedDescs = 0;
-static int	maxAllocatedDescs = 0;
-static AllocateDesc *allocatedDescs = NULL;
+static session_local int	numAllocatedDescs = 0;
+static session_local int	maxAllocatedDescs = 0;
+static session_local AllocateDesc *allocatedDescs = NULL;
 
 /*
  * Number of open "external" FDs reported to Reserve/ReleaseExternalFD.
  */
-static int	numExternalFDs = 0;
+static session_local int	numExternalFDs = 0;
 
 /*
  * Number of temporary files opened during the current session;
  * this is used in generation of tempfile names.
  */
-static long tempFileCounter = 0;
+static session_local long tempFileCounter = 0;
 
 /*
  * Array of OIDs of temp tablespaces.  (Some entries may be InvalidOid,
@@ -285,9 +285,9 @@ static long tempFileCounter = 0;
  * When numTempTableSpaces is -1, this has not been set in the current
  * transaction.
  */
-static Oid *tempTableSpaces = NULL;
-static int	numTempTableSpaces = -1;
-static int	nextTempTableSpace = 0;
+static session_local Oid *tempTableSpaces = NULL;
+static session_local int	numTempTableSpaces = -1;
+static session_local int	nextTempTableSpace = 0;
 
 
 /*--------------------
@@ -540,7 +540,7 @@ pg_flush_data(int fd, off_t offset, off_t nbytes)
 #if defined(HAVE_SYNC_FILE_RANGE)
 	{
 		int			rc;
-		static bool not_implemented_by_kernel = false;
+		static pg_global bool not_implemented_by_kernel = false;
 
 		if (not_implemented_by_kernel)
 			return;

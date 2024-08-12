@@ -36,8 +36,8 @@ static const char *pgstat_get_wait_timeout(WaitEventTimeout w);
 static const char *pgstat_get_wait_io(WaitEventIO w);
 
 
-static uint32 local_my_wait_event_info;
-uint32	   *my_wait_event_info = &local_my_wait_event_info;
+static static_singleton uint32 local_my_wait_event_info;
+session_local uint32	   *my_wait_event_info = &local_my_wait_event_info;
 
 #define WAIT_EVENT_CLASS_MASK	0xFF000000
 #define WAIT_EVENT_ID_MASK		0x0000FFFF
@@ -60,8 +60,8 @@ uint32	   *my_wait_event_info = &local_my_wait_event_info;
  * unlikely that the number of entries will reach
  * WAIT_EVENT_CUSTOM_HASH_MAX_SIZE.
  */
-static HTAB *WaitEventCustomHashByInfo; /* find names from infos */
-static HTAB *WaitEventCustomHashByName; /* find infos from names */
+static pg_global HTAB *WaitEventCustomHashByInfo; /* find names from infos */
+static pg_global HTAB *WaitEventCustomHashByName; /* find infos from names */
 
 #define WAIT_EVENT_CUSTOM_HASH_INIT_SIZE	16
 #define WAIT_EVENT_CUSTOM_HASH_MAX_SIZE	128
@@ -88,7 +88,7 @@ typedef struct WaitEventCustomCounterData
 } WaitEventCustomCounterData;
 
 /* pointer to the shared memory */
-static WaitEventCustomCounterData *WaitEventCustomCounter;
+static pg_global WaitEventCustomCounterData *WaitEventCustomCounter;
 
 /* first event ID of custom wait events */
 #define WAIT_EVENT_CUSTOM_INITIAL_ID	1

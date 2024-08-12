@@ -13,8 +13,8 @@
 #ifndef ASYNC_H
 #define ASYNC_H
 
-extern PGDLLIMPORT bool Trace_notify;
-extern PGDLLIMPORT int max_notify_queue_pages;
+extern PGDLLIMPORT session_guc bool Trace_notify;
+extern PGDLLIMPORT postmaster_guc int max_notify_queue_pages;
 
 extern Size AsyncShmemSize(void);
 extern void AsyncShmemInit(void);

@@ -127,42 +127,42 @@
  */
 #define MAXIMUM_ROWCOUNT 1e100
 
-double		seq_page_cost = DEFAULT_SEQ_PAGE_COST;
-double		random_page_cost = DEFAULT_RANDOM_PAGE_COST;
-double		cpu_tuple_cost = DEFAULT_CPU_TUPLE_COST;
-double		cpu_index_tuple_cost = DEFAULT_CPU_INDEX_TUPLE_COST;
-double		cpu_operator_cost = DEFAULT_CPU_OPERATOR_COST;
-double		parallel_tuple_cost = DEFAULT_PARALLEL_TUPLE_COST;
-double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
-double		recursive_worktable_factor = DEFAULT_RECURSIVE_WORKTABLE_FACTOR;
+session_guc double		seq_page_cost = DEFAULT_SEQ_PAGE_COST;
+session_guc double		random_page_cost = DEFAULT_RANDOM_PAGE_COST;
+session_guc double		cpu_tuple_cost = DEFAULT_CPU_TUPLE_COST;
+session_guc double		cpu_index_tuple_cost = DEFAULT_CPU_INDEX_TUPLE_COST;
+session_guc double		cpu_operator_cost = DEFAULT_CPU_OPERATOR_COST;
+session_guc double		parallel_tuple_cost = DEFAULT_PARALLEL_TUPLE_COST;
+session_guc double		parallel_setup_cost = DEFAULT_PARALLEL_SETUP_COST;
+session_guc double		recursive_worktable_factor = DEFAULT_RECURSIVE_WORKTABLE_FACTOR;
 
-int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
+session_guc int			effective_cache_size = DEFAULT_EFFECTIVE_CACHE_SIZE;
 
 Cost		disable_cost = 1.0e10;
 
-int			max_parallel_workers_per_gather = 2;
+session_guc int			max_parallel_workers_per_gather = 2;
 
-bool		enable_seqscan = true;
-bool		enable_indexscan = true;
-bool		enable_indexonlyscan = true;
-bool		enable_bitmapscan = true;
-bool		enable_tidscan = true;
-bool		enable_sort = true;
-bool		enable_incremental_sort = true;
-bool		enable_hashagg = true;
-bool		enable_nestloop = true;
-bool		enable_material = true;
-bool		enable_memoize = true;
-bool		enable_mergejoin = true;
-bool		enable_hashjoin = true;
-bool		enable_gathermerge = true;
-bool		enable_partitionwise_join = false;
-bool		enable_partitionwise_aggregate = false;
-bool		enable_parallel_append = true;
-bool		enable_parallel_hash = true;
-bool		enable_partition_pruning = true;
-bool		enable_presorted_aggregate = true;
-bool		enable_async_append = true;
+session_guc bool		enable_seqscan = true;
+session_guc bool		enable_indexscan = true;
+session_guc bool		enable_indexonlyscan = true;
+session_guc bool		enable_bitmapscan = true;
+session_guc bool		enable_tidscan = true;
+session_guc bool		enable_sort = true;
+session_guc bool		enable_incremental_sort = true;
+session_guc bool		enable_hashagg = true;
+session_guc bool		enable_nestloop = true;
+session_guc bool		enable_material = true;
+session_guc bool		enable_memoize = true;
+session_guc bool		enable_mergejoin = true;
+session_guc bool		enable_hashjoin = true;
+session_guc bool		enable_gathermerge = true;
+session_guc bool		enable_partitionwise_join = false;
+session_guc bool		enable_partitionwise_aggregate = false;
+session_guc bool		enable_parallel_append = true;
+session_guc bool		enable_parallel_hash = true;
+session_guc bool		enable_partition_pruning = true;
+session_guc bool		enable_presorted_aggregate = true;
+session_guc bool		enable_async_append = true;
 
 typedef struct
 {

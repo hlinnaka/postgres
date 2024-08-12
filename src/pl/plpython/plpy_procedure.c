@@ -19,7 +19,7 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 
-static HTAB *PLy_procedure_cache = NULL;
+static session_local HTAB *PLy_procedure_cache = NULL;
 
 static PLyProcedure *PLy_procedure_create(HeapTuple procTup, Oid fn_oid, bool is_trigger);
 static bool PLy_procedure_valid(PLyProcedure *proc, HeapTuple procTup);

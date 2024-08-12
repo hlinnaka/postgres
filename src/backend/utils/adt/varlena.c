@@ -45,7 +45,7 @@
 
 
 /* GUC variable */
-int			bytea_output = BYTEA_OUTPUT_HEX;
+session_guc int			bytea_output = BYTEA_OUTPUT_HEX;
 
 typedef struct varlena VarString;
 

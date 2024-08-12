@@ -296,15 +296,15 @@ typedef struct VacDeadItemsInfo
 } VacDeadItemsInfo;
 
 /* GUC parameters */
-extern PGDLLIMPORT int default_statistics_target;	/* PGDLLIMPORT for PostGIS */
-extern PGDLLIMPORT int vacuum_freeze_min_age;
-extern PGDLLIMPORT int vacuum_freeze_table_age;
-extern PGDLLIMPORT int vacuum_multixact_freeze_min_age;
-extern PGDLLIMPORT int vacuum_multixact_freeze_table_age;
-extern PGDLLIMPORT int vacuum_failsafe_age;
-extern PGDLLIMPORT int vacuum_multixact_failsafe_age;
-extern PGDLLIMPORT bool track_cost_delay_timing;
-extern PGDLLIMPORT bool vacuum_truncate;
+extern PGDLLIMPORT session_guc int default_statistics_target;	/* PGDLLIMPORT for PostGIS */
+extern PGDLLIMPORT session_guc int vacuum_freeze_min_age;
+extern PGDLLIMPORT session_guc int vacuum_freeze_table_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_freeze_min_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_freeze_table_age;
+extern PGDLLIMPORT session_guc int vacuum_failsafe_age;
+extern PGDLLIMPORT session_guc int vacuum_multixact_failsafe_age;
+extern PGDLLIMPORT session_guc bool track_cost_delay_timing;
+extern PGDLLIMPORT session_guc bool vacuum_truncate;
 
 /*
  * Relevant for vacuums implementing eager scanning. Normal vacuums may
@@ -314,7 +314,7 @@ extern PGDLLIMPORT bool vacuum_truncate;
  * fraction of pages in the relation vacuum may scan and fail to freeze
  * before disabling eager scanning.
  */
-extern PGDLLIMPORT double vacuum_max_eager_freeze_failure_rate;
+extern PGDLLIMPORT session_guc double vacuum_max_eager_freeze_failure_rate;
 
 /*
  * Maximum value for default_statistics_target and per-column statistics
@@ -324,13 +324,13 @@ extern PGDLLIMPORT double vacuum_max_eager_freeze_failure_rate;
 #define MAX_STATISTICS_TARGET 10000
 
 /* Variables for cost-based parallel vacuum */
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumSharedCostBalance;
-extern PGDLLIMPORT pg_atomic_uint32 *VacuumActiveNWorkers;
-extern PGDLLIMPORT int VacuumCostBalanceLocal;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumSharedCostBalance;
+extern PGDLLIMPORT session_local pg_atomic_uint32 *VacuumActiveNWorkers;
+extern PGDLLIMPORT session_local int VacuumCostBalanceLocal;
 
-extern PGDLLIMPORT bool VacuumFailsafeActive;
-extern PGDLLIMPORT double vacuum_cost_delay;
-extern PGDLLIMPORT int vacuum_cost_limit;
+extern PGDLLIMPORT session_local bool VacuumFailsafeActive;
+extern PGDLLIMPORT session_guc double vacuum_cost_delay;
+extern PGDLLIMPORT session_guc int vacuum_cost_limit;
 
 extern PGDLLIMPORT int64 parallel_vacuum_worker_delay_ns;
 

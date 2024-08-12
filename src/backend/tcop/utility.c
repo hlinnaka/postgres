@@ -67,7 +67,7 @@
 #include "utils/lsyscache.h"
 
 /* Hook for plugins to get control in ProcessUtility() */
-ProcessUtility_hook_type ProcessUtility_hook = NULL;
+session_local ProcessUtility_hook_type ProcessUtility_hook = NULL;
 
 /* local function declarations */
 static int	ClassifyUtilityCommandAsReadOnly(Node *parsetree);

@@ -119,6 +119,7 @@
 #include "tcop/backend_startup.h"
 #include "tcop/tcopprot.h"
 #include "utils/datetime.h"
+#include "utils/elog_gucs.h"
 #include "utils/memutils.h"
 #include "utils/pidfile.h"
 #include "utils/timestamp.h"
@@ -198,16 +199,16 @@ btmask_contains(BackendTypeMask mask, BackendType t)
 }
 
 
-BackgroundWorker *MyBgworkerEntry = NULL;
+session_local BackgroundWorker *MyBgworkerEntry = NULL;
 
 /* The socket number we are listening for connections on */
-int			PostPortNumber = DEF_PGPORT;
+postmaster_guc int			PostPortNumber = DEF_PGPORT;
 
 /* The directory names for Unix socket(s) */
-char	   *Unix_socket_directories;
+postmaster_guc char	   *Unix_socket_directories;
 
 /* The TCP listen address(es) */
-char	   *ListenAddresses;
+postmaster_guc char	   *ListenAddresses;
 
 /*
  * SuperuserReservedConnections is the number of backends reserved for
@@ -227,26 +228,26 @@ char	   *ListenAddresses;
  * connections.  Note that pre-existing superuser and
  * pg_use_reserved_connections connections don't count against the limits.
  */
-int			SuperuserReservedConnections;
-int			ReservedConnections;
+postmaster_guc int			SuperuserReservedConnections;
+postmaster_guc int			ReservedConnections;
 
 /* The socket(s) we're listening to. */
 #define MAXLISTEN	64
-static int	NumListenSockets = 0;
-static pgsocket *ListenSockets = NULL;
+static pg_global int	NumListenSockets = 0;
+static pg_global pgsocket *ListenSockets = NULL;
 
 /* still more option variables */
-bool		EnableSSL = false;
+sighup_guc bool		EnableSSL = false;
 
-int			PreAuthDelay = 0;
-int			AuthenticationTimeout = 60;
+sighup_guc int			PreAuthDelay = 0;
+sighup_guc int			AuthenticationTimeout = 60;
 
-bool		log_hostname;		/* for ps display and logging */
+sighup_guc bool		log_hostname;		/* for ps display and logging */
 
-bool		enable_bonjour = false;
-char	   *bonjour_name;
-bool		restart_after_crash = true;
-bool		remove_temp_files_after_crash = true;
+postmaster_guc bool		enable_bonjour = false;
+postmaster_guc char	   *bonjour_name;
+sighup_guc bool		restart_after_crash = true;
+sighup_guc bool		remove_temp_files_after_crash = true;
 
 /*
  * When terminating child processes after fatal errors, like a crash of a
@@ -254,11 +255,11 @@ bool		remove_temp_files_after_crash = true;
  * file are written on the assumption that we do -- but developers might
  * prefer to use SIGABRT to collect per-child core dumps.
  */
-bool		send_abort_for_crash = false;
-bool		send_abort_for_kill = false;
+sighup_guc bool		send_abort_for_crash = false;
+sighup_guc bool		send_abort_for_kill = false;
 
 /* special child processes; NULL when not running */
-static PMChild *StartupPMChild = NULL,
+static pg_global PMChild *StartupPMChild = NULL,
 		   *BgWriterPMChild = NULL,
 		   *CheckpointerPMChild = NULL,
 		   *WalWriterPMChild = NULL,
@@ -278,7 +279,7 @@ typedef enum
 	STARTUP_CRASHED,
 } StartupStatusEnum;
 
-static StartupStatusEnum StartupStatus = STARTUP_NOT_RUNNING;
+static pg_global StartupStatusEnum StartupStatus = STARTUP_NOT_RUNNING;
 
 /* Startup/shutdown state */
 #define			NoShutdown		0
@@ -286,9 +287,9 @@ static StartupStatusEnum StartupStatus = STARTUP_NOT_RUNNING;
 #define			FastShutdown	2
 #define			ImmediateShutdown	3
 
-static int	Shutdown = NoShutdown;
+static pg_global int	Shutdown = NoShutdown;
 
-static bool FatalError = false; /* T if recovering from backend crash */
+static pg_global bool FatalError = false; /* T if recovering from backend crash */
 
 /*
  * We use a simple state machine to control startup, shutdown, and
@@ -351,7 +352,7 @@ typedef enum
 	PM_NO_CHILDREN,				/* all important children have exited */
 } PMState;
 
-static PMState pmState = PM_INIT;
+static pg_global PMState pmState = PM_INIT;
 
 /*
  * While performing a "smart shutdown", we restrict new connections but stay
@@ -359,53 +360,53 @@ static PMState pmState = PM_INIT;
  * connsAllowed is a sub-state indicator showing the active restriction.
  * It is of no interest unless pmState is PM_RUN or PM_HOT_STANDBY.
  */
-static bool connsAllowed = true;
+static pg_global bool connsAllowed = true;
 
 /* Start time of SIGKILL timeout during immediate shutdown or child crash */
 /* Zero means timeout is not running */
-static time_t AbortStartTime = 0;
+static pg_global time_t AbortStartTime = 0;
 
 /* Length of said timeout */
 #define SIGKILL_CHILDREN_AFTER_SECS		5
 
-static bool ReachedNormalRunning = false;	/* T if we've reached PM_RUN */
+static pg_global bool ReachedNormalRunning = false;	/* T if we've reached PM_RUN */
 
-bool		ClientAuthInProgress = false;	/* T during new-client
+session_local bool		ClientAuthInProgress = false;	/* T during new-client
 											 * authentication */
 
-bool		redirection_done = false;	/* stderr redirected for syslogger? */
+pg_global bool		redirection_done = false;	/* stderr redirected for syslogger? */
 
 /* received START_AUTOVAC_LAUNCHER signal */
-static bool start_autovac_launcher = false;
+static pg_global bool start_autovac_launcher = false;
 
 /* the launcher needs to be signaled to communicate some condition */
-static bool avlauncher_needs_signal = false;
+static pg_global bool avlauncher_needs_signal = false;
 
 /* received START_WALRECEIVER signal */
-static bool WalReceiverRequested = false;
+static pg_global bool WalReceiverRequested = false;
 
 /* set when there's a worker that needs to be started up */
 static bool StartWorkerNeeded = true;
 static bool HaveCrashedWorker = false;
 
 /* set when signals arrive */
-static volatile sig_atomic_t pending_pm_pmsignal;
-static volatile sig_atomic_t pending_pm_child_exit;
-static volatile sig_atomic_t pending_pm_reload_request;
-static volatile sig_atomic_t pending_pm_shutdown_request;
-static volatile sig_atomic_t pending_pm_fast_shutdown_request;
-static volatile sig_atomic_t pending_pm_immediate_shutdown_request;
+static pg_global volatile sig_atomic_t pending_pm_pmsignal;
+static pg_global volatile sig_atomic_t pending_pm_child_exit;
+static pg_global volatile sig_atomic_t pending_pm_reload_request;
+static pg_global volatile sig_atomic_t pending_pm_shutdown_request;
+static pg_global volatile sig_atomic_t pending_pm_fast_shutdown_request;
+static pg_global volatile sig_atomic_t pending_pm_immediate_shutdown_request;
 
 /* event multiplexing object */
-static WaitEventSet *pm_wait_set;
+static pg_global WaitEventSet *pm_wait_set;
 
 #ifdef USE_SSL
 /* Set when and if SSL has been initialized properly */
-bool		LoadedSSL = false;
+pg_global bool		LoadedSSL = false;
 #endif
 
 #ifdef USE_BONJOUR
-static DNSServiceRef bonjour_sdref = NULL;
+static pg_global DNSServiceRef bonjour_sdref = NULL;
 #endif
 
 /* State for IO worker management. */
@@ -461,7 +462,7 @@ static void InitPostmasterDeathWatchHandle(void);
 static pid_t waitpid(pid_t pid, int *exitstatus, int options);
 static void WINAPI pgwin32_deadchild_callback(PVOID lpParameter, BOOLEAN TimerOrWaitFired);
 
-static HANDLE win32ChildQueue;
+static pg_global HANDLE win32ChildQueue;
 
 typedef struct
 {
@@ -481,10 +482,10 @@ typedef struct
  * File descriptors for pipe used to monitor if postmaster is alive.
  * First is POSTMASTER_FD_WATCH, second is POSTMASTER_FD_OWN.
  */
-int			postmaster_alive_fds[2] = {-1, -1};
+pg_global int			postmaster_alive_fds[2] = {-1, -1};
 #else
 /* Process handle of postmaster used for the same purpose on Windows */
-HANDLE		PostmasterHandle;
+pg_global HANDLE		PostmasterHandle;
 #endif
 
 /*

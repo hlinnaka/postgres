@@ -20,10 +20,10 @@
 #include "utils/queryenvironment.h"
 
 
-extern PGDLLIMPORT CommandDest whereToSendOutput;
-extern PGDLLIMPORT const char *debug_query_string;
-extern PGDLLIMPORT int PostAuthDelay;
-extern PGDLLIMPORT int client_connection_check_interval;
+extern PGDLLIMPORT session_local CommandDest whereToSendOutput;
+extern PGDLLIMPORT session_local const char *debug_query_string;
+extern PGDLLIMPORT session_guc int PostAuthDelay;
+extern PGDLLIMPORT session_guc int client_connection_check_interval;
 
 /* GUC-configurable parameters */
 
@@ -35,8 +35,8 @@ typedef enum
 	LOGSTMT_ALL,				/* log all statements */
 } LogStmtLevel;
 
-extern PGDLLIMPORT bool Log_disconnections;
-extern PGDLLIMPORT int log_statement;
+extern PGDLLIMPORT session_guc bool Log_disconnections;
+extern PGDLLIMPORT session_guc int log_statement;
 
 /* Flags for restrict_nonsystem_relation_kind value */
 #define RESTRICT_RELKIND_VIEW			0x01

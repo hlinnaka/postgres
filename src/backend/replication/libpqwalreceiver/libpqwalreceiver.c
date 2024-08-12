@@ -93,7 +93,7 @@ static WalRcvExecResult *libpqrcv_exec(WalReceiverConn *conn,
 									   const Oid *retTypes);
 static void libpqrcv_disconnect(WalReceiverConn *conn);
 
-static WalReceiverFunctionsType PQWalReceiverFunctions = {
+static static_singleton WalReceiverFunctionsType PQWalReceiverFunctions = {
 	.walrcv_connect = libpqrcv_connect,
 	.walrcv_check_conninfo = libpqrcv_check_conninfo,
 	.walrcv_get_conninfo = libpqrcv_get_conninfo,

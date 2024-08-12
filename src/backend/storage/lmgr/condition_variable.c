@@ -27,7 +27,7 @@
 #include "storage/spin.h"
 
 /* Initially, we are not prepared to sleep on any condition variable. */
-static ConditionVariable *cv_sleep_target = NULL;
+static session_local ConditionVariable *cv_sleep_target = NULL;
 
 /*
  * Initialize a condition variable.

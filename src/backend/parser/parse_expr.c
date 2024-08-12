@@ -41,7 +41,7 @@
 #include "utils/xml.h"
 
 /* GUC parameters */
-bool		Transform_null_equals = false;
+session_guc bool		Transform_null_equals = false;
 
 
 static Node *transformExprRecurse(ParseState *pstate, Node *expr);

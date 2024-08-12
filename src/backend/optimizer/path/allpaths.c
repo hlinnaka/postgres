@@ -76,16 +76,16 @@ typedef enum pushdown_safe_type
 } pushdown_safe_type;
 
 /* These parameters are set by GUC */
-bool		enable_geqo = false;	/* just in case GUC doesn't set it */
-int			geqo_threshold;
-int			min_parallel_table_scan_size;
-int			min_parallel_index_scan_size;
+session_guc bool		enable_geqo = false;	/* just in case GUC doesn't set it */
+session_guc int			geqo_threshold;
+session_guc int			min_parallel_table_scan_size;
+session_guc int			min_parallel_index_scan_size;
 
 /* Hook for plugins to get control in set_rel_pathlist() */
-set_rel_pathlist_hook_type set_rel_pathlist_hook = NULL;
+session_local set_rel_pathlist_hook_type set_rel_pathlist_hook = NULL;
 
 /* Hook for plugins to replace standard_join_search() */
-join_search_hook_type join_search_hook = NULL;
+session_local join_search_hook_type join_search_hook = NULL;
 
 
 static void set_base_rel_consider_startup(PlannerInfo *root);

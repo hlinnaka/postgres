@@ -22,7 +22,7 @@ PG_MODULE_MAGIC_EXT(
 );
 
 /* GUC Variables */
-static int	auth_delay_milliseconds = 0;
+static sighup_guc int	auth_delay_milliseconds = 0;
 
 /* Original Hook */
 static ClientAuthentication_hook_type original_client_auth_hook = NULL;

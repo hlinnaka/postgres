@@ -82,23 +82,23 @@ const struct config_enum_entry recovery_target_action_options[] = {
 };
 
 /* options formerly taken from recovery.conf for archive recovery */
-char	   *recoveryRestoreCommand = NULL;
-char	   *recoveryEndCommand = NULL;
-char	   *archiveCleanupCommand = NULL;
-RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
-bool		recoveryTargetInclusive = true;
-int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
-TransactionId recoveryTargetXid;
-char	   *recovery_target_time_string;
-TimestampTz recoveryTargetTime;
-const char *recoveryTargetName;
-XLogRecPtr	recoveryTargetLSN;
-int			recovery_min_apply_delay = 0;
+sighup_guc char	   *recoveryRestoreCommand = NULL;
+sighup_guc char	   *recoveryEndCommand = NULL;
+sighup_guc char	   *archiveCleanupCommand = NULL;
+session_local RecoveryTargetType recoveryTarget = RECOVERY_TARGET_UNSET;
+postmaster_guc bool		recoveryTargetInclusive = true;
+postmaster_guc int			recoveryTargetAction = RECOVERY_TARGET_ACTION_PAUSE;
+session_local TransactionId recoveryTargetXid;
+postmaster_guc char	   *recovery_target_time_string;
+session_local TimestampTz recoveryTargetTime;
+session_local const char *recoveryTargetName;
+session_local XLogRecPtr	recoveryTargetLSN;
+session_local int			recovery_min_apply_delay = 0;
 
 /* options formerly taken from recovery.conf for XLOG streaming */
-char	   *PrimaryConnInfo = NULL;
-char	   *PrimarySlotName = NULL;
-bool		wal_receiver_create_temp_slot = false;
+sighup_guc char	   *PrimaryConnInfo = NULL;
+sighup_guc char	   *PrimarySlotName = NULL;
+sighup_guc bool		wal_receiver_create_temp_slot = false;
 
 /*
  * recoveryTargetTimeLineGoal: what the user requested, if any
@@ -120,11 +120,11 @@ bool		wal_receiver_create_temp_slot = false;
  * file was created.)  During a sequential scan we do not allow this value
  * to decrease.
  */
-RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal = RECOVERY_TARGET_TIMELINE_LATEST;
-TimeLineID	recoveryTargetTLIRequested = 0;
-TimeLineID	recoveryTargetTLI = 0;
-static List *expectedTLEs;
-static TimeLineID curFileTLI;
+session_local RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal = RECOVERY_TARGET_TIMELINE_LATEST;
+session_local TimeLineID	recoveryTargetTLIRequested = 0;
+session_local TimeLineID	recoveryTargetTLI = 0;
+static session_local List *expectedTLEs;
+static session_local TimeLineID curFileTLI;
 
 /*
  * When ArchiveRecoveryRequested is set, archive recovery was requested,
@@ -137,8 +137,8 @@ static TimeLineID curFileTLI;
  * will switch to using offline XLOG archives as soon as we reach the end of
  * WAL in pg_wal.
  */
-bool		ArchiveRecoveryRequested = false;
-bool		InArchiveRecovery = false;
+pg_global bool		ArchiveRecoveryRequested = false;
+pg_global bool		InArchiveRecovery = false;
 
 /*
  * When StandbyModeRequested is set, standby mode was requested, i.e.
@@ -146,12 +146,12 @@ bool		InArchiveRecovery = false;
  * in standby mode.  These variables are only valid in the startup process.
  * They work similarly to ArchiveRecoveryRequested and InArchiveRecovery.
  */
-static bool StandbyModeRequested = false;
-bool		StandbyMode = false;
+static pg_global bool StandbyModeRequested = false;
+pg_global bool		StandbyMode = false;
 
 /* was a signal file present at startup? */
-static bool standby_signal_file_found = false;
-static bool recovery_signal_file_found = false;
+static pg_global bool standby_signal_file_found = false;
+static pg_global bool recovery_signal_file_found = false;
 
 /*
  * CheckPointLoc is the position of the checkpoint record that determines
@@ -167,31 +167,31 @@ static bool recovery_signal_file_found = false;
  * reading the checkpoint record, because the REDO record can precede the
  * checkpoint record.
  */
-static XLogRecPtr CheckPointLoc = InvalidXLogRecPtr;
-static TimeLineID CheckPointTLI = 0;
-static XLogRecPtr RedoStartLSN = InvalidXLogRecPtr;
-static TimeLineID RedoStartTLI = 0;
+static pg_global XLogRecPtr CheckPointLoc = InvalidXLogRecPtr;
+static pg_global TimeLineID CheckPointTLI = 0;
+static pg_global XLogRecPtr RedoStartLSN = InvalidXLogRecPtr;
+static pg_global TimeLineID RedoStartTLI = 0;
 
 /*
  * Local copy of SharedHotStandbyActive variable. False actually means "not
  * known, need to check the shared state".
  */
-static bool LocalHotStandbyActive = false;
+static pg_global bool LocalHotStandbyActive = false;
 
 /*
  * Local copy of SharedPromoteIsTriggered variable. False actually means "not
  * known, need to check the shared state".
  */
-static bool LocalPromoteIsTriggered = false;
+static pg_global bool LocalPromoteIsTriggered = false;
 
 /* Has the recovery code requested a walreceiver wakeup? */
-static bool doRequestWalReceiverReply;
+static pg_global bool doRequestWalReceiverReply;
 
 /* XLogReader object used to parse the WAL records */
-static XLogReaderState *xlogreader = NULL;
+static pg_global XLogReaderState *xlogreader = NULL;
 
 /* XLogPrefetcher object used to consume WAL records with read-ahead */
-static XLogPrefetcher *xlogprefetcher = NULL;
+static pg_global XLogPrefetcher *xlogprefetcher = NULL;
 
 /* Parameters passed down from ReadRecord to the XLogPageRead callback. */
 typedef struct XLogPageReadPrivate
@@ -203,7 +203,7 @@ typedef struct XLogPageReadPrivate
 } XLogPageReadPrivate;
 
 /* flag to tell XLogPageRead that we have started replaying */
-static bool InRedo = false;
+static pg_global bool InRedo = false;
 
 /*
  * Codes indicating where we got a WAL file from during recovery, or where
@@ -230,11 +230,11 @@ static const char *const xlogSourceNames[] = {"any", "archive", "pg_wal", "strea
  * FD too (like for openLogFile in xlog.c); but it doesn't currently seem
  * worthwhile, since the XLOG is not read by general-purpose sessions.
  */
-static int	readFile = -1;
-static XLogSegNo readSegNo = 0;
-static uint32 readOff = 0;
-static uint32 readLen = 0;
-static XLogSource readSource = XLOG_FROM_ANY;
+static pg_global int	readFile = -1;
+static pg_global XLogSegNo readSegNo = 0;
+static pg_global uint32 readOff = 0;
+static pg_global uint32 readLen = 0;
+static pg_global XLogSource readSource = XLOG_FROM_ANY;
 
 /*
  * Keeps track of which source we're currently reading from. This is
@@ -246,9 +246,9 @@ static XLogSource readSource = XLOG_FROM_ANY;
  * pendingWalRcvRestart is set when a config change occurs that requires a
  * walreceiver restart.  This is only valid in XLOG_FROM_STREAM state.
  */
-static XLogSource currentSource = XLOG_FROM_ANY;
-static bool lastSourceFailed = false;
-static bool pendingWalRcvRestart = false;
+static pg_global XLogSource currentSource = XLOG_FROM_ANY;
+static pg_global bool lastSourceFailed = false;
+static pg_global bool pendingWalRcvRestart = false;
 
 /*
  * These variables track when we last obtained some WAL data to process,
@@ -258,12 +258,12 @@ static bool pendingWalRcvRestart = false;
  * also changes when we try to read from a source and fail, while
  * XLogReceiptSource tracks where we last successfully read some WAL.)
  */
-static TimestampTz XLogReceiptTime = 0;
-static XLogSource XLogReceiptSource = XLOG_FROM_ANY;
+static pg_global TimestampTz XLogReceiptTime = 0;
+static pg_global XLogSource XLogReceiptSource = XLOG_FROM_ANY;
 
 /* Local copy of WalRcv->flushedUpto */
-static XLogRecPtr flushedUpto = 0;
-static TimeLineID receiveTLI = 0;
+static pg_global XLogRecPtr flushedUpto = 0;
+static pg_global TimeLineID receiveTLI = 0;
 
 /*
  * Copy of minRecoveryPoint and backupEndPoint from the control file.
@@ -278,12 +278,12 @@ static TimeLineID receiveTLI = 0;
  * file.  But this copy of minRecoveryPoint variable reflects the value at the
  * beginning of recovery, and is *not* updated after consistency is reached.
  */
-static XLogRecPtr minRecoveryPoint;
-static TimeLineID minRecoveryPointTLI;
+static pg_global XLogRecPtr minRecoveryPoint;
+static pg_global TimeLineID minRecoveryPointTLI;
 
-static XLogRecPtr backupStartPoint;
-static XLogRecPtr backupEndPoint;
-static bool backupEndRequired = false;
+static pg_global XLogRecPtr backupStartPoint;
+static pg_global XLogRecPtr backupEndPoint;
+static pg_global bool backupEndRequired = false;
 
 /*
  * Have we reached a consistent database state?  In crash recovery, we have
@@ -299,11 +299,11 @@ static bool backupEndRequired = false;
  * sends a PMSIGNAL_RECOVERY_CONSISTENT signal to the postmaster,
  * which then sets it to true upon receiving the signal.
  */
-bool		reachedConsistency = false;
+pg_global bool		reachedConsistency = false;
 
 /* Buffers dedicated to consistency checks of size BLCKSZ */
-static char *replay_image_masked = NULL;
-static char *primary_image_masked = NULL;
+static pg_global char *replay_image_masked = NULL;
+static pg_global char *primary_image_masked = NULL;
 
 
 /*
@@ -352,7 +352,7 @@ typedef struct XLogRecoveryCtlData
 	slock_t		info_lck;		/* locks shared variables shown above */
 } XLogRecoveryCtlData;
 
-static XLogRecoveryCtlData *XLogRecoveryCtl = NULL;
+static pg_global XLogRecoveryCtlData *XLogRecoveryCtl = NULL;
 
 /*
  * abortedRecPtr is the start pointer of a broken record at end of WAL when
@@ -360,18 +360,18 @@ static XLogRecoveryCtlData *XLogRecoveryCtl = NULL;
  * contrecord that went missing.  See CreateOverwriteContrecordRecord for
  * details.
  */
-static XLogRecPtr abortedRecPtr;
-static XLogRecPtr missingContrecPtr;
+static pg_global XLogRecPtr abortedRecPtr;
+static pg_global XLogRecPtr missingContrecPtr;
 
 /*
  * if recoveryStopsBefore/After returns true, it saves information of the stop
  * point here
  */
-static TransactionId recoveryStopXid;
-static TimestampTz recoveryStopTime;
-static XLogRecPtr recoveryStopLSN;
-static char recoveryStopName[MAXFNAMELEN];
-static bool recoveryStopAfter;
+static pg_global TransactionId recoveryStopXid;
+static pg_global TimestampTz recoveryStopTime;
+static pg_global XLogRecPtr recoveryStopLSN;
+static pg_global char recoveryStopName[MAXFNAMELEN];
+static pg_global bool recoveryStopAfter;
 
 /* prototypes for local functions */
 static void ApplyWalRecord(XLogReaderState *xlogreader, XLogRecord *record, TimeLineID *replayTLI);

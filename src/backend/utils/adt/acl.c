@@ -78,9 +78,9 @@ enum RoleRecurseType
 	ROLERECURSE_PRIVS = 1,		/* recurse through inheritable grants */
 	ROLERECURSE_SETROLE = 2		/* recurse through grants with set_option */
 };
-static Oid	cached_role[] = {InvalidOid, InvalidOid, InvalidOid};
-static List *cached_roles[] = {NIL, NIL, NIL};
-static uint32 cached_db_hash;
+static session_local Oid	cached_role[] = {InvalidOid, InvalidOid, InvalidOid};
+static session_local List *cached_roles[] = {NIL, NIL, NIL};
+static session_local uint32 cached_db_hash;
 
 /*
  * If the list of roles gathered by roles_is_member_of() grows larger than the

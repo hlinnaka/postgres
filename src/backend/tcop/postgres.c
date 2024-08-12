@@ -86,21 +86,21 @@
  *		global variables
  * ----------------
  */
-const char *debug_query_string; /* client-supplied query string */
+const session_local char *debug_query_string; /* client-supplied query string */
 
 /* Note: whereToSendOutput is initialized for the bootstrap/standalone case */
-CommandDest whereToSendOutput = DestDebug;
+session_local CommandDest whereToSendOutput = DestDebug;
 
 /* flag for logging end of session */
-bool		Log_disconnections = false;
+session_guc bool		Log_disconnections = false;
 
-int			log_statement = LOGSTMT_NONE;
+session_guc int			log_statement = LOGSTMT_NONE;
 
 /* wait N seconds to allow attach from a debugger */
-int			PostAuthDelay = 0;
+session_guc int			PostAuthDelay = 0;
 
 /* Time between checks that the client is still connected. */
-int			client_connection_check_interval = 0;
+session_guc int			client_connection_check_interval = 0;
 
 /* flags for non-system relation kinds to restrict use */
 int			restrict_nonsystem_relation_kind;
@@ -127,37 +127,37 @@ typedef struct BindParamCbData
  * Flag to keep track of whether we have started a transaction.
  * For extended query protocol this has to be remembered across messages.
  */
-static bool xact_started = false;
+static session_local bool xact_started = false;
 
 /*
  * Flag to indicate that we are doing the outer loop's read-from-client,
  * as opposed to any random read from client that might happen within
  * commands like COPY FROM STDIN.
  */
-static bool DoingCommandRead = false;
+static session_local bool DoingCommandRead = false;
 
 /*
  * Flags to implement skip-till-Sync-after-error behavior for messages of
  * the extended query protocol.
  */
-static bool doing_extended_query_message = false;
-static bool ignore_till_sync = false;
+static session_local bool doing_extended_query_message = false;
+static session_local bool ignore_till_sync = false;
 
 /*
  * If an unnamed prepared statement exists, it's stored here.
  * We keep it separate from the hashtable kept by commands/prepare.c
  * in order to reduce overhead for short-lived queries.
  */
-static CachedPlanSource *unnamed_stmt_psrc = NULL;
+static session_local CachedPlanSource *unnamed_stmt_psrc = NULL;
 
 /* assorted command-line switches */
-static const char *userDoption = NULL;	/* -D switch */
-static bool EchoQuery = false;	/* -E switch */
-static bool UseSemiNewlineNewline = false;	/* -j switch */
+static session_local const char *userDoption = NULL;	/* -D switch */
+static session_local bool EchoQuery = false;	/* -E switch */
+static session_local bool UseSemiNewlineNewline = false;	/* -j switch */
 
 /* reused buffer to pass to SendRowDescriptionMessage() */
-static MemoryContext row_description_context = NULL;
-static StringInfoData row_description_buf;
+static session_local MemoryContext row_description_context = NULL;
+static session_local StringInfoData row_description_buf;
 
 /* ----------------------------------------------------------------
  *		decls for routines only used in this file
@@ -5007,8 +5007,8 @@ forbidden_in_wal_sender(char firstchar)
 }
 
 
-static struct rusage Save_r;
-static struct timeval Save_t;
+static session_local struct rusage Save_r;
+static session_local struct timeval Save_t;
 
 void
 ResetUsage(void)

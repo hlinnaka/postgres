@@ -22,7 +22,7 @@
 typedef void (*post_parse_analyze_hook_type) (ParseState *pstate,
 											  Query *query,
 											  JumbleState *jstate);
-extern PGDLLIMPORT post_parse_analyze_hook_type post_parse_analyze_hook;
+extern PGDLLIMPORT session_local post_parse_analyze_hook_type post_parse_analyze_hook;
 
 
 extern Query *parse_analyze_fixedparams(RawStmt *parseTree, const char *sourceText,

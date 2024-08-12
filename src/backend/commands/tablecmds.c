@@ -128,7 +128,7 @@ typedef struct OnCommitItem
 	SubTransactionId deleting_subid;
 } OnCommitItem;
 
-static List *on_commits = NIL;
+static session_local List *on_commits = NIL;
 
 
 /*

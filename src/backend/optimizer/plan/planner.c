@@ -64,16 +64,16 @@
 #include "utils/selfuncs.h"
 
 /* GUC parameters */
-double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
-int			debug_parallel_query = DEBUG_PARALLEL_OFF;
-bool		parallel_leader_participation = true;
-bool		enable_distinct_reordering = true;
+session_guc double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
+session_guc int			debug_parallel_query = DEBUG_PARALLEL_OFF;
+session_guc bool		parallel_leader_participation = true;
+session_guc bool		enable_distinct_reordering = true;
 
 /* Hook for plugins to get control in planner() */
-planner_hook_type planner_hook = NULL;
+session_local planner_hook_type planner_hook = NULL;
 
 /* Hook for plugins to get control when grouping_planner() plans upper rels */
-create_upper_paths_hook_type create_upper_paths_hook = NULL;
+session_local create_upper_paths_hook_type create_upper_paths_hook = NULL;
 
 
 /* Expression kind codes for preprocess_expression */
