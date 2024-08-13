@@ -42,19 +42,23 @@ typedef struct xl_standby_locks
 } xl_standby_locks;
 
 /*
- * When we write running xact data to WAL, we use this structure.
+ * Data included in an XLOG_RUNNING_XACTS record.
+ *
+ * This used to include a list of running XIDs, hence the name, but nowadays
+ * this only contains the min and max bounds of the transactions that were
+ * running when the record was written.  They are needed to initialize logical
+ * decoding.  They are also used in hot standby to prune information about old
+ * running transactions, in case the the primary didn't write a COMMIT/ABORT
+ * record for some reason.
  */
 typedef struct xl_running_xacts
 {
-	int			xcnt;			/* # of xact ids in xids[] */
-	int			subxcnt;		/* # of subxact ids in xids[] */
-	bool		subxid_overflow;	/* snapshot overflowed, subxids missing */
 	TransactionId nextXid;		/* xid from TransamVariables->nextXid */
 	TransactionId oldestRunningXid; /* *not* oldestXmin */
 	TransactionId latestCompletedXid;	/* so we can set xmax */
-
-	TransactionId xids[FLEXIBLE_ARRAY_MEMBER];
 } xl_running_xacts;
+
+#define SizeOfXactRunningXacts sizeof(xl_running_xacts)
 
 /*
  * Invalidations for standby, currently only when transactions without an
