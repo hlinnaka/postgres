@@ -188,6 +188,10 @@ typedef struct SnapshotData
 	 */
 	XLogRecPtr	snapshotCsn;
 
+#define VISIBLE_CACHE_XACTS 4
+	TransactionId visible_cache[VISIBLE_CACHE_XACTS];
+	TransactionId invisible_cache[VISIBLE_CACHE_XACTS];
+
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 	bool		copied;			/* false if it's a static snapshot */
 

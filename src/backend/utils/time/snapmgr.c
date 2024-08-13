@@ -1807,6 +1807,7 @@ RestoreSnapshot(char *start_address)
 	snapshot->whenTaken = serialized_snapshot.whenTaken;
 	snapshot->lsn = serialized_snapshot.lsn;
 	snapshot->snapshotCsn = serialized_snapshot.snapshotCsn;
+	memset(snapshot->visible_cache, 0, sizeof(snapshot->visible_cache));
 	snapshot->snapXactCompletionCount = 0;
 
 	/* Copy XIDs, if present. */
@@ -1917,12 +1918,37 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 	}
 	else
 	{
-		XLogRecPtr	csn = CSNLogGetCSNByXid(xid);
+		XLogRecPtr	csn;
 
+		/* see if we have this cached */
+		for (int i = 0; i < VISIBLE_CACHE_XACTS; i++)
+		{
+			if (snapshot->visible_cache[i] == xid)
+				return true;
+		}
+		for (int i = 0; i < VISIBLE_CACHE_XACTS; i++)
+		{
+			if (snapshot->invisible_cache[i] == xid)
+				return false;
+		}
+
+		csn = CSNLogGetCSNByXid(xid);
 		if (csn != InvalidXLogRecPtr && csn <= snapshot->snapshotCsn)
+		{
+			static uint8 last = 0;
+
+			snapshot->invisible_cache[last % VISIBLE_CACHE_XACTS] = xid;
+			last++;
 			return false;
+		}
 		else
+		{
+			static uint8 last = 0;
+
+			snapshot->visible_cache[last % VISIBLE_CACHE_XACTS] = xid;
+			last++;
 			return true;
+		}
 	}
 
 	return false;
