@@ -1337,9 +1337,6 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	xl_running_xacts xlrec;
 	XLogRecPtr	recptr;
 
-	xlrec.xcnt = CurrRunningXacts->xcnt;
-	xlrec.subxcnt = CurrRunningXacts->subxcnt;
-	xlrec.subxid_overflow = (CurrRunningXacts->subxid_status != SUBXIDS_IN_ARRAY);
 	xlrec.nextXid = CurrRunningXacts->nextXid;
 	xlrec.oldestRunningXid = CurrRunningXacts->oldestRunningXid;
 	xlrec.latestCompletedXid = CurrRunningXacts->latestCompletedXid;
@@ -1347,31 +1344,16 @@ LogCurrentRunningXacts(RunningTransactions CurrRunningXacts)
 	/* Header */
 	XLogBeginInsert();
 	XLogSetRecordFlags(XLOG_MARK_UNIMPORTANT);
-	XLogRegisterData(&xlrec, MinSizeOfXactRunningXacts);
-
-	/* array of TransactionIds */
-	if (xlrec.xcnt > 0)
-		XLogRegisterData(CurrRunningXacts->xids,
-						 (xlrec.xcnt + xlrec.subxcnt) * sizeof(TransactionId));
+	XLogRegisterData(&xlrec, SizeOfXactRunningXacts);
 
 	recptr = XLogInsert(RM_STANDBY_ID, XLOG_RUNNING_XACTS);
 
-	if (xlrec.subxid_overflow)
-		elog(DEBUG2,
-			 "snapshot of %d running transactions overflowed (lsn %X/%X oldest xid %u latest complete %u next xid %u)",
-			 CurrRunningXacts->xcnt,
-			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
-	else
-		elog(DEBUG2,
-			 "snapshot of %d+%d running transaction ids (lsn %X/%X oldest xid %u latest complete %u next xid %u)",
-			 CurrRunningXacts->xcnt, CurrRunningXacts->subxcnt,
-			 LSN_FORMAT_ARGS(recptr),
-			 CurrRunningXacts->oldestRunningXid,
-			 CurrRunningXacts->latestCompletedXid,
-			 CurrRunningXacts->nextXid);
+	elog(DEBUG2,
+		 "logging running transaction bounds (lsn %X/%X oldest xid %u latest complete %u next xid %u)",
+		 LSN_FORMAT_ARGS(recptr),
+		 CurrRunningXacts->oldestRunningXid,
+		 CurrRunningXacts->latestCompletedXid,
+		 CurrRunningXacts->nextXid);
 
 	/*
 	 * Ensure running_xacts information is synced to disk not too far in the

@@ -1286,8 +1286,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		ereport(LOG,
 				(errmsg("logical decoding found initial starting point at %X/%X",
 						LSN_FORMAT_ARGS(lsn)),
-				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						   running->xcnt, running->nextXid)));
+				 errdetail("Waiting for transactions older than %u to end.",
+						   running->nextXid)));
 
 		SnapBuildWaitSnapshot(running->nextXid);
 	}
@@ -1310,8 +1310,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		ereport(LOG,
 				(errmsg("logical decoding found initial consistent point at %X/%X",
 						LSN_FORMAT_ARGS(lsn)),
-				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
-						   running->xcnt, running->nextXid)));
+				 errdetail("Waiting for transactions older than %u to end.",
+						   running->nextXid)));
 
 		SnapBuildWaitSnapshot(running->nextXid);
 	}
