@@ -270,14 +270,6 @@ xact_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 				DecodeAbort(ctx, buf, &parsed, xid, two_phase);
 				break;
 			}
-		case XLOG_XACT_ASSIGNMENT:
-
-			/*
-			 * We assign subxact to the toplevel xact while processing each
-			 * record if required.  So, we don't need to do anything here. See
-			 * LogicalDecodingProcessRecord.
-			 */
-			break;
 		case XLOG_XACT_INVALIDATIONS:
 			{
 				TransactionId xid;

@@ -581,6 +581,7 @@ collect_visibility_data(Oid relid, bool include_pd)
  *    now perform minimal checking on a standby by always using nextXid, this
  *    approach is better than nothing and will at least catch extremely broken
  *    cases where a xid is in the future.
+ *    XXX KnownAssignedXids is gone.
  * 3. Ignore walsender xmin, because it could go backward if some replication
  *    connections don't use replication slots.
  *

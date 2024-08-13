@@ -139,8 +139,6 @@ InitRecoveryTransactionEnvironment(void)
 	vxid.procNumber = MyProcNumber;
 	vxid.localTransactionId = GetNextLocalTransactionId();
 	VirtualXactLockTableInsert(vxid);
-
-	standbyState = STANDBY_INITIALIZED;
 }
 
 /*
@@ -167,9 +165,6 @@ ShutdownRecoveryTransactionEnvironment(void)
 	 */
 	if (RecoveryLockHash == NULL)
 		return;
-
-	/* Mark all tracked in-progress transactions as finished. */
-	ExpireAllKnownAssignedTransactionIds();
 
 	/* Release all locks the tracked transactions were holding */
 	StandbyReleaseAllLocks();
@@ -1167,7 +1162,7 @@ standby_redo(XLogReaderState *record)
 	Assert(!XLogRecHasAnyBlockRefs(record));
 
 	/* Do nothing if we're not in hot standby mode */
-	if (standbyState == STANDBY_DISABLED)
+	if (!InHotStandby)
 		return;
 
 	if (info == XLOG_STANDBY_LOCK)
@@ -1182,18 +1177,21 @@ standby_redo(XLogReaderState *record)
 	}
 	else if (info == XLOG_RUNNING_XACTS)
 	{
+		/*
+		 * XXX: running xacts records were previously used to update
+		 * known-assigned xids, but now we only need it for the logical
+		 * replication snapbuilder stuff. And for the
+		 * pg_stat_report_stat(true) call below.
+		 */
 		xl_running_xacts *xlrec = (xl_running_xacts *) XLogRecGetData(record);
-		RunningTransactionsData running;
 
-		running.xcnt = xlrec->xcnt;
-		running.subxcnt = xlrec->subxcnt;
-		running.subxid_status = xlrec->subxid_overflow ? SUBXIDS_MISSING : SUBXIDS_IN_ARRAY;
-		running.nextXid = xlrec->nextXid;
-		running.latestCompletedXid = xlrec->latestCompletedXid;
-		running.oldestRunningXid = xlrec->oldestRunningXid;
-		running.xids = xlrec->xids;
-
-		ProcArrayApplyRecoveryInfo(&running);
+		/*
+		 * Remember the oldest XID that was running at the time. Normally, all
+		 * transaction aborts and commits are WAL-logged, so our
+		 * oldestRunningXid value should be up-to-date, but if not, this
+		 * allows us to resynchronize.
+		 */
+		ProcArrayUpdateOldestRunningXid(xlrec->oldestRunningXid);
 
 		/*
 		 * The startup process currently has no convenient way to schedule
@@ -1224,50 +1222,46 @@ standby_redo(XLogReaderState *record)
  *
  * This is used for Hot Standby as follows:
  *
- * We can move directly to STANDBY_SNAPSHOT_READY at startup if we
- * start from a shutdown checkpoint because we know nothing was running
- * at that time and our recovery snapshot is known empty. In the more
- * typical case of an online checkpoint we need to jump through a few
- * hoops to get a correct recovery snapshot and this requires a two or
- * sometimes a three stage process.
+ * We can enter hot standby mode and start accepting read-only queries
+ * immediately at startup if we start from a shutdown checkpoint, because we
+ * know nothing was running at that time and our recovery snapshot is known
+ * empty. In the more typical case of an online checkpoint, the checkpoint
+ * record doesn't contain all the necessary information about running
+ * transaction state, and we need to jump through a few hoops to get a correct
+ * recovery snapshot.
  *
- * The initial snapshot must contain all running xids and all current
- * AccessExclusiveLocks at a point in time on the standby. Assembling
- * that information while the server is running requires many and
- * various LWLocks, so we choose to derive that information piece by
- * piece and then re-assemble that info on the standby. When that
- * information is fully assembled we move to STANDBY_SNAPSHOT_READY.
+ * The initial snapshot must contain all current AccessExclusiveLocks at a
+ * point in time on the standby. Assembling that information while the server
+ * is running requires many and various LWLocks, so we choose to derive that
+ * information piece by piece and then re-assemble that info on the standby.
  *
- * Since locking on the primary when we derive the information is not
- * strict, we note that there is a time window between the derivation and
- * writing to WAL of the derived information. That allows race conditions
- * that we must resolve, since xids and locks may enter or leave the
- * snapshot during that window. This creates the issue that an xid or
- * lock may start *after* the snapshot has been derived yet *before* the
- * snapshot is logged in the running xacts WAL record. We resolve this by
- * starting to accumulate changes at a point just prior to when we derive
- * the snapshot on the primary, then ignore duplicates when we later apply
- * the snapshot from the running xacts record. This is implemented during
- * CreateCheckPoint() where we use the logical checkpoint location as
- * our starting point and then write the running xacts record immediately
- * before writing the main checkpoint WAL record. Since we always start
- * up from a checkpoint and are immediately at our starting point, we
- * unconditionally move to STANDBY_INITIALIZED. After this point we
- * must do 4 things:
+ * Since locking on the primary when we derive the information is not strict,
+ * there is a time window between the derivation and writing to WAL of the
+ * derived information. That allows race conditions that we must resolve,
+ * since xids and locks may enter or leave the snapshot during that
+ * window. This creates the issue that an xid or lock may start *after* the
+ * snapshot has been derived yet *before* the snapshot is logged in the
+ * running xacts WAL record. We resolve this by starting to accumulate changes
+ * at a point just prior to when we collect the lock information on the
+ * primary, then ignore duplicates when we later apply the snapshot from the
+ * running xacts record. This is implemented during CreateCheckPoint() where
+ * we use the logical checkpoint location as our starting point and then write
+ * the running xacts record immediately before writing the main checkpoint WAL
+ * record. Since we always start up from a checkpoint's redo pointer, we will
+ * always see a running-xacts record between before reaching the checkpoint
+ * record, and can immediately enter hot standby mode. After this point we
+ * must do 3 things:
  *	* move shared nextXid forwards as we see new xids
  *	* extend the clog and subtrans with each new xid
- *	* keep track of uncommitted known assigned xids
  *	* keep track of uncommitted AccessExclusiveLocks
  *
- * When we see a commit/abort we must remove known assigned xids and locks
- * from the completing transaction. Attempted removals that cannot locate
- * an entry are expected and must not cause an error when we are in state
- * STANDBY_INITIALIZED. This is implemented in StandbyReleaseLocks() and
- * KnownAssignedXidsRemove().
- *
- * Later, when we apply the running xact data we must be careful to ignore
- * transactions already committed, since those commits raced ahead when
- * making WAL entries.
+ * When we see a commit/abort we must advance oldest_running_primary_xid and
+ * remove locks from the completing transaction. Attempted removals that
+ * cannot locate an entry are expected and must not cause an error until we
+ * have seen the running-xacts record. (We don't throw an error even after
+ * that, because whatever the reason was, after the transaction has completed
+ * the issue has already been resolved anyway.) This is implemented in
+ * StandbyReleaseLocks().
  *
  * For logical decoding only the running xacts information is needed;
  * there's no need to look at the locking information, but it's logged anyway,
