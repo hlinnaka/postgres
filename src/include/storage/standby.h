@@ -60,8 +60,6 @@ extern void StandbyReleaseLockTree(TransactionId xid,
 extern void StandbyReleaseAllLocks(void);
 extern void StandbyReleaseOldLocks(TransactionId oldxid);
 
-#define MinSizeOfXactRunningXacts offsetof(xl_running_xacts, xids)
-
 
 /*
  * Declarations for GetRunningTransactionData(). Similar to Snapshots, but
