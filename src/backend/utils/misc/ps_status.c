@@ -219,6 +219,9 @@ save_ps_display_args(int argc, char **argv)
 	 * re-called to analyze a subprocess' argument string if the argv storage
 	 * has been clobbered meanwhile.  Other platforms have other dependencies
 	 * on argv[].
+	 *
+	 * FIXME: we use our own pg_getopt now, so that getopt() thing might not
+	 * be an issue anymore.
 	 */
 	{
 		char	  **new_argv;

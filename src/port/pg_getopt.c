@@ -57,14 +57,19 @@ pg_getopt_start(pg_getopt_ctx *ctx, int nargc, char *const *nargv, const char *o
 	ctx->nargv = nargv;
 	ctx->ostr = ostr;
 
-	ctx->place = EMSG;	/* option letter processing */
+	ctx->optind = 1;
+	ctx->optarg = NULL;
+	ctx->opterr = 0;			/* Caller may set this after the call */
+	ctx->optopt = 0;
+
+	ctx->place = EMSG;			/* option letter processing */
 }
 
 int
 pg_getopt_next(pg_getopt_ctx *ctx)
 {
 	char	   *oli;			/* option letter list index */
-	
+
 	if (!*ctx->place)
 	{							/* update scanning pointer */
 		if (ctx->optind >= ctx->nargc || *(ctx->place = ctx->nargv[ctx->optind]) != '-')
@@ -105,7 +110,7 @@ pg_getopt_next(pg_getopt_ctx *ctx)
 	}
 	else
 	{							/* need an argument */
-		if (*ctx->place)				/* no white space */
+		if (*ctx->place)		/* no white space */
 			ctx->optarg = ctx->place;
 		else if (ctx->nargc <= ++ctx->optind)
 		{						/* no arg */
@@ -124,5 +129,5 @@ pg_getopt_next(pg_getopt_ctx *ctx)
 		ctx->place = EMSG;
 		++ctx->optind;
 	}
-	return ctx->optopt;				/* dump back option letter */
+	return ctx->optopt;			/* dump back option letter */
 }

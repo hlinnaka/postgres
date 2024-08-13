@@ -62,13 +62,14 @@ char	   *optarg;				/* argument associated with option */
 int
 getopt(int nargc, char *const *nargv, const char *ostr)
 {
-	static bool	active = false;
+	static bool active = false;
 	static pg_getopt_ctx ctx;
-	int		result;
+	int			result;
 
 	if (!active)
 	{
 		pg_getopt_start(&cxt, nargc, nargv, ostr);
+		ctx.opterr = opterr;
 		active = true;
 	}
 
