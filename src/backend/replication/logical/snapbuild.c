@@ -168,7 +168,7 @@ static inline bool SnapBuildXidHasCatalogChanges(SnapBuild *builder, Transaction
 
 /* xlog reading helper functions for SnapBuildProcessRunningXacts */
 static bool SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *running);
-static void SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff);
+static void SnapBuildWaitSnapshot(TransactionId cutoff);
 
 /* serialization functions */
 static void SnapBuildSerialize(SnapBuild *builder, XLogRecPtr lsn);
@@ -1222,14 +1222,17 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 		NormalTransactionIdPrecedes(running->oldestRunningXid,
 									builder->initial_xmin_horizon))
 	{
+		TransactionId cutoff;
+
 		ereport(DEBUG1,
 				(errmsg_internal("skipping snapshot at %X/%X while building logical decoding snapshot, xmin horizon too low",
 								 LSN_FORMAT_ARGS(lsn)),
 				 errdetail_internal("initial xmin horizon of %u vs the snapshot's %u",
 									builder->initial_xmin_horizon, running->oldestRunningXid)));
 
-
-		SnapBuildWaitSnapshot(running, builder->initial_xmin_horizon);
+		cutoff = builder->initial_xmin_horizon;
+		TransactionIdRetreat(cutoff);
+		SnapBuildWaitSnapshot(cutoff);
 
 		return true;
 	}
@@ -1316,7 +1319,7 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
 						   running->xcnt, running->nextXid)));
 
-		SnapBuildWaitSnapshot(running, running->nextXid);
+		SnapBuildWaitSnapshot(running->nextXid);
 	}
 
 	/*
@@ -1340,7 +1343,7 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 				 errdetail("Waiting for transactions (approximately %d) older than %u to end.",
 						   running->xcnt, running->nextXid)));
 
-		SnapBuildWaitSnapshot(running, running->nextXid);
+		SnapBuildWaitSnapshot(running->nextXid);
 	}
 
 	/*
@@ -1373,8 +1376,8 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
 }
 
 /* ---
- * Iterate through xids in record, wait for all older than the cutoff to
- * finish.  Then, if possible, log a new xl_running_xacts record.
+ * Wait for all transactions older than or equal to the cutoff to finish.
+ * Then, if possible, log a new xl_running_xacts record.
  *
  * This isn't required for the correctness of decoding, but to:
  * a) allow isolationtester to notice that we're currently waiting for
@@ -1384,13 +1387,31 @@ SnapBuildFindSnapshot(SnapBuild *builder, XLogRecPtr lsn, xl_running_xacts *runn
  * ---
  */
 static void
-SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
+SnapBuildWaitSnapshot(TransactionId cutoff)
 {
-	int			off;
+	RunningTransactions running;
 
-	for (off = 0; off < running->xcnt; off++)
+	if (RecoveryInProgress())
 	{
-		TransactionId xid = running->xids[off];
+		/*
+		 * During recovery, we have no mechanism for waiting for an XID to
+		 * finish, and we cannot create new running-xacts records either.
+		 */
+		return;
+	}
+
+	running = GetRunningTransactionData();
+
+	/*
+	 * GetRunningTransactionData returns with XidGenLock and ProcArrayLock
+	 * held, but we don't need them.
+	 */
+	LWLockRelease(XidGenLock);
+	LWLockRelease(ProcArrayLock);
+
+	for (int i = 0; i < running->xcnt; i++)
+	{
+		TransactionId xid = running->xids[i];
 
 		/*
 		 * Upper layers should prevent that we ever need to wait on ourselves.
@@ -1400,7 +1421,7 @@ SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
 		if (TransactionIdIsCurrentTransactionId(xid))
 			elog(ERROR, "waiting for ourselves");
 
-		if (TransactionIdFollows(xid, cutoff))
+		if (TransactionIdFollowsOrEquals(xid, cutoff))
 			continue;
 
 		XactLockTableWait(xid, NULL, NULL, XLTW_None);
@@ -1412,10 +1433,7 @@ SnapBuildWaitSnapshot(xl_running_xacts *running, TransactionId cutoff)
 	 * wait for bgwriter or checkpointer to log one.  During recovery we can't
 	 * enforce that, so we'll have to wait.
 	 */
-	if (!RecoveryInProgress())
-	{
-		LogStandbySnapshot();
-	}
+	LogStandbySnapshot();
 }
 
 #define SnapBuildOnDiskConstantSize \
