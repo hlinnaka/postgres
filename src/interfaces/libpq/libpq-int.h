@@ -397,6 +397,7 @@ struct pg_conn
 	char	   *pguser;			/* Postgres username and password, if any */
 	char	   *pgpass;
 	char	   *pgpassfile;		/* path to a file containing password(s) */
+	char	   *protocol_version_str;	/* protocol version to use */
 	char	   *channel_binding;	/* channel binding mode
 									 * (require,prefer,disable) */
 	char	   *keepalives;		/* use TCP keepalives? */
@@ -507,6 +508,8 @@ struct pg_conn
 										 * sending */
 
 	/* Transient state needed while establishing connection */
+	ProtocolVersion requested_pversion; /* FE/BE protocol version requested,
+										 * or 0 for "auto" */
 	PGTargetServerType target_server_type;	/* desired session properties */
 	PGLoadBalanceType load_balance_type;	/* desired load balancing
 											 * algorithm */
@@ -520,7 +523,8 @@ struct pg_conn
 
 	/* Miscellaneous stuff */
 	int			be_pid;			/* PID of backend --- needed for cancels */
-	int			be_key;			/* key of backend --- needed for cancels */
+	char	   *be_cancel_key;	/* query cancellation key and its length */
+	uint16		be_cancel_key_len;
 	pgParameterStatus *pstatus; /* ParameterStatus data */
 	int			client_encoding;	/* encoding id */
 	bool		std_strings;	/* standard_conforming_strings */
@@ -743,6 +747,10 @@ extern PGresult *pqFunctionCall3(PGconn *conn, Oid fnid,
 								 int *result_buf, int *actual_result_len,
 								 int result_is_int,
 								 const PQArgBlock *args, int nargs);
+
+/* === in fe-cancel.c === */
+
+extern int	pqSendCancelRequest(PGconn *cancelConn);
 
 /* === in fe-misc.c === */
 

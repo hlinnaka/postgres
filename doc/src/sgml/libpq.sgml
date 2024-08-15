@@ -2335,6 +2335,18 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
        </para>
       </listitem>
      </varlistentry>
+     <varlistentry id="libpq-connect-protocol-version" xreflabel="protocol_version">
+      <term><literal>protocol_version</literal></term>
+      <listitem>
+       <para>
+         FE/BE protocol version to use.  The default is "auto", to use the
+         highest version supported by both the client and the server.  To
+         connect to old <productname>PostgreSQL</productname> servers versions
+         9.2 and below, use "3.0".
+       </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
    </para>
   </sect2>

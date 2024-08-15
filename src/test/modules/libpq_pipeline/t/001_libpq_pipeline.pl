@@ -72,6 +72,14 @@ for my $testname (@tests)
 	}
 }
 
+# There were changes to query cancellation in protocol version 3.1, so
+# test separately that it still works the old protocol version too.
+$node->command_ok(
+	[
+	 'libpq_pipeline', 'cancel', $node->connstr('postgres') . " protocol_version=3.0"
+	],
+	"libpq_pipeline cancel with protocol 3.0");
+
 $node->stop('fast');
 
 done_testing();

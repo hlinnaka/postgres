@@ -48,6 +48,7 @@ static int	getRowDescriptions(PGconn *conn, int msgLength);
 static int	getParamDescriptions(PGconn *conn, int msgLength);
 static int	getAnotherTuple(PGconn *conn, int msgLength);
 static int	getParameterStatus(PGconn *conn);
+static int	getBackendKeyData(PGconn *conn);
 static int	getNotify(PGconn *conn);
 static int	getCopyStart(PGconn *conn, ExecStatusType copytype);
 static int	getReadyForQuery(PGconn *conn);
@@ -308,9 +309,7 @@ pqParseInput3(PGconn *conn)
 					 * just as easy to handle it as part of the main loop.
 					 * Save the data and continue processing.
 					 */
-					if (pqGetInt(&(conn->be_pid), 4, conn))
-						return;
-					if (pqGetInt(&(conn->be_key), 4, conn))
+					if (getBackendKeyData(conn))
 						return;
 					break;
 				case PqMsg_RowDescription:
@@ -1405,8 +1404,8 @@ reportErrorPosition(PQExpBuffer msg, const char *query, int loc, int encoding)
 /*
  * Attempt to read a NegotiateProtocolVersion message.
  * Entry: 'v' message type and length have already been consumed.
- * Exit: returns 0 if successfully consumed message.
- *		 returns EOF if not enough data.
+ * Exit: returns 0 if successfully consumed message and the negotiation succeeded.
+ *		 returns 1 on failure. The error message is filled in.
  */
 int
 pqGetNegotiateProtocolVersion3(PGconn *conn)
@@ -1417,11 +1416,11 @@ pqGetNegotiateProtocolVersion3(PGconn *conn)
 	PQExpBufferData buf;
 
 	if (pqGetInt(&tmp, 4, conn) != 0)
-		return EOF;
+		goto eof;
 	their_version = tmp;
 
 	if (pqGetInt(&num, 4, conn) != 0)
-		return EOF;
+		goto eof;
 
 	initPQExpBuffer(&buf);
 	for (int i = 0; i < num; i++)
@@ -1429,17 +1428,36 @@ pqGetNegotiateProtocolVersion3(PGconn *conn)
 		if (pqGets(&conn->workBuffer, conn))
 		{
 			termPQExpBuffer(&buf);
-			return EOF;
+			goto eof;
 		}
 		if (buf.len > 0)
 			appendPQExpBufferChar(&buf, ' ');
 		appendPQExpBufferStr(&buf, conn->workBuffer.data);
 	}
 
-	if (their_version < conn->pversion)
+	/*
+	 * If a specific protocol version was requested by the user and the server
+	 * does not support that exact version -> fail.
+	 */
+	if (conn->requested_pversion != 0 && their_version != conn->pversion)
+	{
+		libpq_append_conn_error(conn, "requested protocol version %u.%u not supported by server: server supports up to %u.%u",
+								PG_PROTOCOL_MAJOR(conn->pversion), PG_PROTOCOL_MINOR(conn->pversion),
+								PG_PROTOCOL_MAJOR(their_version), PG_PROTOCOL_MINOR(their_version));
+		return 1;
+	}
+
+	/*
+	 * If we don't support any of the server's supported versions -> fail
+	 */
+	if (their_version < PG_PROTOCOL(3, 0))
+	{
 		libpq_append_conn_error(conn, "protocol version not supported by server: client uses %u.%u, server supports up to %u.%u",
 								PG_PROTOCOL_MAJOR(conn->pversion), PG_PROTOCOL_MINOR(conn->pversion),
 								PG_PROTOCOL_MAJOR(their_version), PG_PROTOCOL_MINOR(their_version));
+		return 1;
+	}
+
 	if (num > 0)
 	{
 		appendPQExpBuffer(&conn->errorMessage,
@@ -1451,10 +1469,19 @@ pqGetNegotiateProtocolVersion3(PGconn *conn)
 
 	/* neither -- server shouldn't have sent it */
 	if (!(their_version < conn->pversion) && !(num > 0))
+	{
 		libpq_append_conn_error(conn, "invalid %s message", "NegotiateProtocolVersion");
+		return 1;
+	}
+
+	conn->pversion = their_version;
 
 	termPQExpBuffer(&buf);
 	return 0;
+
+eof:
+	libpq_append_conn_error(conn, "insufficient data in \"v\" (NegotiateProtocolVersion) message");
+	return 1;
 }
 
 
@@ -1483,6 +1510,52 @@ getParameterStatus(PGconn *conn)
 	/* And save it */
 	pqSaveParameterStatus(conn, conn->workBuffer.data, valueBuf.data);
 	termPQExpBuffer(&valueBuf);
+	return 0;
+}
+
+/*
+ * parseInput subroutine to read a BackendKeyData message.
+ * Entry: 'v' message type and length have already been consumed.
+ * Exit: returns 0 if successfully consumed message.
+ *		 returns EOF if not enough data.
+ */
+static int
+getBackendKeyData(PGconn *conn)
+{
+	uint8		cancel_key_len;
+
+	if (conn->be_cancel_key)
+	{
+		free(conn->be_cancel_key);
+		conn->be_cancel_key = NULL;
+		conn->be_cancel_key_len = 0;
+	}
+
+	if (pqGetInt(&(conn->be_pid), 4, conn))
+		return EOF;
+
+	if (conn->pversion >= PG_PROTOCOL(3, 1))
+	{
+		if (pqGetc((char *) &cancel_key_len, conn))
+			return EOF;
+	}
+	else
+		cancel_key_len = 4;
+
+	conn->be_cancel_key = malloc(cancel_key_len);
+	if (conn->be_cancel_key == NULL)
+	{
+		libpq_append_conn_error(conn, "out of memory");
+		/* discard the message */
+		return EOF;
+	}
+	if (pqGetnchar(conn->be_cancel_key, cancel_key_len, conn))
+	{
+		free(conn->be_cancel_key);
+		conn->be_cancel_key = NULL;
+		return EOF;
+	}
+	conn->be_cancel_key_len = cancel_key_len;
 	return 0;
 }
 

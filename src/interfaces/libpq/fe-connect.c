@@ -243,6 +243,10 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"Fallback-Application-Name", "", 64,
 	offsetof(struct pg_conn, fbappname)},
 
+	{"protocol_version", NULL, NULL, NULL,
+		"Protocol-Version", "", 5,
+	offsetof(struct pg_conn, protocol_version_str)},
+
 	{"keepalives", NULL, NULL, NULL,
 		"TCP-Keepalives", "", 1,	/* should be just '0' or '1' */
 	offsetof(struct pg_conn, keepalives)},
@@ -636,7 +640,12 @@ pqDropServerData(PGconn *conn)
 	if (!conn->cancelRequest)
 	{
 		conn->be_pid = 0;
-		conn->be_key = 0;
+		if (conn->be_cancel_key != NULL)
+		{
+			free(conn->be_cancel_key);
+			conn->be_cancel_key = NULL;
+		}
+		conn->be_cancel_key_len = 0;
 	}
 }
 
@@ -1763,6 +1772,29 @@ pqConnectOptions2(PGconn *conn)
 	}
 
 	/*
+	 * Validate protocol_version
+	 */
+	if (conn->protocol_version_str)
+	{
+		if (strcmp(conn->protocol_version_str, "auto") == 0)
+			conn->requested_pversion = 0;
+		else if (strcmp(conn->protocol_version_str, "3.1") == 0)
+			conn->requested_pversion = PG_PROTOCOL(3, 1);
+		else if (strcmp(conn->protocol_version_str, "3.0") == 0)
+			conn->requested_pversion = PG_PROTOCOL(3, 0);
+		else
+		{
+			conn->status = CONNECTION_BAD;
+			libpq_append_conn_error(conn, "invalid %s value: \"%s\"",
+									"protocol_version",
+									conn->protocol_version_str);
+			return false;
+		}
+	}
+	else
+		conn->requested_pversion = 0;
+
+	/*
 	 * validate target_session_attrs option, and set target_server_type
 	 */
 	if (conn->target_session_attrs)
@@ -2836,7 +2868,10 @@ keep_going:						/* We will come back to here until there is
 		 * must persist across individual connection attempts, but we must
 		 * reset them when we start to consider a new server.
 		 */
-		conn->pversion = PG_PROTOCOL(3, 0);
+		if (conn->requested_pversion == 0)
+			conn->pversion = PG_PROTOCOL(3, 1);
+		else
+			conn->pversion = conn->requested_pversion;
 		conn->send_appname = true;
 		conn->failed_enc_methods = 0;
 		conn->current_enc_method = 0;
@@ -3401,13 +3436,7 @@ keep_going:						/* We will come back to here until there is
 				 */
 				if (conn->cancelRequest)
 				{
-					CancelRequestPacket cancelpacket;
-
-					packetlen = sizeof(cancelpacket);
-					cancelpacket.cancelRequestCode = (MsgType) pg_hton32(CANCEL_REQUEST_CODE);
-					cancelpacket.backendPID = pg_hton32(conn->be_pid);
-					cancelpacket.cancelAuthCode = pg_hton32(conn->be_key);
-					if (pqPacketSend(conn, 0, &cancelpacket, packetlen) != STATUS_OK)
+					if (pqSendCancelRequest(conn) != STATUS_OK)
 					{
 						libpq_append_conn_error(conn, "could not send cancel packet: %s",
 												SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
@@ -3872,12 +3901,17 @@ keep_going:						/* We will come back to here until there is
 				{
 					if (pqGetNegotiateProtocolVersion3(conn))
 					{
-						libpq_append_conn_error(conn, "received invalid protocol negotiation message");
+						/*
+						 * Negotiation failed.  The error message was filled
+						 * in already.
+						 */
 						goto error_return;
 					}
 					/* OK, we read the message; mark data consumed */
+
 					conn->inStart = conn->inCursor;
-					goto error_return;
+					/* Stay in the CONNECTION_AWAITING_RESPONSE state */
+					goto keep_going;
 				}
 
 				/* It is an authentication request. */

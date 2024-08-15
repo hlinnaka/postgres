@@ -375,6 +375,7 @@ CachedPlanSource
 CallContext
 CallStmt
 CancelRequestPacket
+CancelRequestExtendedPacket
 Cardinality
 CaseExpr
 CaseKind
