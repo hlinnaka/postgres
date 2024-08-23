@@ -2669,8 +2669,15 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 			wakeup = true;
 	}
 
-	if (wakeup && ProcGlobal->walwriterLatch)
-		SetLatch(ProcGlobal->walwriterLatch);
+	if (wakeup)
+	{
+		volatile PROC_HDR *procglobal = ProcGlobal;
+		ProcNumber	walwriterProc;
+
+		walwriterProc = procglobal->walwriterProc;
+		if (walwriterProc != INVALID_PROC_NUMBER)
+			SetLatch(&GetPGProcByNumber(walwriterProc)->procLatch);
+	}
 }
 
 /*
