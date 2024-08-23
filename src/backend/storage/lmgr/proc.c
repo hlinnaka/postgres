@@ -1867,34 +1867,6 @@ CheckDeadLockAlert(void)
 }
 
 /*
- * ProcWaitForSignal - wait for a signal from another backend.
- *
- * As this uses the generic process interurpt the caller has to be robust against
- * unrelated wakeups: Always check that the desired state has occurred, and
- * wait again if not.
- */
-void
-ProcWaitForSignal(uint32 wait_event_info)
-{
-	(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
-						 wait_event_info);
-	ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
-	CHECK_FOR_INTERRUPTS();
-}
-
-/*
- * ProcSendSignal - send the interrupt of a backend identified by ProcNumber
- */
-void
-ProcSendSignal(ProcNumber procNumber)
-{
-	if (procNumber < 0 || procNumber >= ProcGlobal->allProcCount)
-		elog(ERROR, "procNumber out of range");
-
-	SendInterrupt(INTERRUPT_GENERAL_WAKEUP, procNumber);
-}
-
-/*
  * BecomeLockGroupLeader - designate process as lock group leader
  *
  * Once this function has returned, other processes can join the lock group

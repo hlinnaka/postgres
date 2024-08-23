@@ -696,7 +696,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	}
 
 	/* Wait to be signaled by the release of the Relation Lock */
-	ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+	WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  PG_WAIT_LOCK | locktag.locktag_type);
+	ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
+	CHECK_FOR_INTERRUPTS();
 
 	/*
 	 * Exit if ltime is reached. Then all the backends holding conflicting
@@ -745,7 +748,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * until the relation locks are released or ltime is reached.
 		 */
 		got_standby_deadlock_timeout = false;
-		ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+		WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+					  PG_WAIT_LOCK | locktag.locktag_type);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
+		CHECK_FOR_INTERRUPTS();
 	}
 
 cleanup:
@@ -839,7 +845,10 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * SIGHUP signal handler, etc cannot do that because it uses the different
 	 * latch from that ProcWaitForSignal() waits on.
 	 */
-	ProcWaitForSignal(WAIT_EVENT_BUFFER_PIN);
+	WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  WAIT_EVENT_BUFFER_PIN);
+	ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
+	CHECK_FOR_INTERRUPTS();
 
 	if (got_standby_delay_timeout)
 		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
