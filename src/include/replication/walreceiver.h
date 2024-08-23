@@ -21,7 +21,6 @@
 #include "replication/logicalproto.h"
 #include "replication/walsender.h"
 #include "storage/condition_variable.h"
-#include "storage/latch.h"
 #include "storage/spin.h"
 #include "utils/tuplestore.h"
 
@@ -58,11 +57,19 @@ typedef enum
 typedef struct
 {
 	/*
-	 * PID of currently active walreceiver process, its current state and
-	 * start time (actually, the time at which it was requested to be
-	 * started).
+	 * Proc number of currently active walreceiver process, so that the
+	 * startup process can wake it up after telling it where to start
+	 * streaming (after setting receiveStart and receiveStartTLI), and also to
+	 * tell it to send apply feedback to the primary whenever specially marked
+	 * commit records are applied.
 	 */
+	ProcNumber	procno;
 	pid_t		pid;
+
+	/*
+	 * Its current state and start time (actually, the time at which it was
+	 * requested to be started).
+	 */
 	WalRcvState walRcvState;
 	ConditionVariable walRcvStoppedCV;
 	pg_time_t	startTime;
@@ -133,15 +140,6 @@ typedef struct
 
 	/* set true once conninfo is ready to display (obfuscated pwds etc) */
 	bool		ready_to_display;
-
-	/*
-	 * Latch used by startup process to wake up walreceiver after telling it
-	 * where to start streaming (after setting receiveStart and
-	 * receiveStartTLI), and also to tell it to send apply feedback to the
-	 * primary whenever specially marked commit records are applied. This is
-	 * normally mapped to procLatch when walreceiver is running.
-	 */
-	Latch	   *latch;
 
 	slock_t		mutex;			/* locks shared variables shown above */
 
