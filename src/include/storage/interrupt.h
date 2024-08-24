@@ -98,11 +98,14 @@ typedef enum
 	INTERRUPT_GENERAL_WAKEUP,
 
 	/*
-	 * INTERRUPT_RECOVERY_WAKEUP is used to wake up startup process, to tell
+	 * INTERRUPT_RECOVERY_CONTINUE is used to wake up startup process, to tell
 	 * it that it should continue WAL replay. It's sent by WAL receiver when
 	 * more WAL arrives, or when promotion is requested.
 	 */
 	INTERRUPT_RECOVERY_CONTINUE,
+
+	/* sent to logical replication launcher, when a subscription changes */
+	INTERRUPT_SUBSCRIPTION_CHANGE,
 } InterruptType;
 
 /*
