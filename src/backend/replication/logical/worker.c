@@ -177,6 +177,7 @@
 #include "replication/worker_internal.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/buffile.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "tcop/tcopprot.h"
@@ -3739,15 +3740,15 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		else
 			wait_time = NAPTIME_PER_CYCLE;
 
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_SOCKET_READABLE | WL_LATCH_SET |
-							   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							   fd, wait_time,
-							   WAIT_EVENT_LOGICAL_APPLY_MAIN);
+		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL_WAKEUP,
+								   WL_SOCKET_READABLE | WL_INTERRUPT |
+								   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								   fd, wait_time,
+								   WAIT_EVENT_LOGICAL_APPLY_MAIN);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 

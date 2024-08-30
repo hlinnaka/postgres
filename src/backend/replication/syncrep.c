@@ -81,6 +81,7 @@
 #include "replication/syncrep.h"
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
+#include "storage/interrupt.h"
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc_hooks.h"
@@ -230,7 +231,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		int			rc;
 
 		/* Must reset the latch before testing state. */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/*
 		 * Acquiring the lock is not needed, the latch ensures proper
@@ -285,8 +286,8 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * Wait on latch.  Any condition that should wake us up will set the
 		 * latch, so no need for timeout.
 		 */
-		rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1,
-					   WAIT_EVENT_SYNC_REP);
+		rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_POSTMASTER_DEATH, -1,
+						   WAIT_EVENT_SYNC_REP);
 
 		/*
 		 * If the postmaster dies, we'll probably never get an acknowledgment,

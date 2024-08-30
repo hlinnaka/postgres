@@ -28,7 +28,7 @@
 #include "pgstat.h"
 #include "postgres_fdw.h"
 #include "storage/fd.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/hsearch.h"
@@ -735,8 +735,8 @@ do_sql_command_end(PGconn *conn, const char *sql, bool consume_input)
 	/*
 	 * If requested, consume whatever data is available from the socket. (Note
 	 * that if all data is available, this allows pgfdw_get_result to call
-	 * PQgetResult without forcing the overhead of WaitLatchOrSocket, which
-	 * would be large compared to the overhead of PQconsumeInput.)
+	 * PQgetResult without forcing the overhead of WaitInterruptOrSocket,
+	 * which would be large compared to the overhead of PQconsumeInput.)
 	 */
 	if (consume_input && !PQconsumeInput(conn))
 		pgfdw_report_error(ERROR, NULL, conn, false, sql);
@@ -1371,7 +1371,7 @@ pgfdw_cancel_query_end(PGconn *conn, TimestampTz endtime, bool consume_input)
 	/*
 	 * If requested, consume whatever data is available from the socket. (Note
 	 * that if all data is available, this allows pgfdw_get_cleanup_result to
-	 * call PQgetResult without forcing the overhead of WaitLatchOrSocket,
+	 * call PQgetResult without forcing the overhead of WaitInterruptOrSocket,
 	 * which would be large compared to the overhead of PQconsumeInput.)
 	 */
 	if (consume_input && !PQconsumeInput(conn))
@@ -1465,7 +1465,7 @@ pgfdw_exec_cleanup_query_end(PGconn *conn, const char *query,
 	/*
 	 * If requested, consume whatever data is available from the socket. (Note
 	 * that if all data is available, this allows pgfdw_get_cleanup_result to
-	 * call PQgetResult without forcing the overhead of WaitLatchOrSocket,
+	 * call PQgetResult without forcing the overhead of WaitInterruptOrSocket,
 	 * which would be large compared to the overhead of PQconsumeInput.)
 	 */
 	if (consume_input && !PQconsumeInput(conn))
@@ -1545,12 +1545,12 @@ pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime, PGresult **result,
 					pgfdw_we_cleanup_result = WaitEventExtensionNew("PostgresFdwCleanupResult");
 
 				/* Sleep until there's something to do */
-				wc = WaitLatchOrSocket(MyLatch,
-									   WL_LATCH_SET | WL_SOCKET_READABLE |
-									   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-									   PQsocket(conn),
-									   cur_timeout, pgfdw_we_cleanup_result);
-				ResetLatch(MyLatch);
+				wc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL_WAKEUP,
+										   WL_INTERRUPT | WL_SOCKET_READABLE |
+										   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+										   PQsocket(conn),
+										   cur_timeout, pgfdw_we_cleanup_result);
+				ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 				CHECK_FOR_INTERRUPTS();
 

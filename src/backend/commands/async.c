@@ -140,6 +140,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/procsignal.h"
@@ -1812,7 +1813,7 @@ HandleNotifyInterrupt(void)
 	notifyInterruptPending = true;
 
 	/* make sure the event is processed in due course */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*

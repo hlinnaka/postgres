@@ -61,6 +61,7 @@
 #include "replication/logical.h"
 #include "replication/slotsync.h"
 #include "replication/snapbuild.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
@@ -1254,13 +1255,13 @@ wait_for_slot_activity(bool some_slot_updated)
 		sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
 	}
 
-	rc = WaitLatch(MyLatch,
-				   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-				   sleep_ms,
-				   WAIT_EVENT_REPLICATION_SLOTSYNC_MAIN);
+	rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+					   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+					   sleep_ms,
+					   WAIT_EVENT_REPLICATION_SLOTSYNC_MAIN);
 
-	if (rc & WL_LATCH_SET)
-		ResetLatch(MyLatch);
+	if (rc & WL_INTERRUPT)
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*
@@ -1592,13 +1593,13 @@ ShutDownSlotSync(void)
 		int			rc;
 
 		/* Wait a bit, we don't expect to have to wait long */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   10L, WAIT_EVENT_REPLICATION_SLOTSYNC_SHUTDOWN);
+		rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   10L, WAIT_EVENT_REPLICATION_SLOTSYNC_SHUTDOWN);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 

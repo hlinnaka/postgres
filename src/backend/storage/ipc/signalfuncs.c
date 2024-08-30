@@ -20,6 +20,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/syslogger.h"
+#include "storage/interrupt.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -204,12 +205,12 @@ pg_wait_until_termination(int pid, int64 timeout)
 		/* Process interrupts, if any, before waiting */
 		CHECK_FOR_INTERRUPTS();
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 waittime,
-						 WAIT_EVENT_BACKEND_TERMINATION);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 waittime,
+							 WAIT_EVENT_BACKEND_TERMINATION);
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		remainingtime -= waittime;
 	} while (remainingtime > 0);

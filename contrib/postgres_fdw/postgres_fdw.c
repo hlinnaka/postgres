@@ -41,7 +41,7 @@
 #include "optimizer/tlist.h"
 #include "parser/parsetree.h"
 #include "postgres_fdw.h"
-#include "storage/latch.h"
+#include "storage/waiteventset.h"
 #include "utils/builtins.h"
 #include "utils/float.h"
 #include "utils/guc.h"

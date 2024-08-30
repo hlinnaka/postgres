@@ -30,7 +30,7 @@
 #include "pgstat.h"
 #include "pqexpbuffer.h"
 #include "replication/walreceiver.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/pg_lsn.h"
@@ -237,16 +237,16 @@ libpqrcv_connect(const char *conninfo, bool replication, bool logical,
 		else
 			io_flag = WL_SOCKET_WRITEABLE;
 
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_EXIT_ON_PM_DEATH | WL_LATCH_SET | io_flag,
-							   PQsocket(conn->streamConn),
-							   0,
-							   WAIT_EVENT_LIBPQWALRECEIVER_CONNECT);
+		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL_WAKEUP,
+								   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT | io_flag,
+								   PQsocket(conn->streamConn),
+								   0,
+								   WAIT_EVENT_LIBPQWALRECEIVER_CONNECT);
 
 		/* Interrupted? */
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			ProcessWalRcvInterrupts();
 		}
 
@@ -848,17 +848,17 @@ libpqrcv_PQgetResult(PGconn *streamConn)
 		 * since we'll get interrupted by signals and can handle any
 		 * interrupts here.
 		 */
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
-							   WL_LATCH_SET,
-							   PQsocket(streamConn),
-							   0,
-							   WAIT_EVENT_LIBPQWALRECEIVER_RECEIVE);
+		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL_WAKEUP,
+								   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
+								   WL_INTERRUPT,
+								   PQsocket(streamConn),
+								   0,
+								   WAIT_EVENT_LIBPQWALRECEIVER_RECEIVE);
 
 		/* Interrupted? */
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			ProcessWalRcvInterrupts();
 		}
 

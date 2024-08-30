@@ -17,7 +17,7 @@
 #include <sys/time.h>
 
 #include "miscadmin.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
@@ -374,7 +374,7 @@ handle_sig_alarm(SIGNAL_ARGS)
 	 * SIGALRM is always cause for waking anything waiting on the process
 	 * latch.
 	 */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 	/*
 	 * Always reset signal_pending, even if !alarm_enabled, since indeed no

@@ -28,7 +28,7 @@
 #include "pgstat.h"
 #include "replication/walreceiver.h"
 #include "storage/fd.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "storage/standby.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
@@ -718,17 +718,17 @@ pg_promote(PG_FUNCTION_ARGS)
 	{
 		int			rc;
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		if (!RecoveryInProgress())
 			PG_RETURN_BOOL(true);
 
 		CHECK_FOR_INTERRUPTS();
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-					   1000L / WAITS_PER_SECOND,
-					   WAIT_EVENT_PROMOTE);
+		rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+						   1000L / WAITS_PER_SECOND,
+						   WAIT_EVENT_PROMOTE);
 
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the

@@ -21,6 +21,7 @@
 #include "miscadmin.h"
 #include "portability/instr_time.h"
 #include "storage/condition_variable.h"
+#include "storage/interrupt.h"
 #include "storage/proc.h"
 #include "storage/proclist.h"
 #include "storage/spin.h"
@@ -147,10 +148,10 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		INSTR_TIME_SET_CURRENT(start_time);
 		Assert(timeout >= 0 && timeout <= INT_MAX);
 		cur_timeout = timeout;
-		wait_events = WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
+		wait_events = WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
 	}
 	else
-		wait_events = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
+		wait_events = WL_INTERRUPT | WL_EXIT_ON_PM_DEATH;
 
 	while (true)
 	{
@@ -160,10 +161,10 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		 * Wait for latch to be set.  (If we're awakened for some other
 		 * reason, the code below will cope anyway.)
 		 */
-		(void) WaitLatch(MyLatch, wait_events, cur_timeout, wait_event_info);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, wait_events, cur_timeout, wait_event_info);
 
 		/* Reset latch before examining the state of the wait list. */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/*
 		 * If this process has been taken out of the wait list, then we know

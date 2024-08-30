@@ -33,6 +33,7 @@
 #include "miscadmin.h"
 #include "optimizer/optimizer.h"
 #include "pgstat.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/predicate.h"
 #include "storage/spin.h"
@@ -742,12 +743,12 @@ WaitForParallelWorkersToAttach(ParallelContext *pcxt)
 				 * might also get set for some other reason, but if so we'll
 				 * just end up waiting for the same worker again.
 				 */
-				rc = WaitLatch(MyLatch,
-							   WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-							   -1, WAIT_EVENT_BGWORKER_STARTUP);
+				rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+								   WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+								   -1, WAIT_EVENT_BGWORKER_STARTUP);
 
-				if (rc & WL_LATCH_SET)
-					ResetLatch(MyLatch);
+				if (rc & WL_INTERRUPT)
+					ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			}
 		}
 
@@ -862,9 +863,10 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 			}
 		}
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1,
-						 WAIT_EVENT_PARALLEL_FINISH);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
+							 WAIT_EVENT_PARALLEL_FINISH);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 	}
 
 	if (pcxt->toc != NULL)
@@ -1017,7 +1019,7 @@ HandleParallelMessageInterrupt(void)
 {
 	InterruptPending = true;
 	ParallelMessagePending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*

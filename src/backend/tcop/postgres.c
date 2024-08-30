@@ -62,6 +62,7 @@
 #include "replication/walsender.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -540,7 +541,7 @@ ProcessClientReadInterrupt(bool blocked)
 		if (blocked)
 			CHECK_FOR_INTERRUPTS();
 		else
-			SetLatch(MyLatch);
+			RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 	}
 
 	errno = save_errno;
@@ -592,7 +593,7 @@ ProcessClientWriteInterrupt(bool blocked)
 			}
 		}
 		else
-			SetLatch(MyLatch);
+			RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 	}
 
 	errno = save_errno;
@@ -2991,7 +2992,7 @@ die(SIGNAL_ARGS)
 	pgStatSessionEndCause = DISCONNECT_KILLED;
 
 	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 	/*
 	 * If we're in single user mode, we want to quit immediately - we can't
@@ -3020,7 +3021,7 @@ StatementCancelHandler(SIGNAL_ARGS)
 	}
 
 	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /* signal handler for floating point exception */

@@ -25,8 +25,8 @@
 #include "replication/logicalworker.h"
 #include "replication/walsender.h"
 #include "storage/condition_variable.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/shmem.h"
 #include "storage/sinval.h"
 #include "storage/smgr.h"
@@ -712,7 +712,7 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 	if (CheckProcSignal(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN))
 		HandleRecoveryConflictInterrupt(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
 
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*

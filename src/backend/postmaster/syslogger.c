@@ -44,8 +44,8 @@
 #include "postmaster/syslogger.h"
 #include "storage/dsm.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pg_shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
@@ -328,7 +328,7 @@ SysLoggerMain(char *startup_data, size_t startup_data_len)
 	whereToSendOutput = DestNone;
 
 	/*
-	 * Set up a reusable WaitEventSet object we'll use to wait for our latch,
+	 * Set up a reusable WaitEventSet object we'll use to wait for interrupts,
 	 * and (except on Windows) our socket.
 	 *
 	 * Unlike all other postmaster child processes, we'll ignore postmaster
@@ -338,7 +338,7 @@ SysLoggerMain(char *startup_data, size_t startup_data_len)
 	 * (including the postmaster).
 	 */
 	wes = CreateWaitEventSet(NULL, 2);
-	AddWaitEventToSet(wes, WL_LATCH_SET, PGINVALID_SOCKET, 1 << INTERRUPT_GENERAL_WAKEUP, NULL);
+	AddWaitEventToSet(wes, WL_INTERRUPT, PGINVALID_SOCKET, 1 << INTERRUPT_GENERAL_WAKEUP, NULL);
 #ifndef WIN32
 	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], 0, NULL);
 #endif
@@ -356,7 +356,7 @@ SysLoggerMain(char *startup_data, size_t startup_data_len)
 #endif
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/*
 		 * Process any requests or signals received recently.
@@ -1185,7 +1185,7 @@ pipeThread(void *arg)
 			if (ftell(syslogFile) >= Log_RotationSize * 1024L ||
 				(csvlogFile != NULL && ftell(csvlogFile) >= Log_RotationSize * 1024L) ||
 				(jsonlogFile != NULL && ftell(jsonlogFile) >= Log_RotationSize * 1024L))
-				SetLatch(MyLatch);
+				RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 		}
 		LeaveCriticalSection(&sysloggerSection);
 	}
@@ -1196,8 +1196,8 @@ pipeThread(void *arg)
 	/* if there's any data left then force it out now */
 	flush_pipe_input(logbuffer, &bytes_in_logbuffer);
 
-	/* set the latch to waken the main thread, which will quit */
-	SetLatch(MyLatch);
+	/* set the interrupt to waken the main thread, which will quit */
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 	LeaveCriticalSection(&sysloggerSection);
 	_endthread();
@@ -1592,5 +1592,5 @@ static void
 sigUsr1Handler(SIGNAL_ARGS)
 {
 	rotation_requested = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }

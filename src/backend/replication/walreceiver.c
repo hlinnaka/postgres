@@ -67,6 +67,7 @@
 #include "postmaster/interrupt.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -546,15 +547,15 @@ WalReceiverMain(char *startup_data, size_t startup_data_len)
 				 * avoiding some system calls.
 				 */
 				Assert(wait_fd != PGINVALID_SOCKET);
-				rc = WaitLatchOrSocket(MyLatch,
-									   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
-									   WL_TIMEOUT | WL_LATCH_SET,
-									   wait_fd,
-									   nap,
-									   WAIT_EVENT_WAL_RECEIVER_MAIN);
-				if (rc & WL_LATCH_SET)
+				rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL_WAKEUP,
+										   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
+										   WL_TIMEOUT | WL_INTERRUPT,
+										   wait_fd,
+										   nap,
+										   WAIT_EVENT_WAL_RECEIVER_MAIN);
+				if (rc & WL_INTERRUPT)
 				{
-					ResetLatch(MyLatch);
+					ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 					ProcessWalRcvInterrupts();
 
 					if (walrcv->force_reply)
@@ -692,7 +693,7 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 	WakeupRecovery();
 	for (;;)
 	{
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		ProcessWalRcvInterrupts();
 
@@ -724,8 +725,8 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 		}
 		SpinLockRelease(&walrcv->mutex);
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
 	}
 
 	if (update_process_title)

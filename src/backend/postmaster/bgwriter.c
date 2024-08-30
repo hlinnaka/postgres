@@ -42,6 +42,7 @@
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -224,7 +225,7 @@ BackgroundWriterMain(char *startup_data, size_t startup_data_len)
 		int			rc;
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		HandleMainLoopInterrupts();
 
@@ -302,9 +303,9 @@ BackgroundWriterMain(char *startup_data, size_t startup_data_len)
 		 * down with latch events that are likely to happen frequently during
 		 * normal operation.
 		 */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
+		rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
 
 		/*
 		 * If no latch event and BgBufferSync says nothing's happening, extend
@@ -329,10 +330,10 @@ BackgroundWriterMain(char *startup_data, size_t startup_data_len)
 			/* Ask for notification at next buffer allocation */
 			StrategyNotifyBgWriter(MyProcNumber);
 			/* Sleep ... */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 BgWriterDelay * HIBERNATE_FACTOR,
-							 WAIT_EVENT_BGWRITER_HIBERNATE);
+			(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 BgWriterDelay * HIBERNATE_FACTOR,
+								 WAIT_EVENT_BGWRITER_HIBERNATE);
 			/* Reset the notification request in case we timed out */
 			StrategyNotifyBgWriter(-1);
 		}

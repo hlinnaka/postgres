@@ -19,6 +19,7 @@
 #include "libpq/pqmq.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "storage/interrupt.h"
 #include "replication/logicalworker.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
@@ -181,9 +182,9 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 		if (result != SHM_MQ_WOULD_BLOCK)
 			break;
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 	}
 

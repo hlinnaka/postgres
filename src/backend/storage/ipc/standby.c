@@ -26,6 +26,7 @@
 #include "pgstat.h"
 #include "replication/slot.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
@@ -594,7 +595,7 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
  * ResolveRecoveryConflictWithLock is called from ProcSleep()
  * to resolve conflicts with other backends holding relation locks.
  *
- * The WaitLatch sleep normally done in ProcSleep()
+ * The WaitInterrupt sleep normally done in ProcSleep()
  * (when not InHotStandby) is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or set a timeout to wake us at
@@ -843,7 +844,7 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * We assume that only UnpinBuffer() and the timeout requests established
 	 * above can wake us up here. WakeupRecovery() called by walreceiver or
 	 * SIGHUP signal handler, etc cannot do that because it uses the different
-	 * latch from that ProcWaitForSignal() waits on.
+	 * interrupt from that ProcWaitForSignal() waits on.
 	 */
 	WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 				  WAIT_EVENT_BUFFER_PIN);

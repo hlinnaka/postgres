@@ -54,6 +54,7 @@
 #include "postmaster/autovacuum.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
+#include "storage/interrupt.h"
 #include "storage/lmgr.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -2609,11 +2610,11 @@ lazy_truncate_heap(LVRelState *vacrel)
 				return;
 			}
 
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL,
-							 WAIT_EVENT_VACUUM_TRUNCATE);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL,
+								 WAIT_EVENT_VACUUM_TRUNCATE);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 		}
 
 		/*

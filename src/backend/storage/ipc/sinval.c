@@ -16,7 +16,7 @@
 
 #include "access/xact.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "storage/sinvaladt.h"
 #include "utils/inval.h"
 
@@ -161,7 +161,7 @@ HandleCatchupInterrupt(void)
 	catchupInterruptPending = true;
 
 	/* make sure the event is processed in due course */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*

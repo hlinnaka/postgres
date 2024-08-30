@@ -38,7 +38,7 @@
 #include "postmaster/syslogger.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
@@ -373,16 +373,16 @@ pg_sleep(PG_FUNCTION_ARGS)
 	float8		endtime;
 
 	/*
-	 * We sleep using WaitLatch, to ensure that we'll wake up promptly if an
-	 * important signal (such as SIGALRM or SIGINT) arrives.  Because
-	 * WaitLatch's upper limit of delay is INT_MAX milliseconds, and the user
-	 * might ask for more than that, we sleep for at most 10 minutes and then
-	 * loop.
+	 * We sleep using WaitInterrupt, to ensure that we'll wake up promptly if
+	 * an important signal (such as SIGALRM or SIGINT) arrives.  Because
+	 * WaitInterrupt's upper limit of delay is INT_MAX milliseconds, and the
+	 * user might ask for more than that, we sleep for at most 10 minutes and
+	 * then loop.
 	 *
 	 * By computing the intended stop time initially, we avoid accumulation of
 	 * extra delay across multiple sleeps.  This also ensures we won't delay
-	 * less than the specified time when WaitLatch is terminated early by a
-	 * non-query-canceling signal such as SIGHUP.
+	 * less than the specified time when WaitInterrupt is terminated early by
+	 * a non-query-canceling signal such as SIGHUP.
 	 */
 #define GetNowFloat()	((float8) GetCurrentTimestamp() / 1000000.0)
 
@@ -403,11 +403,11 @@ pg_sleep(PG_FUNCTION_ARGS)
 		else
 			break;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 delay_ms,
-						 WAIT_EVENT_PG_SLEEP);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 delay_ms,
+							 WAIT_EVENT_PG_SLEEP);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 	}
 
 	PG_RETURN_VOID();

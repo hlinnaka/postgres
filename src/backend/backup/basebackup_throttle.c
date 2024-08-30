@@ -17,7 +17,7 @@
 #include "backup/basebackup_sink.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
 #include "utils/timestamp.h"
 
 typedef struct bbsink_throttle
@@ -163,7 +163,7 @@ throttle(bbsink_throttle *sink, size_t increment)
 		if (sleep <= 0)
 			break;
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/* We're eating a potentially set latch, so check for interrupts */
 		CHECK_FOR_INTERRUPTS();
@@ -172,12 +172,12 @@ throttle(bbsink_throttle *sink, size_t increment)
 		 * (TAR_SEND_SIZE / throttling_sample * elapsed_min_unit) should be
 		 * the maximum time to sleep. Thus the cast to long is safe.
 		 */
-		wait_result = WaitLatch(MyLatch,
-								WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-								(long) (sleep / 1000),
-								WAIT_EVENT_BASE_BACKUP_THROTTLE);
+		wait_result = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+									WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+									(long) (sleep / 1000),
+									WAIT_EVENT_BASE_BACKUP_THROTTLE);
 
-		if (wait_result & WL_LATCH_SET)
+		if (wait_result & WL_INTERRUPT)
 			CHECK_FOR_INTERRUPTS();
 
 		/* Done waiting? */
