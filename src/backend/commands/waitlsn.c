@@ -113,7 +113,7 @@ addLSNWaiter(XLogRecPtr lsn)
 
 	Assert(!procInfo->inHeap);
 
-	procInfo->latch = MyLatch;
+	procInfo->procno = MyProcNumber;
 	procInfo->waitLSN = lsn;
 
 	pairingheap_add(&waitLSNState->waitersHeap, &procInfo->phNode);
@@ -152,19 +152,21 @@ deleteLSNWaiter(void)
  * and set latches for all waiters.
  */
 void
-WaitLSNSetLatches(XLogRecPtr currentLSN)
+WaitLSNWakeup(XLogRecPtr currentLSN)
 {
 	int			i;
-	Latch	  **wakeUpProcLatches;
+	ProcNumber *wakeUpProcs;
 	int			numWakeUpProcs = 0;
 
-	wakeUpProcLatches = palloc(sizeof(Latch *) * MaxBackends);
+	wakeUpProcs = palloc(sizeof(ProcNumber) * MaxBackends);
 
 	LWLockAcquire(WaitLSNLock, LW_EXCLUSIVE);
 
 	/*
 	 * Iterate the pairing heap of waiting processes till we find LSN not yet
-	 * replayed.  Record the process latches to set them later.
+	 * replayed.  Record the process numbers to interrupt, but to avoid
+	 * holding the lock for too long, send the interrupts to them only after
+	 * releasing the lock.
 	 */
 	while (!pairingheap_is_empty(&waitLSNState->waitersHeap))
 	{
@@ -175,7 +177,7 @@ WaitLSNSetLatches(XLogRecPtr currentLSN)
 			procInfo->waitLSN > currentLSN)
 			break;
 
-		wakeUpProcLatches[numWakeUpProcs++] = procInfo->latch;
+		wakeUpProcs[numWakeUpProcs++] = procInfo->procno;
 		(void) pairingheap_remove_first(&waitLSNState->waitersHeap);
 		procInfo->inHeap = false;
 	}
@@ -192,9 +194,9 @@ WaitLSNSetLatches(XLogRecPtr currentLSN)
 	 */
 	for (i = 0; i < numWakeUpProcs; i++)
 	{
-		SetLatch(wakeUpProcLatches[i]);
+		SetLatch(&GetPGProcByNumber(wakeUpProcs[i])->procLatch);
 	}
-	pfree(wakeUpProcLatches);
+	pfree(wakeUpProcs);
 }
 
 /*

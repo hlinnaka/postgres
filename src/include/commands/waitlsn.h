@@ -16,6 +16,7 @@
 #include "postgres.h"
 #include "port/atomics.h"
 #include "storage/latch.h"
+#include "storage/procnumber.h"
 #include "storage/spin.h"
 #include "tcop/dest.h"
 
@@ -29,11 +30,8 @@ typedef struct WaitLSNProcInfo
 	/* LSN, which this process is waiting for */
 	XLogRecPtr	waitLSN;
 
-	/*
-	 * A pointer to the latch, which should be set once the waitLSN is
-	 * replayed.
-	 */
-	Latch	   *latch;
+	/* Process to be woken up once the waitLSN is replayed */
+	ProcNumber	procno;
 
 	/* A pairing heap node for participation in waitLSNState->waitersHeap */
 	pairingheap_node phNode;
@@ -74,7 +72,7 @@ extern PGDLLIMPORT WaitLSNState *waitLSNState;
 
 extern Size WaitLSNShmemSize(void);
 extern void WaitLSNShmemInit(void);
-extern void WaitLSNSetLatches(XLogRecPtr currentLSN);
+extern void WaitLSNWakeup(XLogRecPtr currentLSN);
 extern void WaitLSNCleanup(void);
 
 #endif							/* WAIT_LSN_H */
