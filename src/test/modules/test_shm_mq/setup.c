@@ -18,6 +18,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
+#include "storage/interrupt.h"
 #include "storage/procsignal.h"
 #include "storage/shm_toc.h"
 #include "test_shm_mq.h"
@@ -286,11 +287,11 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 			we_bgworker_startup = WaitEventExtensionNew("TestShmMqBgWorkerStartup");
 
 		/* Wait to be signaled. */
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 we_bgworker_startup);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 we_bgworker_startup);
 
 		/* Reset the latch so we don't spin. */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/* An interrupt may have occurred while we were waiting. */
 		CHECK_FOR_INTERRUPTS();

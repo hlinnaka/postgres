@@ -77,6 +77,7 @@
 #include "miscadmin.h"
 #include "port/pg_bswap.h"
 #include "postmaster/postmaster.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "utils/guc_hooks.h"
 #include "utils/memutils.h"
@@ -175,7 +176,7 @@ pq_init(ClientSocket *client_sock)
 {
 	Port	   *port;
 	int			socket_pos PG_USED_FOR_ASSERTS_ONLY;
-	int			latch_pos PG_USED_FOR_ASSERTS_ONLY;
+	int			interrupt_pos PG_USED_FOR_ASSERTS_ONLY;
 
 	/* allocate the Port struct and copy the ClientSocket contents to it */
 	port = palloc0(sizeof(Port));
@@ -287,8 +288,8 @@ pq_init(ClientSocket *client_sock)
 
 	/*
 	 * In backends (as soon as forked) we operate the underlying socket in
-	 * nonblocking mode and use latches to implement blocking semantics if
-	 * needed. That allows us to provide safely interruptible reads and
+	 * nonblocking mode and use WaitEventSet to implement blocking semantics
+	 * if needed. That allows us to provide safely interruptible reads and
 	 * writes.
 	 */
 #ifndef WIN32
@@ -306,18 +307,18 @@ pq_init(ClientSocket *client_sock)
 
 	FeBeWaitSet = CreateWaitEventSet(NULL, FeBeWaitSetNEvents);
 	socket_pos = AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE,
-								   port->sock, NULL, NULL);
-	latch_pos = AddWaitEventToSet(FeBeWaitSet, WL_LATCH_SET, PGINVALID_SOCKET,
-								  MyLatch, NULL);
+								   port->sock, 0, NULL);
+	interrupt_pos = AddWaitEventToSet(FeBeWaitSet, WL_INTERRUPT, PGINVALID_SOCKET,
+									  1 << INTERRUPT_GENERAL_WAKEUP, NULL);
 	AddWaitEventToSet(FeBeWaitSet, WL_POSTMASTER_DEATH, PGINVALID_SOCKET,
-					  NULL, NULL);
+					  0, NULL);
 
 	/*
 	 * The event positions match the order we added them, but let's sanity
 	 * check them to be sure.
 	 */
 	Assert(socket_pos == FeBeWaitSetSocketPos);
-	Assert(latch_pos == FeBeWaitSetLatchPos);
+	Assert(interrupt_pos == FeBeWaitSetInterruptPos);
 
 	return port;
 }
@@ -2060,7 +2061,7 @@ pq_check_connection(void)
 	 * It's OK to modify the socket event filter without restoring, because
 	 * all FeBeWaitSet socket wait sites do the same.
 	 */
-	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, WL_SOCKET_CLOSED, NULL);
+	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, WL_SOCKET_CLOSED, 0);
 
 retry:
 	rc = WaitEventSetWait(FeBeWaitSet, 0, events, lengthof(events), 0);
@@ -2068,15 +2069,15 @@ retry:
 	{
 		if (events[i].events & WL_SOCKET_CLOSED)
 			return false;
-		if (events[i].events & WL_LATCH_SET)
+		if (events[i].events & WL_INTERRUPT)
 		{
 			/*
-			 * A latch event might be preventing other events from being
+			 * An interrupt event might be preventing other events from being
 			 * reported.  Reset it and poll again.  No need to restore it
-			 * because no code should expect latches to survive across
-			 * CHECK_FOR_INTERRUPTS().
+			 * because no code should expect INTERRUPT_GENERAL_WAKEUP to
+			 * survive across CHECK_FOR_INTERRUPTS().
 			 */
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			goto retry;
 		}
 	}

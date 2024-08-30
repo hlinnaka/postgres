@@ -703,7 +703,7 @@ logicalrep_worker_wakeup_ptr(LogicalRepWorker *worker)
 {
 	Assert(LWLockHeldByMe(LogicalRepWorkerLock));
 
-	SetLatch(&worker->proc->procLatch);
+	SendInterrupt(INTERRUPT_GENERAL_WAKEUP, GetNumberFromPGProc(worker->proc));
 }
 
 /*

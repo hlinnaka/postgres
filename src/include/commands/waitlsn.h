@@ -15,7 +15,6 @@
 #include "lib/pairingheap.h"
 #include "postgres.h"
 #include "port/atomics.h"
-#include "storage/latch.h"
 #include "storage/procnumber.h"
 #include "storage/spin.h"
 #include "tcop/dest.h"

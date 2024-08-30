@@ -54,6 +54,7 @@
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
@@ -238,7 +239,7 @@ WalWriterMain(char *startup_data, size_t startup_data_len)
 		}
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/* Process any signals received recently */
 		HandleMainLoopInterrupts();
@@ -265,9 +266,9 @@ WalWriterMain(char *startup_data, size_t startup_data_len)
 		else
 			cur_timeout = WalWriterDelay * HIBERNATE_FACTOR;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 cur_timeout,
-						 WAIT_EVENT_WAL_WRITER_MAIN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 cur_timeout,
+							 WAIT_EVENT_WAL_WRITER_MAIN);
 	}
 }

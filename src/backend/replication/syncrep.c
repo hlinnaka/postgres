@@ -902,7 +902,7 @@ SyncRepWakeQueue(bool all, int mode)
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */
-		SetLatch(&(proc->procLatch));
+		SendInterrupt(INTERRUPT_GENERAL_WAKEUP, GetNumberFromPGProc(proc));
 
 		numprocs++;
 	}

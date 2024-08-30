@@ -190,7 +190,6 @@ extern PGDLLIMPORT int MyProcPid;
 extern PGDLLIMPORT pg_time_t MyStartTime;
 extern PGDLLIMPORT TimestampTz MyStartTimestamp;
 extern PGDLLIMPORT struct Port *MyProcPort;
-extern PGDLLIMPORT struct Latch *MyLatch;
 extern PGDLLIMPORT bool MyCancelKeyValid;
 extern PGDLLIMPORT int32 MyCancelKey;
 extern PGDLLIMPORT int MyPMChildSlot;
@@ -317,9 +316,6 @@ extern PGDLLIMPORT char *DatabasePath;
 /* now in utils/init/miscinit.c */
 extern void InitPostmasterChild(void);
 extern void InitStandaloneProcess(const char *argv0);
-extern void InitProcessLocalLatch(void);
-extern void SwitchToSharedLatch(void);
-extern void SwitchBackToLocalLatch(void);
 
 /*
  * MyBackendType indicates what kind of a backend this is.

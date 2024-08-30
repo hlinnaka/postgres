@@ -268,7 +268,7 @@ ConditionVariableSignal(ConditionVariable *cv)
 
 	/* If we found someone sleeping, set their latch to wake them up. */
 	if (proc != NULL)
-		SetLatch(&proc->procLatch);
+		SendInterrupt(INTERRUPT_GENERAL_WAKEUP, GetNumberFromPGProc(proc));
 }
 
 /*
@@ -331,7 +331,7 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 
 	/* Awaken first waiter, if there was one. */
 	if (proc != NULL)
-		SetLatch(&proc->procLatch);
+		SendInterrupt(INTERRUPT_GENERAL_WAKEUP, GetNumberFromPGProc(proc));
 
 	while (have_sentinel)
 	{
@@ -355,6 +355,6 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 		SpinLockRelease(&cv->mutex);
 
 		if (proc != NULL && proc != MyProc)
-			SetLatch(&proc->procLatch);
+			SendInterrupt(INTERRUPT_GENERAL_WAKEUP, GetNumberFromPGProc(proc));
 	}
 }

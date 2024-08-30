@@ -167,9 +167,6 @@ struct PGPROC
 	PGSemaphore sem;			/* ONE semaphore to sleep on */
 	ProcWaitStatus waitStatus;
 
-	Latch		procLatch;		/* generic latch for process */
-
-
 	TransactionId xid;			/* id of top-level transaction currently being
 								 * executed by this proc, if running and XID
 								 * is assigned; else InvalidTransactionId.
@@ -305,6 +302,14 @@ struct PGPROC
 	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
 	dlist_head	lockGroupMembers;	/* list of members, if I'm a leader */
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
+
+	pg_atomic_uint32 pendingInterrupts;
+	pg_atomic_uint32 maybeSleepingOnInterrupts;
+
+#ifdef WIN32
+	/* Event handle to wake up the process when sending an interrupt */
+	HANDLE		interruptWakeupEvent;
+#endif
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
@@ -420,6 +425,24 @@ typedef struct PROC_HDR
 	 */
 	ProcNumber	walwriterProc;
 	ProcNumber	checkpointerProc;
+	ProcNumber	walreceiverProc;
+
+	/*
+	 * recoveryWakeupLatch is used to wake up the startup process to continue
+	 * WAL replay, if it is waiting for WAL to arrive or promotion to be
+	 * requested.
+	 *
+	 * Note that the startup process also uses another latch, its procLatch,
+	 * to wait for recovery conflict. If we get rid of recoveryWakeupLatch for
+	 * signaling the startup process in favor of using its procLatch, which
+	 * comports better with possible generic signal handlers using that latch.
+	 * But we should not do that because the startup process doesn't assume
+	 * that it's waken up by walreceiver process or SIGHUP signal handler
+	 * while it's waiting for recovery conflict. The separate latches,
+	 * recoveryWakeupLatch and procLatch, should be used for inter-process
+	 * communication for WAL replay and recovery conflict, respectively. XXX
+	 */
+	ProcNumber	startupProc;
 
 	/* Current shared estimate of appropriate spins_per_delay value */
 	int			spins_per_delay;

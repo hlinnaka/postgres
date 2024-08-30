@@ -1252,6 +1252,7 @@ Integer
 IntegerSet
 InternalDefaultACL
 InternalGrant
+InterruptType
 Interval
 IntervalAggState
 IntoClause
@@ -1489,7 +1490,6 @@ LZ4State
 LabelProvider
 LagTracker
 LargeObjectDesc
-Latch
 LauncherLastStartTimesEntry
 LerpFunc
 LexDescr

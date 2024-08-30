@@ -1367,7 +1367,7 @@ WalRcvForceReply(void)
 	procno = WalRcv->procno;
 	SpinLockRelease(&WalRcv->mutex);
 	if (procno != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(procno)->procLatch);
+		SendInterrupt(INTERRUPT_GENERAL_WAKEUP, procno);
 }
 
 /*

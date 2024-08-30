@@ -28,7 +28,7 @@
 #include <arpa/inet.h>
 
 #include "libpq/libpq.h"
-#include "miscadmin.h"
+#include "storage/interrupt.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
 #include "utils/wait_event.h"
@@ -212,7 +212,7 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_READ);
@@ -240,9 +240,9 @@ retry:
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
 		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			ProcessClientReadInterrupt(true);
 
 			/*
@@ -337,7 +337,7 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_WRITE);
@@ -349,9 +349,9 @@ retry:
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
 		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			ProcessClientWriteInterrupt(true);
 
 			/*

@@ -41,8 +41,8 @@
 #include "postmaster/postmaster.h"
 #include "replication/slotsync.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pg_shmem.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -64,8 +64,6 @@ BackendType MyBackendType;
 
 /* List of lock files to be removed at proc exit */
 static List *lock_files = NIL;
-
-static Latch LocalLatchData;
 
 /* ----------------------------------------------------------------
  *		ignoring system indexes support stuff
@@ -133,9 +131,8 @@ InitPostmasterChild(void)
 #endif
 
 	/* Initialize process-local latch support */
-	InitializeLatchSupport();
-	InitProcessLocalLatch();
-	InitializeLatchWaitSet();
+	InitializeWaitEventSupport();
+	InitializeInterruptWaitSet();
 
 	/*
 	 * If possible, make this process a group leader, so that the postmaster
@@ -194,9 +191,8 @@ InitStandaloneProcess(const char *argv0)
 	InitProcessGlobals();
 
 	/* Initialize process-local latch support */
-	InitializeLatchSupport();
-	InitProcessLocalLatch();
-	InitializeLatchWaitSet();
+	InitializeWaitEventSupport();
+	InitializeInterruptWaitSet();
 
 	/*
 	 * For consistency with InitPostmasterChild, initialize signal mask here.
@@ -215,48 +211,6 @@ InitStandaloneProcess(const char *argv0)
 
 	if (pkglib_path[0] == '\0')
 		get_pkglib_path(my_exec_path, pkglib_path);
-}
-
-void
-SwitchToSharedLatch(void)
-{
-	Assert(MyLatch == &LocalLatchData);
-	Assert(MyProc != NULL);
-
-	MyLatch = &MyProc->procLatch;
-
-	if (FeBeWaitSet)
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetLatchPos, WL_LATCH_SET,
-						MyLatch);
-
-	/*
-	 * Set the shared latch as the local one might have been set. This
-	 * shouldn't normally be necessary as code is supposed to check the
-	 * condition before waiting for the latch, but a bit care can't hurt.
-	 */
-	SetLatch(MyLatch);
-}
-
-void
-InitProcessLocalLatch(void)
-{
-	MyLatch = &LocalLatchData;
-	InitLatch(MyLatch);
-}
-
-void
-SwitchBackToLocalLatch(void)
-{
-	Assert(MyLatch != &LocalLatchData);
-	Assert(MyProc != NULL && MyLatch == &MyProc->procLatch);
-
-	MyLatch = &LocalLatchData;
-
-	if (FeBeWaitSet)
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetLatchPos, WL_LATCH_SET,
-						MyLatch);
-
-	SetLatch(MyLatch);
 }
 
 const char *

@@ -61,9 +61,8 @@
 #include "executor/execPartition.h"
 #include "executor/executor.h"
 #include "executor/nodeAppend.h"
-#include "miscadmin.h"
 #include "pgstat.h"
-#include "storage/latch.h"
+#include "storage/waiteventset.h"
 
 /* Shared state for parallel-aware Append. */
 struct ParallelAppendState
@@ -1028,7 +1027,7 @@ ExecAppendAsyncEventWait(AppendState *node)
 	Assert(node->as_eventset == NULL);
 	node->as_eventset = CreateWaitEventSet(CurrentResourceOwner, nevents);
 	AddWaitEventToSet(node->as_eventset, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET,
-					  NULL, NULL);
+					  0, NULL);
 
 	/* Give each waiting subplan a chance to add an event. */
 	i = -1;

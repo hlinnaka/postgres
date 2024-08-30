@@ -7357,7 +7357,7 @@ postgresForeignAsyncConfigureWait(AsyncRequest *areq)
 		Assert(pendingAreq == areq);
 
 	AddWaitEventToSet(set, WL_SOCKET_READABLE, PQsocket(fsstate->conn),
-					  NULL, areq);
+					  0, areq);
 }
 
 /*

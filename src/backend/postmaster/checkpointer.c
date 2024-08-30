@@ -49,6 +49,7 @@
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
@@ -343,7 +344,7 @@ CheckpointerMain(char *startup_data, size_t startup_data_len)
 		bool		chkpt_or_rstpt_timed = false;
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/*
 		 * Process any requests or signals received recently.
@@ -544,10 +545,10 @@ CheckpointerMain(char *startup_data, size_t startup_data_len)
 			cur_timeout = Min(cur_timeout, XLogArchiveTimeout - elapsed_secs);
 		}
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 cur_timeout * 1000L /* convert to ms */ ,
-						 WAIT_EVENT_CHECKPOINTER_MAIN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 cur_timeout * 1000L /* convert to ms */ ,
+							 WAIT_EVENT_CHECKPOINTER_MAIN);
 	}
 }
 
@@ -747,10 +748,11 @@ CheckpointWriteDelay(int flags, double progress)
 		 * Checkpointer and bgwriter are no longer related so take the Big
 		 * Sleep.
 		 */
-		WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
-				  100,
-				  WAIT_EVENT_CHECKPOINT_WRITE_DELAY);
-		ResetLatch(MyLatch);
+		WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+					  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
+					  100,
+					  WAIT_EVENT_CHECKPOINT_WRITE_DELAY);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 	}
 	else if (--absorb_counter <= 0)
 	{
@@ -862,7 +864,7 @@ ReqCheckpointHandler(SIGNAL_ARGS)
 	 * The signaling process should have set ckpt_flags nonzero, so all we
 	 * need do is ensure that our main loop gets kicked out of any wait.
 	 */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 
@@ -1135,7 +1137,7 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 
 		checkpointerProc = procglobal->checkpointerProc;
 		if (checkpointerProc != INVALID_PROC_NUMBER)
-			SetLatch(&GetPGProcByNumber(checkpointerProc)->procLatch);
+			SendInterrupt(INTERRUPT_GENERAL_WAKEUP, ProcGlobal->checkpointerProc);
 	}
 
 	return true;

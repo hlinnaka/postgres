@@ -16,6 +16,7 @@
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "storage/interrupt.h"
 #include "varatt.h"
 
 #include "test_shm_mq.h"
@@ -238,9 +239,9 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 			 * have read or written data and therefore there may now be work
 			 * for us to do.
 			 */
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 we_message_queue);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 we_message_queue);
+			ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 	}

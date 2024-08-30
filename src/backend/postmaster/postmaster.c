@@ -112,6 +112,7 @@
 #include "replication/slotsync.h"
 #include "replication/walsender.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -528,8 +529,7 @@ PostmasterMain(int argc, char *argv[])
 	pqsignal(SIGCHLD, handle_pm_child_exit_signal);
 
 	/* This may configure SIGURG, depending on platform. */
-	InitializeLatchSupport();
-	InitProcessLocalLatch();
+	InitializeWaitEventSupport();
 
 	/*
 	 * No other place in Postgres should touch SIGTTIN/SIGTTOU handling.  We
@@ -1580,14 +1580,14 @@ ConfigurePostmasterWaitSet(bool accept_connections)
 
 	pm_wait_set = CreateWaitEventSet(NULL,
 									 accept_connections ? (1 + NumListenSockets) : 1);
-	AddWaitEventToSet(pm_wait_set, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch,
+	AddWaitEventToSet(pm_wait_set, WL_INTERRUPT, PGINVALID_SOCKET, 1 << INTERRUPT_GENERAL_WAKEUP,
 					  NULL);
 
 	if (accept_connections)
 	{
 		for (int i = 0; i < NumListenSockets; i++)
 			AddWaitEventToSet(pm_wait_set, WL_SOCKET_ACCEPT, ListenSockets[i],
-							  NULL, NULL);
+							  0, NULL);
 	}
 }
 
@@ -1616,19 +1616,20 @@ ServerLoop(void)
 								   0 /* postmaster posts no wait_events */ );
 
 		/*
-		 * Latch set by signal handler, or new connection pending on any of
-		 * our sockets? If the latter, fork a child process to deal with it.
+		 * Interrupt raised by signal handler, or new connection pending on
+		 * any of our sockets? If the latter, fork a child process to deal
+		 * with it.
 		 */
 		for (int i = 0; i < nevents; i++)
 		{
-			if (events[i].events & WL_LATCH_SET)
-				ResetLatch(MyLatch);
+			if (events[i].events & WL_INTERRUPT)
+				ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 			/*
 			 * The following requests are handled unconditionally, even if we
-			 * didn't see WL_LATCH_SET.  This gives high priority to shutdown
-			 * and reload requests where the latch happens to appear later in
-			 * events[] or will be reported by a later call to
+			 * didn't see WL_INTERRUPT.  This gives high priority to shutdown
+			 * and reload requests where the interrupt event happens to appear
+			 * later in events[] or will be reported by a later call to
 			 * WaitEventSetWait().
 			 */
 			if (pending_pm_shutdown_request)
@@ -1937,7 +1938,7 @@ static void
 handle_pm_pmsignal_signal(SIGNAL_ARGS)
 {
 	pending_pm_pmsignal = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*
@@ -1947,7 +1948,7 @@ static void
 handle_pm_reload_request_signal(SIGNAL_ARGS)
 {
 	pending_pm_reload_request = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*
@@ -2044,7 +2045,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			pending_pm_shutdown_request = true;
 			break;
 	}
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*
@@ -2205,7 +2206,7 @@ static void
 handle_pm_child_exit_signal(SIGNAL_ARGS)
 {
 	pending_pm_child_exit = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*

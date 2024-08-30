@@ -41,8 +41,8 @@
 #include "postmaster/pgarch.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -247,8 +247,8 @@ PgArchiverMain(char *startup_data, size_t startup_data_len)
 	on_shmem_exit(pgarch_die, 0);
 
 	/*
-	 * Advertise our proc number so that backends can use our latch to wake us
-	 * up while we're sleeping.
+	 * Advertise our proc number so that backends can wake us up while we're
+	 * sleeping.
 	 */
 	PgArch->pgprocno = MyProcNumber;
 
@@ -282,13 +282,12 @@ PgArchWakeup(void)
 	int			arch_pgprocno = PgArch->pgprocno;
 
 	/*
-	 * We don't acquire ProcArrayLock here.  It's actually fine because
-	 * procLatch isn't ever freed, so we just can potentially set the wrong
-	 * process' (or no process') latch.  Even in that case the archiver will
-	 * be relaunched shortly and will start archiving.
+	 * We don't acquire ProcArrayLock here, so we may send the interrupt to
+	 * wrong process, but that's harmless.  Even in that case the archiver
+	 * will be relaunched shortly and will start archiving.
 	 */
 	if (arch_pgprocno != INVALID_PROC_NUMBER)
-		SetLatch(&ProcGlobal->allProcs[arch_pgprocno].procLatch);
+		SendInterrupt(INTERRUPT_GENERAL_WAKEUP, arch_pgprocno);
 }
 
 
@@ -298,7 +297,7 @@ pgarch_waken_stop(SIGNAL_ARGS)
 {
 	/* set flag to do a final cycle and shut down afterwards */
 	ready_to_stop = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL_WAKEUP);
 }
 
 /*
@@ -318,7 +317,7 @@ pgarch_MainLoop(void)
 	 */
 	do
 	{
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL_WAKEUP);
 
 		/* When we get SIGUSR2, we do one more archive cycle, then exit */
 		time_to_stop = ready_to_stop;
@@ -355,10 +354,10 @@ pgarch_MainLoop(void)
 		{
 			int			rc;
 
-			rc = WaitLatch(MyLatch,
-						   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-						   PGARCH_AUTOWAKE_INTERVAL * 1000L,
-						   WAIT_EVENT_ARCHIVER_MAIN);
+			rc = WaitInterrupt(1 << INTERRUPT_GENERAL_WAKEUP,
+							   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+							   PGARCH_AUTOWAKE_INTERVAL * 1000L,
+							   WAIT_EVENT_ARCHIVER_MAIN);
 			if (rc & WL_POSTMASTER_DEATH)
 				time_to_stop = true;
 		}
