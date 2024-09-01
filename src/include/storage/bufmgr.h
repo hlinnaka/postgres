@@ -119,6 +119,8 @@ typedef struct BufferManagerRelation
 #define READ_BUFFERS_ISSUE_ADVICE (1 << 1)
 /* IO will immediately be waited for */
 #define READ_BUFFERS_SYNCHRONOUSLY (1 << 2)
+/* caller will issue more io, don't submit */
+#define READ_BUFFERS_MORE_MORE_MORE (1 << 3)
 
 /*
  * FIXME: PgAioReturn is defined in aio.h. It'd be much better if we didn't
