@@ -1,0 +1,295 @@
+SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+ count 
+-------
+     1
+(1 row)
+
+-- injected what we'd expect
+SELECT inj_io_short_read_attach(8192);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+ count 
+-------
+     1
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- injected a read shorter than a single block, expecting error
+SELECT inj_io_short_read_attach(17);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT redact($$
+  SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+$$);
+NOTICE:  wrapped error: could not read blocks 2..2 in file base/<redacted>: read only 0 of 8192 bytes
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- shorten multi-block read to a single block, should retry
+SELECT count(*) FROM tbl_b; -- for comparison
+ count 
+-------
+ 10000
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 0);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 1);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT inj_io_short_read_attach(8192);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+-- no need to redact, no messages to client
+SELECT count(*) FROM tbl_b;
+ count 
+-------
+ 10000
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- shorten multi-block read to 1 1/2 blocks, should retry
+SELECT count(*) FROM tbl_b; -- for comparison
+ count 
+-------
+ 10000
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 0);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 1);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT inj_io_short_read_attach(8192 + 4096);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+-- no need to redact, no messages to client
+SELECT count(*) FROM tbl_b;
+ count 
+-------
+ 10000
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- shorten single-block read to read that block partially, we'll error out,
+-- because we assume we can read at least one block at a time.
+SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)'; -- for comparison
+ count 
+-------
+     1
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT inj_io_short_read_attach(4096);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT redact($$
+  SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+$$);
+NOTICE:  wrapped error: could not read blocks 2..2 in file base/<redacted>: read only 0 of 8192 bytes
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- shorten single-block read to read 0 bytes, expect that to error out
+SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)'; -- for comparison
+ count 
+-------
+     1
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT inj_io_short_read_attach(0);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT redact($$
+  SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+$$);
+NOTICE:  wrapped error: could not read blocks 2..2 in file base/<redacted>: read only 0 of 8192 bytes
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- verify that checksum errors are detected even as part of a shortened
+-- multi-block read
+-- (tbl_a, block 1 is corrupted)
+SELECT redact($$
+  SELECT count(*) FROM tbl_a WHERE ctid < '(2, 1)';
+$$);
+NOTICE:  wrapped error: invalid page in block 2 of relation base/<redacted>
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_attach(8192);
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_a', 0);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_a', 1);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_a', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT redact($$
+  SELECT count(*) FROM tbl_a WHERE ctid < '(2, 1)';
+$$);
+NOTICE:  wrapped error: invalid page in block 2 of relation base/<redacted>
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+
+-- trigger a hard error, should error out
+SELECT inj_io_short_read_attach(-errno_from_string('EIO'));
+ inj_io_short_read_attach 
+--------------------------
+ 
+(1 row)
+
+SELECT invalidate_rel_block('tbl_b', 2);
+ invalidate_rel_block 
+----------------------
+ 
+(1 row)
+
+SELECT redact($$
+  SELECT count(*) FROM tbl_b WHERE ctid = '(2, 1)';
+$$);
+NOTICE:  wrapped error: could not read blocks 2..3 in file base/<redacted>: Input/output error
+ redact 
+--------
+ f
+(1 row)
+
+SELECT inj_io_short_read_detach();
+ inj_io_short_read_detach 
+--------------------------
+ 
+(1 row)
+

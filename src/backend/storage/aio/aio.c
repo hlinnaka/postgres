@@ -46,6 +46,9 @@
 #include "utils/resowner.h"
 #include "utils/wait_event_types.h"
 
+#ifdef USE_INJECTION_POINTS
+#include "utils/injection_point.h"
+#endif
 
 
 static inline void pgaio_io_update_state(PgAioHandle *ioh, PgAioHandleState new_state);
@@ -90,6 +93,11 @@ static const IoMethodOps *pgaio_ops_table[] = {
 
 
 const IoMethodOps *pgaio_impl;
+
+
+#ifdef USE_INJECTION_POINTS
+static PgAioHandle *inj_cur_handle;
+#endif
 
 
 
@@ -631,6 +639,19 @@ pgaio_io_process_completion(PgAioHandle *ioh, int result)
 
 	pgaio_io_update_state(ioh, AHS_REAPED);
 
+#ifdef USE_INJECTION_POINTS
+	inj_cur_handle = ioh;
+
+	/*
+	 * FIXME: This could be in a critical section - but it looks like we can't
+	 * just InjectionPointLoad() at process start, as the injection point
+	 * might not yet be defined.
+	 */
+	InjectionPointCached("AIO_PROCESS_COMPLETION_BEFORE_SHARED");
+
+	inj_cur_handle = NULL;
+#endif
+
 	pgaio_io_process_completion_subject(ioh);
 
 	pgaio_io_update_state(ioh, AHS_COMPLETED_SHARED);
@@ -1129,3 +1150,20 @@ assign_io_method(int newval, void *extra)
 {
 	pgaio_impl = pgaio_ops_table[newval];
 }
+
+
+
+/* --------------------------------------------------------------------------------
+ * Injection point support
+ * --------------------------------------------------------------------------------
+ */
+
+#ifdef USE_INJECTION_POINTS
+
+PgAioHandle *
+pgaio_inj_io_get(void)
+{
+	return inj_cur_handle;
+}
+
+#endif

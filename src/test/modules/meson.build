@@ -1,5 +1,6 @@
 # Copyright (c) 2022-2025, PostgreSQL Global Development Group
 
+subdir('test_aio')
 subdir('brin')
 subdir('commit_ts')
 subdir('delay_execution')
