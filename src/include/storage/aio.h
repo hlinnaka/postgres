@@ -104,6 +104,10 @@ typedef enum PgAioHandleSharedCallbackID
 
 	ASC_MD_READV,
 	ASC_MD_WRITEV,
+
+	ASC_SHARED_BUFFER_READ,
+
+	ASC_LOCAL_BUFFER_READ,
 } PgAioHandleSharedCallbackID;
 
 

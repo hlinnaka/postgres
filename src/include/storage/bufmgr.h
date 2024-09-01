@@ -177,6 +177,12 @@ extern PGDLLIMPORT int NLocBuffer;
 extern PGDLLIMPORT Block *LocalBufferBlockPointers;
 extern PGDLLIMPORT int32 *LocalRefCount;
 
+
+struct PgAioHandleSharedCallbacks;
+extern const struct PgAioHandleSharedCallbacks aio_shared_buffer_readv_cb;
+extern const struct PgAioHandleSharedCallbacks aio_local_buffer_readv_cb;
+
+
 /* upper limit for effective_io_concurrency */
 #define MAX_IO_CONCURRENCY 1000
 
@@ -194,6 +200,8 @@ extern PGDLLIMPORT int32 *LocalRefCount;
 /*
  * prototypes for functions in bufmgr.c
  */
+struct PgAioHandle;
+
 extern PrefetchBufferResult PrefetchSharedBuffer(struct SMgrRelationData *smgr_reln,
 												 ForkNumber forkNum,
 												 BlockNumber blockNum);

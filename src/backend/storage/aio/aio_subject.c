@@ -50,6 +50,10 @@ static const PgAioHandleSharedCallbacksEntry aio_shared_cbs[] = {
 #define CALLBACK_ENTRY(id, callback)  [id] = {.cb = &callback, .name = #callback}
 	CALLBACK_ENTRY(ASC_MD_READV, aio_md_readv_cb),
 	CALLBACK_ENTRY(ASC_MD_WRITEV, aio_md_writev_cb),
+
+	CALLBACK_ENTRY(ASC_SHARED_BUFFER_READ, aio_shared_buffer_readv_cb),
+
+	CALLBACK_ENTRY(ASC_LOCAL_BUFFER_READ, aio_local_buffer_readv_cb),
 #undef CALLBACK_ENTRY
 };
 
