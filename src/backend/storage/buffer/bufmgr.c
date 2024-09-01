@@ -6437,6 +6437,44 @@ ReadBufferCompleteReadShared(Buffer buffer, int mode, bool failed)
 	return buf_failed;
 }
 
+static uint64
+ReadBufferCompleteWriteShared(Buffer buffer, bool release_lock, bool failed)
+{
+	BufferDesc *bufHdr;
+	bool		result = false;
+
+	Assert(BufferIsValid(buffer));
+
+	bufHdr = GetBufferDescriptor(buffer - 1);
+
+#ifdef USE_ASSERT_CHECKING
+	{
+		uint32		buf_state = pg_atomic_read_u32(&bufHdr->state);
+
+		Assert(buf_state & BM_VALID);
+		Assert(buf_state & BM_TAG_VALID);
+		Assert(buf_state & BM_IO_IN_PROGRESS);
+		Assert(buf_state & BM_DIRTY);
+	}
+#endif
+
+	/* AFIXME: implement track_io_timing */
+
+	TerminateBufferIO(bufHdr, /* clear_dirty = */ true,
+					  failed ? BM_IO_ERROR : 0,
+					  /* forget_owner = */ false,
+					  /* syncio = */ false);
+
+	/*
+	 * The initiator of IO is not managing the lock (i.e. called
+	 * LWLockDisown()), we are.
+	 */
+	if (release_lock)
+		LWLockReleaseUnowned(BufferDescriptorGetContentLock(bufHdr), LW_SHARED);
+
+	return result;
+}
+
 /*
  * Helper to prepare IO on shared buffers for execution, shared between reads
  * and writes.
@@ -6518,6 +6556,12 @@ shared_buffer_readv_prepare(PgAioHandle *ioh)
 	shared_buffer_prepare_common(ioh, false);
 }
 
+static void
+shared_buffer_writev_prepare(PgAioHandle *ioh)
+{
+	shared_buffer_prepare_common(ioh, true);
+}
+
 static PgAioResult
 shared_buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result)
 {
@@ -6584,6 +6628,34 @@ buffer_readv_error(PgAioResult result, const PgAioSubjectData *subject_data, int
 				   )
 		);
 	MemoryContextSwitchTo(oldContext);
+}
+
+static PgAioResult
+shared_buffer_writev_complete(PgAioHandle *ioh, PgAioResult prior_result)
+{
+	PgAioResult result = prior_result;
+	uint64	   *io_data;
+	uint8		io_data_len;
+
+	elog(DEBUG3, "%s: %d %d", __func__, prior_result.status, prior_result.result);
+
+	io_data = pgaio_io_get_io_data(ioh, &io_data_len);
+
+	/* FIXME: handle outright errors */
+
+	for (int io_data_off = 0; io_data_off < io_data_len; io_data_off++)
+	{
+		Buffer		buf = io_data[io_data_off];
+
+		/* FIXME: handle short writes / failures */
+		/* FIXME: ioh->scb_data.shared_buffer.release_lock */
+		ReadBufferCompleteWriteShared(buf,
+									  true,
+									  false);
+
+	}
+
+	return result;
 }
 
 /*
@@ -6655,14 +6727,27 @@ local_buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result)
 	return result;
 }
 
+static void
+local_buffer_writev_prepare(PgAioHandle *ioh)
+{
+	elog(ERROR, "not yet");
+}
+
 
 const struct PgAioHandleSharedCallbacks aio_shared_buffer_readv_cb = {
 	.prepare = shared_buffer_readv_prepare,
 	.complete = shared_buffer_readv_complete,
 	.error = buffer_readv_error,
 };
+const struct PgAioHandleSharedCallbacks aio_shared_buffer_writev_cb = {
+	.prepare = shared_buffer_writev_prepare,
+	.complete = shared_buffer_writev_complete,
+};
 const struct PgAioHandleSharedCallbacks aio_local_buffer_readv_cb = {
 	.prepare = local_buffer_readv_prepare,
 	.complete = local_buffer_readv_complete,
 	.error = buffer_readv_error,
+};
+const struct PgAioHandleSharedCallbacks aio_local_buffer_writev_cb = {
+	.prepare = local_buffer_writev_prepare,
 };
