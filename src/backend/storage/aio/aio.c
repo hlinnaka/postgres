@@ -58,6 +58,9 @@ static PgAioHandle *pgaio_io_from_ref(PgAioHandleRef *ior, uint64 *ref_generatio
 const struct config_enum_entry io_method_options[] = {
 	{"sync", IOMETHOD_SYNC, false},
 	{"worker", IOMETHOD_WORKER, false},
+#ifdef USE_LIBURING
+	{"io_uring", IOMETHOD_IO_URING, false},
+#endif
 	{NULL, 0, false}
 };
 
@@ -75,6 +78,9 @@ PgAioPerBackend *my_aio;
 static const IoMethodOps *pgaio_ops_table[] = {
 	[IOMETHOD_SYNC] = &pgaio_sync_ops,
 	[IOMETHOD_WORKER] = &pgaio_worker_ops,
+#ifdef USE_LIBURING
+	[IOMETHOD_IO_URING] = &pgaio_uring_ops,
+#endif
 };
 
 
