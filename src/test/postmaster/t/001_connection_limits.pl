@@ -43,6 +43,7 @@ sub background_psql_as_user
 }
 
 my @sessions = ();
+my @raw_connections = ();
 
 push(@sessions, background_psql_as_user('regress_regular'));
 push(@sessions, background_psql_as_user('regress_regular'));
@@ -69,11 +70,25 @@ $node->connect_fails(
 	"superuser_reserved_connections limit",
 	expected_stderr => qr/FATAL:  sorry, too many clients already/);
 
-# TODO: test that query cancellation is still possible
+# We can still open TCP (or Unix domain socket) connections, but
+# beyond a certain number (roughly 2x max_connections), they will be
+# "dead-end backends".
+for (my $i = 0; $i <= 20; $i++)
+{
+	push(@raw_connections, $node->raw_connect());
+}
 
+# TODO: test that query cancellation is still possible. A dead-end
+# backend can process a query cancellation packet.
+
+# Clean up
 foreach my $session (@sessions)
 {
 	$session->quit;
+}
+foreach my $socket (@raw_connections)
+{
+	$socket->close();
 }
 
 done_testing();

@@ -104,6 +104,7 @@ use File::Path qw(rmtree mkpath);
 use File::Spec;
 use File::stat qw(stat);
 use File::Temp ();
+use IO::Socket::INET;
 use IPC::Run;
 use PostgreSQL::Version;
 use PostgreSQL::Test::RecursiveCopy;
@@ -282,6 +283,43 @@ sub connstr
 	$dbname =~ s#\'#\\\'#g;
 
 	return "port=$pgport host=$pghost dbname='$dbname'";
+}
+
+=pod
+
+=item $node->raw_connect()
+
+Open a raw TCP or Unix domain socket connection to the server. This is
+used by low-level protocol and connection limit tests.
+
+=cut
+
+sub raw_connect
+{
+	my ($self) = @_;
+	my $pgport = $self->port;
+	my $pghost = $self->host;
+
+	my $socket;
+	if ($PostgreSQL::Test::Utils::use_unix_sockets)
+	{
+		require IO::Socket::UNIX;
+		my $path = "$pghost/.s.PGSQL.$pgport";
+
+		$socket = IO::Socket::UNIX->new(
+			Type => SOCK_STREAM(),
+			Peer => $path,
+		) or die "Cannot create socket - $IO::Socket::errstr\n";
+	}
+	else
+	{
+		$socket = IO::Socket::INET->new(
+			PeerHost => $pghost,
+			PeerPort => $pgport,
+			Proto => 'tcp'
+		) or die "Cannot create socket - $IO::Socket::errstr\n";
+	}
+	return $socket;
 }
 
 =pod
