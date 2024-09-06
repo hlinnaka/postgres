@@ -75,6 +75,7 @@ $node->connect_fails(
 # "dead-end backends".
 for (my $i = 0; $i <= 20; $i++)
 {
+	diag("opening raw connection $i");
 	push(@raw_connections, $node->raw_connect());
 }
 
@@ -82,6 +83,7 @@ for (my $i = 0; $i <= 20; $i++)
 # backend can process a query cancellation packet.
 
 # Clean up
+diag("cleaning up");
 foreach my $session (@sessions)
 {
 	$session->quit;
