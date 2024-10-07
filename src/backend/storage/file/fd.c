@@ -3188,6 +3188,7 @@ GetNextTempTableSpace(void)
  * Take care of subtransaction commit/abort.  At abort, we close temp files
  * that the subtransaction may have opened.  At commit, we reassign the
  * files that were opened to the parent subtransaction.
+ FIXME: comment leftover in  commit ab3148b7128e1fe67d8badc9327fd958d2a14c90
  */
 void
 AtEOSubXact_Files(bool isCommit, SubTransactionId mySubid,
