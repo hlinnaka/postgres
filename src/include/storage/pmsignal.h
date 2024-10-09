@@ -70,7 +70,7 @@ extern void SendPostmasterSignal(PMSignalReason reason);
 extern bool CheckPostmasterSignal(PMSignalReason reason);
 extern void SetQuitSignalReason(QuitSignalReason reason);
 extern QuitSignalReason GetQuitSignalReason(void);
-extern int	AssignPostmasterChildSlot(void);
+extern void ReservePostmasterChildSlot(int slot);
 extern bool ReleasePostmasterChildSlot(int slot);
 extern bool IsPostmasterChildWalSender(int slot);
 extern void RegisterPostmasterChildActive(void);
