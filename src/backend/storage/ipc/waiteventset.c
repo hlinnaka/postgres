@@ -271,8 +271,8 @@ InitializeWaitEventSupport(void)
 	}
 
 	/* FIXME: this is called very early at startup, before GUCs are processed */
-	n = MaxLivePostmasterChildren();
-	//n = 300;
+	// n = MaxLivePostmasterChildren();
+	n = 300;
 	thread_wakeup_readfds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
 	thread_wakeup_writefds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
 	for (int i = 0; i < n + 1; i++)
