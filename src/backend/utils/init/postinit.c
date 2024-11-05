@@ -671,6 +671,8 @@ BaseInit(void)
 	 * if requested.
 	 */
 	before_shmem_exit(AtProcExit_memstats_cleanup, 0);
+
+	InitLockManagerAccess();
 }
 
 

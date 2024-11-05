@@ -445,7 +445,7 @@ static void TerminateChildren(int signal);
 static int	CountChildren(BackendTypeMask targetMask);
 static void LaunchMissingBackgroundProcesses(void);
 static void maybe_start_bgworkers(void);
-static bool maybe_reap_io_worker(int pid);
+static bool maybe_reap_io_worker(PMChild *pmchild);
 static void maybe_adjust_io_workers(void);
 static bool CreateOptsFile(int argc, char *argv[], char *fullprogname);
 static PMChild *StartChildProcess(BackendType type);
@@ -2548,10 +2548,10 @@ process_pm_child_exit(void)
 		}
 
 		/* Was it an IO worker? */
-		if (maybe_reap_io_worker(pid))
+		if (maybe_reap_io_worker(pmchild))
 		{
 			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus, _("io worker"));
+				HandleChildCrash(id, exitstatus, _("io worker"));
 
 			maybe_adjust_io_workers();
 			continue;
@@ -4180,9 +4180,9 @@ StartBackgroundWorker(RegisteredBgWorker *rw)
 			(errmsg_internal("starting background worker process \"%s\"",
 							 rw->rw_worker.bgw_name)));
 
-	if (postmaster_child_launch(B_BG_WORKER, bn->child_slot,
-								&rw->rw_worker, sizeof(BackgroundWorker), NULL,
-								&worker_pid))
+	if (!postmaster_child_launch(B_BG_WORKER, bn->child_slot,
+								 &rw->rw_worker, sizeof(BackgroundWorker), NULL,
+								 &worker_pid))
 	{
 		/* in postmaster, fork failed ... */
 		ereport(LOG,
@@ -4368,12 +4368,11 @@ maybe_start_bgworkers(void)
 }
 
 static bool
-maybe_reap_io_worker(int pid)
+maybe_reap_io_worker(PMChild *pmchild)
 {
 	for (int id = 0; id < MAX_IO_WORKERS; ++id)
 	{
-		if (io_worker_children[id] &&
-			io_worker_children[id]->pid == pid)
+		if (io_worker_children[id] == pmchild)
 		{
 			ReleasePostmasterChildSlot(io_worker_children[id]);
 
@@ -4452,7 +4451,7 @@ maybe_adjust_io_workers(void)
 		{
 			if (io_worker_children[id] != NULL)
 			{
-				kill(io_worker_children[id]->pid, SIGUSR2);
+				signal_child(io_worker_children[id], SIGUSR2);
 				break;
 			}
 		}

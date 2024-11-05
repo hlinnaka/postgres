@@ -59,7 +59,10 @@ typedef int (*PFN) (const char *name, void **res);
 static void *find_provider(text *name, PFN provider_lookup, const char *desc,
 						   int silent);
 
-int			builtin_crypto_enabled = BC_ON;
+session_guc int			builtin_crypto_enabled = BC_ON;
+
+DEFINE_ENUM_GUC_ADDR(builtin_crypto_enabled)
+
 
 /*
  * Entrypoint of this module.
@@ -71,7 +74,7 @@ _PG_init(void)
 							 "Sets if builtin crypto functions are enabled.",
 							 "\"on\" enables builtin crypto, \"off\" unconditionally disables and \"fips\" "
 							 "will disable builtin crypto if OpenSSL is in FIPS mode",
-							 &builtin_crypto_enabled,
+							 GUC_ADDR(builtin_crypto_enabled),
 							 BC_ON,
 							 builtin_crypto_options,
 							 PGC_SUSET,

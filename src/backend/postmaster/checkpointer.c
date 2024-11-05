@@ -114,7 +114,7 @@ typedef struct
 
 typedef struct
 {
-	pid_t		checkpointer_pid;	/* PID (0 if not started) */
+	ProcNumber	checkpointer_proc_number; /* INVALID_PROC_NUMBER if not started */
 
 	slock_t		ckpt_lck;		/* protects all the ckpt_* fields */
 
@@ -187,7 +187,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	MyBackendType = B_CHECKPOINTER;
 	AuxiliaryProcessMainCommon();
 
-	CheckpointerShmem->checkpointer_pid = MyProcPid;
+	CheckpointerShmem->checkpointer_proc_number = MyProcNumber;
 
 	/*
 	 * Properly accept or ignore signals the postmaster might send us
@@ -1175,7 +1175,7 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 	 * backend will have to perform its own fsync request.  But before forcing
 	 * that to happen, we can try to compact the request queue.
 	 */
-	if (CheckpointerShmem->checkpointer_pid == 0 ||
+	if (CheckpointerShmem->checkpointer_proc_number == INVALID_PROC_NUMBER ||
 		(CheckpointerShmem->num_requests >= CheckpointerShmem->max_requests &&
 		 !CompactCheckpointerRequestQueue()))
 	{

@@ -102,7 +102,7 @@ typedef struct px_hmac PX_HMAC;
 typedef struct px_cipher PX_Cipher;
 typedef struct px_combo PX_Combo;
 
-extern int	builtin_crypto_enabled;
+extern session_guc int	builtin_crypto_enabled;
 
 struct px_digest
 {
