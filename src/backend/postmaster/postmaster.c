@@ -4250,9 +4250,9 @@ StartBackgroundWorker(RegisteredBgWorker *rw)
 			(errmsg_internal("starting background worker process \"%s\"",
 							 rw->rw_worker.bgw_name)));
 
-	if (postmaster_child_launch(B_BG_WORKER, bn->child_slot,
-								&rw->rw_worker, sizeof(BackgroundWorker), NULL,
-								&worker_pid))
+	if (!postmaster_child_launch(B_BG_WORKER, bn->child_slot,
+								 &rw->rw_worker, sizeof(BackgroundWorker), NULL,
+								 &worker_pid))
 	{
 		/* in postmaster, fork failed ... */
 		ereport(LOG,
