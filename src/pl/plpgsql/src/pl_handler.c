@@ -33,7 +33,8 @@ static void plpgsql_extra_errors_assign_hook(const char *newvalue, void *extra);
 
 PG_MODULE_MAGIC_EXT(
 					.name = "plpgsql",
-					.version = PG_VERSION
+					.version = PG_VERSION,
+					.backendmodel = PROCESS_BACKEND | THREAD_BACKEND,
 );
 
 /* Custom GUC variable */
