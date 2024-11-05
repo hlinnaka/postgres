@@ -79,7 +79,8 @@
 
 PG_MODULE_MAGIC_EXT(
 					.name = "dict_snowball",
-					.version = PG_VERSION
+					.version = PG_VERSION,
+					.backendmodel = PROCESS_BACKEND | THREAD_BACKEND
 );
 
 PG_FUNCTION_INFO_V1(dsnowball_init);
