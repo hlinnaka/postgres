@@ -1355,7 +1355,7 @@ PostmasterMain(int argc, char *argv[])
 	 * Currently, macOS is the only platform having pthread_is_threaded_np(),
 	 * so we need not worry whether this HINT is appropriate elsewhere.
 	 */
-	if (pthread_is_threaded_np() != 0)
+	if (pthread_is_threaded_np() != 0 && !IsMultiThreaded)
 		ereport(FATAL,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("postmaster became multithreaded during startup"),
@@ -1729,7 +1729,7 @@ ServerLoop(void)
 		 * With assertions enabled, check regularly for appearance of
 		 * additional threads.  All builds check at start and exit.
 		 */
-		Assert(pthread_is_threaded_np() == 0);
+		Assert(pthread_is_threaded_np() == 0 || IsMultiThreaded);
 #endif
 
 		/*
@@ -3676,7 +3676,7 @@ ExitPostmaster(int status)
 	 * This message uses LOG level, because an unclean shutdown at this point
 	 * would usually not look much different from a clean shutdown.
 	 */
-	if (pthread_is_threaded_np() != 0)
+	if (pthread_is_threaded_np() != 0 && !IsMultiThreaded)
 		ereport(LOG,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("postmaster became multithreaded"),
