@@ -58,9 +58,9 @@ typedef int IpcSemaphoreId;		/* semaphore ID returned by semget(2) */
 #define PGSemaMagic		537		/* must be less than SEMVMX */
 
 
-static global PGSemaphore sharedSemas; /* array of PGSemaphoreData in shared memory */
-static global int	numSharedSemas;		/* number of PGSemaphoreDatas used so far */
-static global int	maxSharedSemas;		/* allocated size of PGSemaphoreData array */
+static pg_global PGSemaphore sharedSemas; /* array of PGSemaphoreData in shared memory */
+static pg_global int	numSharedSemas;		/* number of PGSemaphoreDatas used so far */
+static pg_global int	maxSharedSemas;		/* allocated size of PGSemaphoreData array */
 static session_local IpcSemaphoreId *mySemaSets;	/* IDs of sema sets acquired so far */
 static session_local int	numSemaSets;		/* number of sema sets acquired so far */
 static session_local int	maxSemaSets;		/* allocated size of mySemaSets array */

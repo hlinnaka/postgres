@@ -32,6 +32,7 @@
 #include "postgres.h"
 
 #include <unistd.h>
+#include <pthread.h>
 
 #include "ipc/interrupt.h"
 #include "libpq/libpq-be.h"
@@ -340,10 +341,21 @@ backend_thread_main(void *arg)
 
 	MyPMChildSlot = sinfo->child_slot;
 	MyBackendType = sinfo->child_type;
-	pthread_setname_np(pthread_self(), 	child_process_kinds[MyBackendType].name);
+
+	// should that be mmoved to port/pg_thread.h?
+#ifdef __darwin__
+	pthread_setname_np(child_process_kinds[MyBackendType].name);
+#else
+	pthread_setname_np(pthread_self(), child_process_kinds[MyBackendType].name);
+#endif
 
 	/* FIXME: use linux thread id for now. Should switch to using pthread_t */
+#ifdef __darwin__
+	// FIXME: macos has pthread_threadid_np() but it is 64bit, so use slot number for now
+	MyProcPid = sinfo->child_slot;
+#else
 	MyProcPid = gettid();
+#endif
 
 	/*
 	 * Set reference point for stack-depth checking.
