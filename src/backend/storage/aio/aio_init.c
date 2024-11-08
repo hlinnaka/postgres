@@ -19,6 +19,7 @@
 #include "storage/aio_init.h"
 #include "storage/aio_internal.h"
 #include "storage/bufmgr.h"
+#include "storage/io_worker.h"
 #include "storage/proc.h"
 #include "storage/shmem.h"
 
@@ -37,6 +38,11 @@ AioCtlShmemSize(void)
 static uint32
 AioProcs(void)
 {
+	/*
+	 * While AIO workers don't need their own AIO context, we can't currently
+	 * guarantee nothing gets assigned to the a ProcNumber for an IO worker if
+	 * we just subtracted MAX_IO_WORKERS.
+	 */
 	return MaxBackends + NUM_AUXILIARY_PROCS;
 }
 
@@ -209,6 +215,9 @@ pgaio_init_backend(void)
 	/* shouldn't be initialized twice */
 	Assert(!my_aio);
 
+	if (MyBackendType == B_IO_WORKER)
+		return;
+
 	if (MyProc == NULL || MyProcNumber >= AioProcs())
 		elog(ERROR, "aio requires a normal PGPROC");
 
@@ -221,6 +230,5 @@ pgaio_init_backend(void)
 bool
 pgaio_workers_enabled(void)
 {
-	/* placeholder for future commit */
-	return false;
+	return io_method == IOMETHOD_WORKER;
 }
