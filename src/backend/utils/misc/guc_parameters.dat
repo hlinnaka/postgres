@@ -2256,7 +2256,7 @@
 { name => 'multithreaded', type => 'bool', context => 'PGC_POSTMASTER', group => 'DEVELOPER_OPTIONS',
   short_desc => 'Instead of a process model, use a multi-threaded model.',
   variable => 'IsMultiThreaded',
-  boot_val => 'false',
+  boot_val => 'true',
 },
 
 { name => 'multixact_member_buffers', type => 'int', context => 'PGC_POSTMASTER', group => 'RESOURCES_MEM',
