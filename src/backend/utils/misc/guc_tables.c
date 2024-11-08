@@ -1230,7 +1230,7 @@ static_singleton struct config_bool ConfigureNamesBool[] =
 			GUC_SUPERUSER_ONLY | GUC_NO_RESET_ALL | GUC_NO_RESET
 		},
 		GUC_ADDR(IsMultiThreaded),
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 	{

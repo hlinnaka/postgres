@@ -104,7 +104,7 @@ pg_global bool		IsBinaryUpgrade = false;
 
 session_guc bool		ExitOnAnyError = false;
 
-postmaster_guc bool		IsMultiThreaded = false; /* GUC */
+postmaster_guc bool		IsMultiThreaded = true; /* GUC */
 
 session_local int			DateStyle = USE_ISO_DATES;
 session_local int			DateOrder = DATEORDER_MDY;
