@@ -254,7 +254,7 @@ typedef struct TransInvalidationInfo
 
 static session_local TransInvalidationInfo *transInvalInfo = NULL;
 
-static InvalidationInfo *inplaceInvalInfo = NULL;
+static session_local InvalidationInfo *inplaceInvalInfo = NULL;
 
 /* GUC storage */
 session_guc int			debug_discard_caches = 0;

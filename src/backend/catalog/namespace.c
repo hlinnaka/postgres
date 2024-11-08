@@ -296,8 +296,8 @@ spcachekey_equal(SearchPathCacheKey a, SearchPathCacheKey b)
  */
 #define SPCACHE_RESET_THRESHOLD		256
 
-static nsphash_hash *SearchPathCache = NULL;
-static SearchPathCacheEntry *LastSearchPathCacheEntry = NULL;
+static session_local nsphash_hash *SearchPathCache = NULL;
+static session_local SearchPathCacheEntry *LastSearchPathCacheEntry = NULL;
 
 /*
  * Create or reset search_path cache as necessary.
