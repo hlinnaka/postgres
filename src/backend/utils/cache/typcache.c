@@ -84,7 +84,7 @@ static session_local HTAB *TypeCacheHash = NULL;
  * to clear i.e it has either TCFLAGS_HAVE_PG_TYPE_DATA, or
  * TCFLAGS_OPERATOR_FLAGS, or tupdesc.
  */
-static HTAB *RelIdToTypeIdCacheHash = NULL;
+static session_local HTAB *RelIdToTypeIdCacheHash = NULL;
 
 typedef struct RelIdToTypeIdCacheEntry
 {
@@ -223,9 +223,9 @@ typedef struct SharedTypmodTableEntry
 	dsa_pointer shared_tupdesc;
 } SharedTypmodTableEntry;
 
-static Oid *in_progress_list;
-static int	in_progress_list_len;
-static int	in_progress_list_maxlen;
+static session_local Oid *in_progress_list;
+static session_local int	in_progress_list_len;
+static session_local int	in_progress_list_maxlen;
 
 /*
  * A comparator function for SharedRecordTableKey.
