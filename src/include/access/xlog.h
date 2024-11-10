@@ -51,7 +51,7 @@ extern PGDLLIMPORT session_guc int wal_compression;
 extern PGDLLIMPORT session_guc bool wal_init_zero;
 extern PGDLLIMPORT session_guc bool wal_recycle;
 extern PGDLLIMPORT session_guc bool *wal_consistency_checking;
-extern PGDLLIMPORT session_local char *wal_consistency_checking_string;
+extern PGDLLIMPORT session_guc char *wal_consistency_checking_string;
 extern PGDLLIMPORT session_guc bool log_checkpoints;
 extern PGDLLIMPORT session_guc int CommitDelay;
 extern PGDLLIMPORT session_guc int CommitSiblings;

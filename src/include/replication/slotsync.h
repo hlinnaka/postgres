@@ -20,8 +20,8 @@ extern PGDLLIMPORT bool sync_replication_slots;
  * GUCs needed by slot sync worker to connect to the primary
  * server and carry on with slots synchronization.
  */
-extern PGDLLIMPORT session_guc char *PrimaryConnInfo;
-extern PGDLLIMPORT session_guc char *PrimarySlotName;
+extern PGDLLIMPORT sighup_guc char *PrimaryConnInfo;
+extern PGDLLIMPORT sighup_guc char *PrimarySlotName;
 
 extern char *CheckAndGetDbnameFromConninfo(void);
 extern bool ValidateSlotSyncParams(int elevel);
