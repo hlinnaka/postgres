@@ -65,7 +65,7 @@ extern PGDLLIMPORT session_local TimestampTz recoveryTargetTime;
 extern PGDLLIMPORT session_local const char *recoveryTargetName;
 extern PGDLLIMPORT session_local XLogRecPtr recoveryTargetLSN;
 extern PGDLLIMPORT session_local RecoveryTargetType recoveryTarget;
-extern PGDLLIMPORT session_local bool wal_receiver_create_temp_slot;
+extern PGDLLIMPORT sighup_guc bool wal_receiver_create_temp_slot;
 extern PGDLLIMPORT session_local RecoveryTargetTimeLineGoal recoveryTargetTimeLineGoal;
 extern PGDLLIMPORT session_local TimeLineID recoveryTargetTLIRequested;
 extern PGDLLIMPORT session_local TimeLineID recoveryTargetTLI;

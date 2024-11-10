@@ -93,7 +93,7 @@ postmaster_guc char	   *recovery_target_time_string;
 session_local TimestampTz recoveryTargetTime;
 session_local const char *recoveryTargetName;
 session_local XLogRecPtr	recoveryTargetLSN;
-session_local int			recovery_min_apply_delay = 0;
+sighup_guc int			recovery_min_apply_delay = 0;
 
 /* options formerly taken from recovery.conf for XLOG streaming */
 sighup_guc char	   *PrimaryConnInfo = NULL;

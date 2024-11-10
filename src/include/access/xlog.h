@@ -34,7 +34,7 @@ extern PGDLLIMPORT session_local XLogRecPtr XactLastRecEnd;
 extern PGDLLIMPORT session_local XLogRecPtr XactLastCommitEnd;
 
 /* these variables are GUC parameters related to XLOG */
-extern PGDLLIMPORT pg_global int wal_segment_size;
+extern PGDLLIMPORT internal_guc int wal_segment_size;
 extern PGDLLIMPORT sighup_guc int min_wal_size_mb;
 extern PGDLLIMPORT sighup_guc int max_wal_size_mb;
 extern PGDLLIMPORT sighup_guc int wal_keep_size_mb;
@@ -51,7 +51,7 @@ extern PGDLLIMPORT session_guc bool wal_init_zero;
 extern PGDLLIMPORT session_guc bool wal_recycle;
 extern PGDLLIMPORT session_guc bool *wal_consistency_checking;
 extern PGDLLIMPORT session_guc char *wal_consistency_checking_string;
-extern PGDLLIMPORT session_guc bool log_checkpoints;
+extern PGDLLIMPORT sighup_guc bool log_checkpoints;
 extern PGDLLIMPORT session_guc int CommitDelay;
 extern PGDLLIMPORT session_guc int CommitSiblings;
 extern PGDLLIMPORT session_guc bool track_wal_io_timing;

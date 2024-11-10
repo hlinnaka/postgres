@@ -169,7 +169,7 @@ extern PGDLLIMPORT session_local int io_combine_limit;	/* min of the two GUCs be
 extern PGDLLIMPORT session_guc int io_combine_limit_guc;
 extern PGDLLIMPORT session_guc int io_max_combine_limit;
 
-extern PGDLLIMPORT session_guc int checkpoint_flush_after;
+extern PGDLLIMPORT sighup_guc int checkpoint_flush_after;
 extern PGDLLIMPORT session_guc int backend_flush_after;
 extern PGDLLIMPORT sighup_guc int bgwriter_flush_after;
 
