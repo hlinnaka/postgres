@@ -126,7 +126,7 @@ session_local bool		InitializingParallelWorker = false;
 static session_local FixedParallelState *MyFixedParallelState;
 
 /* List of active parallel contexts. */
-static /* FIXME: session_local */ dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
+static session_local dlist_head pcxt_list;
 
 /*
  * List of internal parallel worker entry points.  We need this for
@@ -194,6 +194,10 @@ CreateParallelContext(const char *library_name, const char *function_name,
 	pcxt->function_name = pstrdup(function_name);
 	pcxt->error_context_stack = error_context_stack;
 	shm_toc_initialize_estimator(&pcxt->estimator);
+
+	if (!pcxt_list.head.next)
+		dlist_init(&pcxt_list);
+
 	dlist_push_head(&pcxt_list, &pcxt->node);
 
 	/* Restore previous memory context. */
@@ -1039,7 +1043,7 @@ DestroyParallelContext(ParallelContext *pcxt)
 bool
 ParallelContextActive(void)
 {
-	return !dlist_is_empty(&pcxt_list);
+	return pcxt_list.head.next && !dlist_is_empty(&pcxt_list);
 }
 
 /*

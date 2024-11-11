@@ -323,7 +323,7 @@ const ShmemCallbacks AutoVacuumShmemCallbacks = {
  * the database list (of avl_dbase elements) in the launcher, and the context
  * that contains it
  */
-static /* FIXME: session_local */ dlist_head DatabaseList = DLIST_STATIC_INIT(DatabaseList);
+static session_local dlist_head DatabaseList;
 static session_local MemoryContext DatabaseListCxt = NULL;
 
 /*
