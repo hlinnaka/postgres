@@ -82,7 +82,8 @@ static void regress_lseg_construct(LSEG *lseg, Point *pt1, Point *pt2);
 
 PG_MODULE_MAGIC_EXT(
 					.name = "regress",
-					.version = PG_VERSION
+					.version = PG_VERSION,
+					.backendmodel = PROCESS_BACKEND | THREAD_BACKEND
 );
 
 
