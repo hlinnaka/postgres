@@ -37,7 +37,7 @@
 /*
  * The postmaster's list of registered background workers, in private memory.
  */
-pg_global dlist_head	BackgroundWorkerList = DLIST_STATIC_INIT(BackgroundWorkerList);
+pg_global dlist_head	BackgroundWorkerList;
 
 /*
  * BackgroundWorkerSlots exist in shared memory and can be accessed (via
@@ -1029,6 +1029,9 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 	rw->rw_child_proc = NULL;
 	rw->rw_crashed_at = 0;
 	rw->rw_terminate = false;
+
+	if (!BackgroundWorkerList.head.next)
+		dlist_init(&BackgroundWorkerList);
 
 	dlist_push_head(&BackgroundWorkerList, &rw->rw_lnode);
 }

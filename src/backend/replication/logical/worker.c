@@ -203,7 +203,7 @@ typedef struct FlushPosition
 	XLogRecPtr	remote_end;
 } FlushPosition;
 
-static dlist_head lsn_mapping = DLIST_STATIC_INIT(lsn_mapping);
+static session_local dlist_head lsn_mapping;
 
 typedef struct ApplyExecutionData
 {
@@ -3602,6 +3602,8 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 	errcallback.previous = error_context_stack;
 	error_context_stack = &errcallback;
 	apply_error_context_stack = error_context_stack;
+
+	dlist_init(&lsn_mapping);
 
 	/* This outer loop iterates once per wait. */
 	for (;;)

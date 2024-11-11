@@ -92,12 +92,12 @@
  * We use a dlist instead of separate List cells so that we can guarantee
  * to save a CachedPlanSource without error.
  */
-static /* FIXME: session_local */ dlist_head saved_plan_list = DLIST_STATIC_INIT(saved_plan_list);
+static session_local dlist_head saved_plan_list;
 
 /*
  * This is the head of the backend's list of CachedExpressions.
  */
-static /* FIXME: session_local */ dlist_head cached_expression_list = DLIST_STATIC_INIT(cached_expression_list);
+static session_local dlist_head cached_expression_list;
 
 static void ReleaseGenericPlan(CachedPlanSource *plansource);
 static List *RevalidateCachedQuery(CachedPlanSource *plansource,
@@ -162,6 +162,9 @@ InitPlanCache(void)
 	CacheRegisterSyscacheCallback(AMOPOPID, PlanCacheSysCallback, (Datum) 0);
 	CacheRegisterSyscacheCallback(FOREIGNSERVEROID, PlanCacheSysCallback, (Datum) 0);
 	CacheRegisterSyscacheCallback(FOREIGNDATAWRAPPEROID, PlanCacheSysCallback, (Datum) 0);
+
+	dlist_init(&saved_plan_list);
+	dlist_init(&cached_expression_list);
 }
 
 /*
