@@ -368,7 +368,7 @@ typedef struct mXactCacheEnt
 } mXactCacheEnt;
 
 #define MAX_CACHE_ENTRIES	256
-static /* FIXME: session_local */ dclist_head MXactCache = DCLIST_STATIC_INIT(MXactCache);
+static session_local dclist_head MXactCache;
 static session_local MemoryContext MXactContext = NULL;
 
 #ifdef MULTIXACT_DEBUG
@@ -1733,6 +1733,9 @@ mXactCachePut(MultiXactId multi, int nmembers, MultiXactMember *members)
 
 	/* mXactCacheGetBySet assumes the entries are sorted, so sort them */
 	qsort(entry->members, nmembers, sizeof(MultiXactMember), mxactMemberComparator);
+
+	if (!MXactCache.dlist.head.next)
+		dclist_init(&MXactCache);
 
 	dclist_push_head(&MXactCache, &entry->node);
 	if (dclist_count(&MXactCache) > MAX_CACHE_ENTRIES)
