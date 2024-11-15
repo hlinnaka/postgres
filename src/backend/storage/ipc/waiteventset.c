@@ -197,9 +197,9 @@ static void interrupt_sigurg_handler(SIGNAL_ARGS);
 static void sendSelfPipeByte(void);
 #endif
 
-#if defined(WAIT_USE_SELF_PIPE) || defined(WAIT_USE_SIGNALFD)
+static void sendPipeWakeupByte(int writefd);
+
 static void drain(void);
-#endif
 
 #if defined(WAIT_USE_EPOLL)
 static void WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action);
@@ -211,6 +211,20 @@ static void WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event);
 static void WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event);
 #endif
 
+/*
+ * Multithreaded implementation
+ *
+ * There's a pipe, similar to the self-pipe, for each pmchild slot. And element 0 for
+ * postmaster
+ */
+#define POSTMASTER_PMCHILD_SLOT		INT_MAX
+
+static pg_global int *thread_wakeup_readfds;
+static pg_global int *thread_wakeup_writefds;
+
+
+
+static void InitializeWaitEventSupportProcess(void);
 static inline int WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 										WaitEvent *occurred_events, int nevents);
 
@@ -247,6 +261,53 @@ ResourceOwnerForgetWaitEventSet(ResourceOwner owner, WaitEventSet *set)
  */
 void
 InitializeWaitEventSupport(void)
+{
+	int			n;
+
+	if (!IsMultiThreaded)
+	{
+		InitializeWaitEventSupportProcess();
+		return;
+	}
+
+	/* FIXME: this is called very early at startup, before GUCs are processed */
+	n = MaxLivePostmasterChildren();
+	//n = 300;
+	thread_wakeup_readfds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+	thread_wakeup_writefds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+	for (int i = 0; i < n + 1; i++)
+	{
+		int			pipefd[2];
+
+		/*
+		 * Set up the self-pipe that allows a signal handler to wake up the
+		 * poll()/epoll_wait() in WaitInterrupt. Make the write-end
+		 * non-blocking, so that SendInterrupt won't block if the event has
+		 * already been set many times filling the kernel buffer. Make the
+		 * read-end non-blocking too, so that we can easily clear the pipe by
+		 * reading until EAGAIN or EWOULDBLOCK.  Also, make both FDs
+		 * close-on-exec, since we surely do not want any child processes
+		 * messing with them.
+		 */
+		if (pipe(pipefd) < 0)
+			elog(FATAL, "pipe() failed: %m");
+		if (fcntl(pipefd[0], F_SETFL, O_NONBLOCK) == -1)
+			elog(FATAL, "fcntl(F_SETFL) failed on read-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[1], F_SETFL, O_NONBLOCK) == -1)
+			elog(FATAL, "fcntl(F_SETFL) failed on write-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[0], F_SETFD, FD_CLOEXEC) == -1)
+			elog(FATAL, "fcntl(F_SETFD) failed on read-end of thread wakeup pipe: %m");
+		if (fcntl(pipefd[1], F_SETFD, FD_CLOEXEC) == -1)
+			elog(FATAL, "fcntl(F_SETFD) failed on write-end of thread wakeup pipe: %m");
+
+		thread_wakeup_readfds[i] = pipefd[0];
+		thread_wakeup_writefds[i] = pipefd[1];
+	}
+}
+
+
+static void
+InitializeWaitEventSupportProcess(void)
 {
 #if defined(WAIT_USE_SELF_PIPE)
 	int			pipefd[2];
@@ -1251,7 +1312,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		if (cur_event->events == WL_INTERRUPT &&
 			cur_epoll_event->events & (EPOLLIN | EPOLLERR | EPOLLHUP))
 		{
-			/* Drain the signalfd. */
+			/* Drain the signalfd / thread wakup fd. */
 			drain();
 
 			if (set->interrupt_mask != 0 && (pg_atomic_read_u32(MyPendingInterrupts) & set->interrupt_mask) != 0)
@@ -1927,11 +1988,20 @@ interrupt_sigurg_handler(SIGNAL_ARGS)
 static void
 sendSelfPipeByte(void)
 {
+	sendPipeWakeupByte(selfpipe_writefd);
+}
+
+#endif
+
+/* Send one byte to the self-pipe or a thread wakeup pipe, to wake up WaitLatch */
+static void
+sendPipeWakeupByte(int writefd)
+{
 	int			rc;
 	char		dummy = 0;
 
 retry:
-	rc = write(selfpipe_writefd, &dummy, 1);
+	rc = write(writefd, &dummy, 1);
 	if (rc < 0)
 	{
 		/* If interrupted by signal, just retry */
@@ -1954,10 +2024,6 @@ retry:
 	}
 }
 
-#endif
-
-#if defined(WAIT_USE_SELF_PIPE) || defined(WAIT_USE_SIGNALFD)
-
 /*
  * Read all available data from self-pipe or signalfd.
  *
@@ -1972,12 +2038,18 @@ drain(void)
 	int			rc;
 	int			fd;
 
+	if (IsMultiThreaded)
+		fd = thread_wakeup_readfds[IsUnderPostmaster ? MyPMChildSlot : 0];
+	else
+	{
 #ifdef WAIT_USE_SELF_PIPE
-	fd = selfpipe_readfd;
+		fd = selfpipe_readfd;
+#elif defined(WAIT_USE_SIGNALFD)
+		fd = signal_fd;
 #else
-	fd = signal_fd;
+		elog(PANIC, "drain() called unexpectedly");
 #endif
-
+	}
 	for (;;)
 	{
 		rc = read(fd, buf, sizeof(buf));
@@ -2014,8 +2086,6 @@ drain(void)
 		/* else buffer wasn't big enough, so read again */
 	}
 }
-
-#endif
 
 static void
 ResOwnerReleaseWaitEventSet(Datum res)
@@ -2064,6 +2134,22 @@ WakeupOtherProc(PGPROC *proc)
 	 * assume that the contents of shared memory are valid.  Reading the 'pid'
 	 * (or event handle on Windows) is safe enough.
 	 */
+	if (IsMultiThreaded)
+	{
+		int                     owner_pmchild = proc->pmchild;
+
+		if (owner_pmchild == 0)
+			return;
+		else if (owner_pmchild == (IsUnderPostmaster ? MyPMChildSlot : POSTMASTER_PMCHILD_SLOT))
+		{
+			if (waiting)
+				sendPipeWakeupByte(thread_wakeup_writefds[(owner_pmchild == POSTMASTER_PMCHILD_SLOT) ? 0 : owner_pmchild]);
+		}
+		else
+			sendPipeWakeupByte(thread_wakeup_writefds[(owner_pmchild == POSTMASTER_PMCHILD_SLOT) ? 0 : owner_pmchild]);
+		return;
+	}
+
 #ifndef WIN32
 	kill(proc->pid, SIGURG);
 #else

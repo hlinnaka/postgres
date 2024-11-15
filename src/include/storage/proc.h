@@ -192,6 +192,8 @@ struct PGPROC
 
 	int			pid;			/* Backend's process ID; 0 if prepared xact */
 
+	int			pmchild;
+
 	int			pgxactoff;		/* offset into various ProcGlobal->arrays with
 								 * data mirrored from this PGPROC */
 
