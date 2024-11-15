@@ -68,6 +68,7 @@
 #define PM_CHILD_ASSIGNED	1
 #define PM_CHILD_ACTIVE		2
 #define PM_CHILD_WALSENDER	3
+#define PM_CHILD_EXITED		4
 
 /* "typedef struct PMSignalData PMSignalData" appears in pmsignal.h */
 struct PMSignalData
@@ -171,7 +172,10 @@ SendPostmasterSignal(PMSignalReason reason)
 
 	/* Send signal to postmaster */
 	if (IsMultiThreaded)
-		handle_pm_pmsignal_signal(0);
+	{
+		// FIXME: How to raise interrupt in postmaster?
+		handle_pm_pmsignal_signal(0, 0);
+	}
 	else
 		kill(PostmasterPid, SIGUSR1);
 }

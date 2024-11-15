@@ -431,9 +431,9 @@ static void process_pm_reload_request(void);
 static void process_pm_shutdown_request(void);
 static void dummy_handler(SIGNAL_ARGS);
 static void CleanupBackend(PMChild *bp, int exitstatus);
-static void HandleChildCrash(int pid, int exitstatus, const char *procname);
+static void HandleChildCrash(pid_or_threadid id, int exitstatus, const char *procname);
 static void LogChildExit(int lev, const char *procname,
-						 int pid, int exitstatus);
+						 pid_or_threadid id, int exitstatus);
 static void PostmasterStateMachine(void);
 static void UpdatePMState(PMState newState);
 
@@ -442,13 +442,12 @@ static int	ServerLoop(void);
 static int	BackendStartup(ClientSocket *client_sock);
 static void report_fork_failure_to_client(ClientSocket *client_sock, int errnum);
 static CAC_state canAcceptConnections(BackendType backend_type);
-static void signal_child(PMChild *pmchild, int signal);
 static bool SignalChildren(int signal, BackendTypeMask targetMask);
 static void TerminateChildren(int signal);
 static int	CountChildren(BackendTypeMask targetMask);
 static void LaunchMissingBackgroundProcesses(void);
 static void maybe_start_bgworkers(void);
-static bool maybe_reap_io_worker(int pid);
+static bool maybe_reap_io_worker(PMChild *pmchild);
 static void maybe_start_io_workers(void);
 static TimestampTz maybe_start_io_workers_scheduled_at(void);
 static bool CreateOptsFile(int argc, char *argv[], char *fullprogname);
@@ -457,6 +456,8 @@ static void StartSysLogger(void);
 static void StartAutovacuumWorker(void);
 static bool StartBackgroundWorker(RegisteredBgWorker *rw);
 static void InitPostmasterDeathWatchHandle(void);
+static bool thread_wait_exit(pthread_t *threadid, int *exitstatus);
+
 
 #ifdef WIN32
 #define WNOHANG 0				/* ignored, so any integer value will do */
@@ -536,6 +537,10 @@ PostmasterMain(int argc, char *argv[])
 											  "Postmaster",
 											  ALLOCSET_DEFAULT_SIZES);
 	MemoryContextSwitchTo(PostmasterContext);
+
+	MultiThreadGlobalContext = AllocSetContextCreate(TopMemoryContext,
+											  "multi-thread global",
+											  ALLOCSET_DEFAULT_SIZES);
 
 	/* Initialize paths to installation files */
 	getInstallationPaths(argv[0]);
@@ -1729,7 +1734,7 @@ ServerLoop(void)
 					BackendStartup(&s);
 
 				/* We no longer need the open socket in this process */
-				if (s.sock != PGINVALID_SOCKET)
+				if (!IsMultiThreaded && s.sock != PGINVALID_SOCKET)
 				{
 					if (closesocket(s.sock) != 0)
 						elog(LOG, "could not close client socket: %m");
@@ -2259,7 +2264,7 @@ handle_pm_child_exit_signal(SIGNAL_ARGS)
 static void
 process_pm_child_exit(void)
 {
-	int			pid;			/* process id of dead child process */
+	pid_or_threadid id;			/* process id of dead child process */
 	int			exitstatus;		/* its exit status */
 
 	pending_pm_child_exit = false;
@@ -2267,14 +2272,40 @@ process_pm_child_exit(void)
 	ereport(DEBUG4,
 			(errmsg_internal("reaping dead processes")));
 
-	while ((pid = waitpid(-1, &exitstatus, WNOHANG)) > 0)
+	for(;;)
 	{
 		PMChild    *pmchild;
+
+		if (!IsMultiThreaded)
+		{
+			id.pid = waitpid(-1, &exitstatus, WNOHANG);
+			if (id.pid <= 0)
+				break;
+		}
+		else
+		{
+			if (!thread_wait_exit(&id.threadid, &exitstatus))
+				break;
+		}
+		pmchild = FindPostmasterChildByPid(id);
+
+		if (pmchild == NULL)
+		{
+			/*
+			 * We don't know anything about this child process.  That's highly
+			 * unexpected, as we do track all the child processes that we fork.
+			 */
+			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
+				HandleChildCrash(id, exitstatus, _("untracked child process"));
+			else
+				LogChildExit(LOG, _("untracked child process"), id, exitstatus);
+			continue;
+		}
 
 		/*
 		 * Check if this child was a startup process.
 		 */
-		if (StartupPMChild && pid == StartupPMChild->pid)
+		if (pmchild == StartupPMChild)
 		{
 			ReleasePostmasterChildSlot(StartupPMChild);
 			StartupPMChild = NULL;
@@ -2305,13 +2336,29 @@ process_pm_child_exit(void)
 			}
 
 			/*
-			 * Any unexpected exit (including FATAL exit) of the startup
-			 * process is catastrophic, so kill other children, and set
-			 * StartupStatus so we don't try to reinitialize after they're
-			 * gone.  Exception: if StartupStatus is STARTUP_SIGNALED, then we
-			 * previously sent the startup process a SIGQUIT; so that's
-			 * probably the reason it died, and we do want to try to restart
-			 * in that case.
+			 * Unexpected exit of startup process (including FATAL exit)
+			 * during PM_STARTUP is treated as catastrophic. There are no
+			 * other processes running yet, so we can just exit.
+			 */
+			if (pmState == PM_STARTUP &&
+				StartupStatus != STARTUP_SIGNALED &&
+				!EXIT_STATUS_0(exitstatus))
+			{
+				LogChildExit(LOG, _("startup process"),
+							 id, exitstatus);
+				ereport(LOG,
+						(errmsg("aborting startup due to startup process failure")));
+				ExitPostmaster(1);
+			}
+
+			/*
+			 * After PM_STARTUP, any unexpected exit (including FATAL exit) of
+			 * the startup process is catastrophic, so kill other children,
+			 * and set StartupStatus so we don't try to reinitialize after
+			 * they're gone.  Exception: if StartupStatus is STARTUP_SIGNALED,
+			 * then we previously sent the startup process a SIGQUIT; so
+			 * that's probably the reason it died, and we do want to try to
+			 * restart in that case.
 			 *
 			 * This stanza also handles the case where we sent a SIGQUIT
 			 * during PM_STARTUP due to some dead-end child crashing: in that
@@ -2332,7 +2379,7 @@ process_pm_child_exit(void)
 				}
 				else
 					StartupStatus = STARTUP_CRASHED;
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("startup process"));
 				continue;
 			}
@@ -2372,12 +2419,12 @@ process_pm_child_exit(void)
 		 * one at the next iteration of the postmaster's main loop, if
 		 * necessary.  Any other exit condition is treated as a crash.
 		 */
-		if (BgWriterPMChild && pid == BgWriterPMChild->pid)
+		if (pmchild == BgWriterPMChild)
 		{
 			ReleasePostmasterChildSlot(BgWriterPMChild);
 			BgWriterPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("background writer process"));
 			continue;
 		}
@@ -2385,7 +2432,7 @@ process_pm_child_exit(void)
 		/*
 		 * Was it the checkpointer?
 		 */
-		if (CheckpointerPMChild && pid == CheckpointerPMChild->pid)
+		if (pmchild == CheckpointerPMChild)
 		{
 			ReleasePostmasterChildSlot(CheckpointerPMChild);
 			CheckpointerPMChild = NULL;
@@ -2410,7 +2457,7 @@ process_pm_child_exit(void)
 				 * Any unexpected exit of the checkpointer (including FATAL
 				 * exit) is treated as a crash.
 				 */
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("checkpointer process"));
 			}
 
@@ -2422,12 +2469,12 @@ process_pm_child_exit(void)
 		 * new one at the next iteration of the postmaster's main loop, if
 		 * necessary.  Any other exit condition is treated as a crash.
 		 */
-		if (WalWriterPMChild && pid == WalWriterPMChild->pid)
+		if (pmchild == WalWriterPMChild)
 		{
 			ReleasePostmasterChildSlot(WalWriterPMChild);
 			WalWriterPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("WAL writer process"));
 			continue;
 		}
@@ -2438,12 +2485,12 @@ process_pm_child_exit(void)
 		 * backends.  (If we need a new wal receiver, we'll start one at the
 		 * next iteration of the postmaster's main loop.)
 		 */
-		if (WalReceiverPMChild && pid == WalReceiverPMChild->pid)
+		if (pmchild == WalReceiverPMChild)
 		{
 			ReleasePostmasterChildSlot(WalReceiverPMChild);
 			WalReceiverPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("WAL receiver process"));
 			continue;
 		}
@@ -2453,12 +2500,12 @@ process_pm_child_exit(void)
 		 * a new one at the next iteration of the postmaster's main loop, if
 		 * necessary.  Any other exit condition is treated as a crash.
 		 */
-		if (WalSummarizerPMChild && pid == WalSummarizerPMChild->pid)
+		if (pmchild == WalSummarizerPMChild)
 		{
 			ReleasePostmasterChildSlot(WalSummarizerPMChild);
 			WalSummarizerPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("WAL summarizer process"));
 			continue;
 		}
@@ -2469,12 +2516,12 @@ process_pm_child_exit(void)
 		 * loop, if necessary.  Any other exit condition is treated as a
 		 * crash.
 		 */
-		if (AutoVacLauncherPMChild && pid == AutoVacLauncherPMChild->pid)
+		if (pmchild == AutoVacLauncherPMChild)
 		{
 			ReleasePostmasterChildSlot(AutoVacLauncherPMChild);
 			AutoVacLauncherPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("autovacuum launcher process"));
 			continue;
 		}
@@ -2485,18 +2532,18 @@ process_pm_child_exit(void)
 		 * and just try to start a new one on the next cycle of the
 		 * postmaster's main loop, to retry archiving remaining files.
 		 */
-		if (PgArchPMChild && pid == PgArchPMChild->pid)
+		if (pmchild == PgArchPMChild)
 		{
 			ReleasePostmasterChildSlot(PgArchPMChild);
 			PgArchPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("archiver process"));
 			continue;
 		}
 
 		/* Was it the system logger?  If so, try to start a new one */
-		if (SysLoggerPMChild && pid == SysLoggerPMChild->pid)
+		if (pmchild == SysLoggerPMChild)
 		{
 			ReleasePostmasterChildSlot(SysLoggerPMChild);
 			SysLoggerPMChild = NULL;
@@ -2507,7 +2554,7 @@ process_pm_child_exit(void)
 
 			if (!EXIT_STATUS_0(exitstatus))
 				LogChildExit(LOG, _("system logger process"),
-							 pid, exitstatus);
+							 id, exitstatus);
 			continue;
 		}
 
@@ -2518,21 +2565,21 @@ process_pm_child_exit(void)
 		 * start a new one at the next iteration of the postmaster's main
 		 * loop, if necessary. Any other exit condition is treated as a crash.
 		 */
-		if (SlotSyncWorkerPMChild && pid == SlotSyncWorkerPMChild->pid)
+		if (pmchild == SlotSyncWorkerPMChild)
 		{
 			ReleasePostmasterChildSlot(SlotSyncWorkerPMChild);
 			SlotSyncWorkerPMChild = NULL;
 			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus,
+				HandleChildCrash(id, exitstatus,
 								 _("slot sync worker process"));
 			continue;
 		}
 
 		/* Was it an IO worker? */
-		if (maybe_reap_io_worker(pid))
+		if (maybe_reap_io_worker(pmchild))
 		{
 			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus, _("io worker"));
+				HandleChildCrash(id, exitstatus, _("io worker"));
 
 			/*
 			 * A worker that exited with an error might have brought the pool
@@ -2551,23 +2598,7 @@ process_pm_child_exit(void)
 		/*
 		 * Was it a backend or a background worker?
 		 */
-		pmchild = FindPostmasterChildByPid(pid);
-		if (pmchild)
-		{
-			CleanupBackend(pmchild, exitstatus);
-		}
-
-		/*
-		 * We don't know anything about this child process.  That's highly
-		 * unexpected, as we do track all the child processes that we fork.
-		 */
-		else
-		{
-			if (!EXIT_STATUS_0(exitstatus) && !EXIT_STATUS_1(exitstatus))
-				HandleChildCrash(pid, exitstatus, _("untracked child process"));
-			else
-				LogChildExit(LOG, _("untracked child process"), pid, exitstatus);
-		}
+		CleanupBackend(pmchild, exitstatus);
 	}							/* loop over pending child-death reports */
 
 	/*
@@ -2591,7 +2622,7 @@ CleanupBackend(PMChild *bp,
 	const char *procname;
 	bool		crashed = false;
 	bool		logged = false;
-	pid_t		bp_pid;
+	pid_or_threadid bp_pid;
 	int			bp_child_slot;
 	bool		bp_bgworker_notify;
 	BackendType bp_bkend_type;
@@ -2703,7 +2734,7 @@ CleanupBackend(PMChild *bp,
 			rw->rw_terminate = true;
 		}
 
-		rw->rw_pid = 0;
+		rw->rw_child_proc = NULL;
 		ReportBackgroundWorkerExit(rw); /* report child death */
 
 		if (!logged)
@@ -2816,7 +2847,7 @@ HandleFatalError(QuitSignalReason reason, bool consider_sigabrt)
  * The caller has already released its PMChild slot.
  */
 static void
-HandleChildCrash(int pid, int exitstatus, const char *procname)
+HandleChildCrash(pid_or_threadid id, int exitstatus, const char *procname)
 {
 	/*
 	 * We only log messages and send signals if this is the first process
@@ -2828,7 +2859,7 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 	if (FatalError || Shutdown == ImmediateShutdown)
 		return;
 
-	LogChildExit(LOG, procname, pid, exitstatus);
+	LogChildExit(LOG, procname, id, exitstatus);
 	ereport(LOG,
 			(errmsg("terminating any other active server processes")));
 
@@ -2843,7 +2874,7 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
  * Log the death of a child process.
  */
 static void
-LogChildExit(int lev, const char *procname, int pid, int exitstatus)
+LogChildExit(int lev, const char *procname, pid_or_threadid id, int exitstatus)
 {
 	/*
 	 * size of activity_buffer is arbitrary, but set equal to default
@@ -2853,7 +2884,7 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 	const char *activity = NULL;
 
 	if (!EXIT_STATUS_0(exitstatus))
-		activity = pgstat_get_crashed_backend_activity(pid,
+		activity = pgstat_get_crashed_backend_activity(id.pid,
 													   activity_buffer,
 													   sizeof(activity_buffer));
 
@@ -2864,7 +2895,7 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) exited with exit code %d",
-						procname, pid, WEXITSTATUS(exitstatus)),
+						procname, id.pid, WEXITSTATUS(exitstatus)),
 				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 	else if (WIFSIGNALED(exitstatus))
 	{
@@ -2875,7 +2906,7 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) was terminated by exception 0x%X",
-						procname, pid, WTERMSIG(exitstatus)),
+						procname, id.pid, WTERMSIG(exitstatus)),
 				 errhint("See C include file \"ntstatus.h\" for a description of the hexadecimal value."),
 				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 #else
@@ -2885,7 +2916,7 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) was terminated by signal %d: %s",
-						procname, pid, WTERMSIG(exitstatus),
+						procname, id.pid, WTERMSIG(exitstatus),
 						pg_strsignal(WTERMSIG(exitstatus))),
 				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 #endif
@@ -2897,7 +2928,7 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 		  translator: %s is a noun phrase describing a child process, such as
 		  "server process" */
 				(errmsg("%s (PID %d) exited with unrecognized status %d",
-						procname, pid, exitstatus),
+						procname, id.pid, exitstatus),
 				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 }
 
@@ -3486,16 +3517,23 @@ pm_signame(int signal)
  * to spawn any grandchild processes.  We also assume that signaling the
  * child twice will not cause any problems.
  */
-static void
+void
 signal_child(PMChild *pmchild, int signal)
 {
-	pid_t		pid = pmchild->pid;
+	pid_t		pid;
+
+	if (IsMultiThreaded)
+		return;  /* FIXME: broken */
+
+	if (pmchild == NULL || pmchild->pid.pid == 0)
+		return;
+	pid = pmchild->pid.pid;
 
 	ereport(DEBUG3,
 			(errmsg_internal("sending signal %d/%s to %s process with pid %d",
 							 signal, pm_signame(signal),
 							 GetBackendTypeDesc(pmchild->bkend_type),
-							 (int) pmchild->pid)));
+							 (int) pmchild->pid.pid)));
 
 	if (kill(pid, signal) < 0)
 		elog(DEBUG3, "kill(%ld,%d) failed: %m", (long) pid, signal);
@@ -3577,7 +3615,8 @@ static int
 BackendStartup(ClientSocket *client_sock)
 {
 	PMChild    *bn = NULL;
-	pid_t		pid;
+	pid_or_threadid id;
+	bool		success;
 	BackendStartupData startup_data;
 	CAC_state	cac;
 
@@ -3625,10 +3664,11 @@ BackendStartup(ClientSocket *client_sock)
 	/* Hasn't asked to be notified about any bgworkers yet */
 	bn->bgworker_notify = false;
 
-	pid = postmaster_child_launch(bn->bkend_type, bn->child_slot,
+	success = postmaster_child_launch(bn->bkend_type, bn->child_slot,
 								  &startup_data, sizeof(startup_data),
-								  client_sock);
-	if (pid == -1)
+								  client_sock,
+								  &id);
+	if (!success)
 	{
 		/* in parent, fork failed */
 		int			save_errno = errno;
@@ -3645,13 +3685,14 @@ BackendStartup(ClientSocket *client_sock)
 	ereport(DEBUG2,
 			(errmsg_internal("forked new %s, pid=%d socket=%d",
 							 GetBackendTypeDesc(bn->bkend_type),
-							 (int) pid, (int) client_sock->sock)));
+							 (int) id.pid, (int) client_sock->sock)));
 
 	/*
 	 * Everything's been successful, it's safe to add this backend to our list
 	 * of backends.
 	 */
-	bn->pid = pid;
+	bn->pid = id;
+
 	return STATUS_OK;
 }
 
@@ -3991,7 +4032,7 @@ CountChildren(BackendTypeMask targetMask)
 
 		ereport(DEBUG4,
 				(errmsg_internal("%s process %d is still running",
-								 GetBackendTypeDesc(bp->bkend_type), (int) bp->pid)));
+								 GetBackendTypeDesc(bp->bkend_type), (int) bp->pid.pid)));
 
 		cnt++;
 	}
@@ -4011,8 +4052,9 @@ CountChildren(BackendTypeMask targetMask)
 static PMChild *
 StartChildProcess(BackendType type)
 {
+	pid_or_threadid id;
+	bool		success;
 	PMChild    *pmchild;
-	pid_t		pid;
 
 	pmchild = AssignPostmasterChildSlot(type);
 	if (!pmchild)
@@ -4029,8 +4071,8 @@ StartChildProcess(BackendType type)
 		return NULL;
 	}
 
-	pid = postmaster_child_launch(type, pmchild->child_slot, NULL, 0, NULL);
-	if (pid < 0)
+	success = postmaster_child_launch(type, pmchild->child_slot, NULL, 0, NULL, &id);
+	if (!success)
 	{
 		/* in parent, fork failed */
 		ReleasePostmasterChildSlot(pmchild);
@@ -4047,7 +4089,7 @@ StartChildProcess(BackendType type)
 	}
 
 	/* in parent, successful fork */
-	pmchild->pid = pid;
+	pmchild->pid = id;
 	return pmchild;
 }
 
@@ -4057,13 +4099,15 @@ StartChildProcess(BackendType type)
 void
 StartSysLogger(void)
 {
+	bool		success;
+
 	Assert(SysLoggerPMChild == NULL);
 
 	SysLoggerPMChild = AssignPostmasterChildSlot(B_LOGGER);
 	if (!SysLoggerPMChild)
 		elog(PANIC, "no postmaster child slot available for syslogger");
-	SysLoggerPMChild->pid = SysLogger_Start(SysLoggerPMChild->child_slot);
-	if (SysLoggerPMChild->pid == 0)
+	success = SysLogger_Start(SysLoggerPMChild->child_slot, &SysLoggerPMChild->pid);
+	if (!success)
 	{
 		ReleasePostmasterChildSlot(SysLoggerPMChild);
 		SysLoggerPMChild = NULL;
@@ -4175,9 +4219,9 @@ static bool
 StartBackgroundWorker(RegisteredBgWorker *rw)
 {
 	PMChild    *bn;
-	pid_t		worker_pid;
+	pid_or_threadid		worker_pid;
 
-	Assert(rw->rw_pid == 0);
+	Assert(rw->rw_child_proc == NULL);
 
 	/*
 	 * Allocate and assign the child slot.  Note we must do this before
@@ -4206,9 +4250,9 @@ StartBackgroundWorker(RegisteredBgWorker *rw)
 			(errmsg_internal("starting background worker process \"%s\"",
 							 rw->rw_worker.bgw_name)));
 
-	worker_pid = postmaster_child_launch(B_BG_WORKER, bn->child_slot,
-										 &rw->rw_worker, sizeof(BackgroundWorker), NULL);
-	if (worker_pid == -1)
+	if (postmaster_child_launch(B_BG_WORKER, bn->child_slot,
+								&rw->rw_worker, sizeof(BackgroundWorker), NULL,
+								&worker_pid))
 	{
 		/* in postmaster, fork failed ... */
 		ereport(LOG,
@@ -4222,8 +4266,8 @@ StartBackgroundWorker(RegisteredBgWorker *rw)
 	}
 
 	/* in postmaster, fork successful ... */
-	rw->rw_pid = worker_pid;
-	bn->pid = rw->rw_pid;
+	rw->rw_child_proc = bn;
+	bn->pid = worker_pid;
 	ReportBackgroundWorkerPID(rw);
 	return true;
 }
@@ -4308,7 +4352,7 @@ maybe_start_bgworkers(void)
 		rw = dlist_container(RegisteredBgWorker, rw_lnode, iter.cur);
 
 		/* ignore if already running */
-		if (rw->rw_pid != 0)
+		if (rw->rw_child_proc)
 			continue;
 
 		/* if marked for death, clean up and remove from list */
@@ -4393,12 +4437,11 @@ maybe_start_bgworkers(void)
 }
 
 static bool
-maybe_reap_io_worker(int pid)
+maybe_reap_io_worker(PMChild *pmchild)
 {
 	for (int i = 0; i < MAX_IO_WORKERS; ++i)
 	{
-		if (io_worker_children[i] &&
-			io_worker_children[i]->pid == pid)
+		if (io_worker_children[i] == pmchild)
 		{
 			ReleasePostmasterChildSlot(io_worker_children[i]);
 
@@ -4567,7 +4610,7 @@ PostmasterMarkPIDForWorkerNotify(int pid)
 	dlist_foreach(iter, &ActiveChildList)
 	{
 		bp = dlist_container(PMChild, elem, iter.cur);
-		if (bp->pid == pid)
+		if (bp->pid.pid == pid)
 		{
 			bp->bgworker_notify = true;
 			return true;
@@ -4741,4 +4784,62 @@ InitPostmasterDeathWatchHandle(void)
 				(errmsg_internal("could not duplicate postmaster handle: error code %lu",
 								 GetLastError())));
 #endif							/* WIN32 */
+}
+
+typedef struct threadnode
+{
+	pthread_t	threadid;
+	int			code;
+	struct threadnode *next;
+} threadnode;
+
+static slock_t thread_exit_lock;
+static threadnode *thread_exit_head = NULL;
+
+void
+thread_pre_exit(pthread_t threadid, int code)
+{
+	/* FIXME: handle OOM */
+	threadnode *node = malloc(sizeof(threadnode));
+
+	SpinLockAcquire(&thread_exit_lock);
+	node->next = thread_exit_head;
+	node->threadid = threadid;
+	node->code = code;
+	thread_exit_head = node;
+	SpinLockRelease(&thread_exit_lock);
+
+	pending_pm_child_exit = true;
+	RaiseInterrupt(INTERRUPT_TERMINATE);
+}
+
+static bool
+thread_wait_exit(pthread_t *threadid, int *exitstatus)
+{
+	threadnode *node;
+	void	   *retval;
+
+	SpinLockAcquire(&thread_exit_lock);
+	node = thread_exit_head;
+	if (node != NULL)
+		thread_exit_head = node->next;
+	SpinLockRelease(&thread_exit_lock);
+
+	if (!node)
+		return false;
+
+	*exitstatus = node->code;
+	*threadid = node->threadid;
+	free(node);
+
+	if (pthread_join(*threadid, &retval) != 0)
+	{
+		elog(LOG, "could not join thread: %m");
+		return false;
+	}
+	if ((int) ((intptr_t) retval) != *exitstatus)
+		elog(LOG, "exit code doesn't match: pthread_join returned %d, claimed exit code %d",
+			 (int) ((intptr_t) retval), *exitstatus);
+
+	return true;
 }

@@ -63,6 +63,8 @@ extern PGDLLIMPORT session_local MemoryContext MessageContext;
 extern PGDLLIMPORT session_local MemoryContext TopTransactionContext;
 extern PGDLLIMPORT session_local MemoryContext CurTransactionContext;
 
+extern PGDLLIMPORT pg_global MemoryContext MultiThreadGlobalContext;
+
 /* This is a transient link to the active portal's memory context: */
 extern PGDLLIMPORT session_local MemoryContext PortalContext;
 

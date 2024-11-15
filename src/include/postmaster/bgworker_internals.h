@@ -33,7 +33,7 @@
 typedef struct RegisteredBgWorker
 {
 	BackgroundWorker rw_worker; /* its registry entry */
-	pid_t		rw_pid;			/* 0 if not running */
+	struct PMChild *rw_child_proc;	/* NULL if not running */
 	TimestampTz rw_crashed_at;	/* if not 0, time it last crashed */
 	int			rw_shmem_slot;
 	bool		rw_terminate;

@@ -1087,7 +1087,8 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 
 	if (IsUnderPostmaster)
 	{
-		LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
+		// FIXME: AddinShmemInit is pretty arbitrary here
+		LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
 		locked = true;
 	}
 
@@ -1106,7 +1107,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 	if (op == DSM_OP_DETACH)
 	{
 		if (locked)
-			LWLockRelease(ShmemIndexLock);
+			LWLockRelease(AddinShmemInitLock);
 		return true;			/* no op */
 	}
 
@@ -1124,7 +1125,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 		else
 			pfree(entry->ptr);
 		if (locked)
-			LWLockRelease(ShmemIndexLock);
+			LWLockRelease(AddinShmemInitLock);
 		return true;
 	}
 
@@ -1138,7 +1139,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 		if (!entry)
 		{
 			if (locked)
-				LWLockRelease(ShmemIndexLock);
+				LWLockRelease(AddinShmemInitLock);
 			ereport(elevel,
 					(errcode_for_dynamic_shared_memory(),
 					 errmsg("could not find shared memory segment \"%d\": %m",
@@ -1148,7 +1149,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 		*mapped_address = entry->ptr;
 		*mapped_size = entry->size;
 		if (locked)
-			LWLockRelease(ShmemIndexLock);
+			LWLockRelease(AddinShmemInitLock);
 		return true;
 	}
 	if (op == DSM_OP_CREATE)
@@ -1163,7 +1164,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 					(errcode_for_dynamic_shared_memory(),
 					 errmsg("shared memory segment \"%d\" already exists", handle)));
 			if (locked)
-				LWLockRelease(ShmemIndexLock);
+				LWLockRelease(AddinShmemInitLock);
 			return false;
 		}
 
@@ -1175,7 +1176,7 @@ dsm_impl_threaded(dsm_op op, dsm_handle handle, Size request_size,
 		*mapped_address = ptr;
 		*mapped_size = request_size;
 		if (locked)
-			LWLockRelease(ShmemIndexLock);
+			LWLockRelease(AddinShmemInitLock);
 		return true;
 	}
 
