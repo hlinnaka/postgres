@@ -102,6 +102,8 @@ extern bool PostmasterMarkPIDForWorkerNotify(int);
 extern void pgwin32_register_deadchild_callback(HANDLE procHandle, DWORD procId);
 #endif
 
+extern void handle_pm_pmsignal_signal(SIGNAL_ARGS);
+
 /* defined in globals.c */
 extern PGDLLIMPORT session_local struct ClientSocket *MyClientSocket;
 
