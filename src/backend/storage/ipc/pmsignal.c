@@ -169,8 +169,12 @@ SendPostmasterSignal(PMSignalReason reason)
 		return;
 	/* Atomically set the proper flag */
 	PMSignalState->PMSignalFlags[reason] = true;
+
 	/* Send signal to postmaster */
-	kill(PostmasterPid, SIGUSR1);
+	if (IsMultiThreaded)
+		handle_pm_pmsignal_signal(0);
+	else
+		kill(PostmasterPid, SIGUSR1);
 }
 
 /*
