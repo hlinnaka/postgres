@@ -253,6 +253,13 @@ dsm_cleanup_using_control_segment(dsm_handle old_control_handle)
 	 * exists, or an unrelated process has used the same shm ID.  So just fall
 	 * out quietly.
 	 */
+	 /*
+	  * With the multithreaded dummy implementation, there's nothing to clean
+	  * up.  FIXME: if you switch from multithreaded off to on, we will not do
+	  * the cleanup.
+	  */
+	if (IsMultiThreaded)
+		return;
 	if (!dsm_impl_op(DSM_OP_ATTACH, old_control_handle, 0, &impl_private,
 					 &mapped_address, &mapped_size, DEBUG1))
 		return;

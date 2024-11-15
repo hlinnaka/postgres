@@ -38,7 +38,6 @@ static session_guc int	min_password_length = 8;
 
 DEFINE_INT_GUC_ADDR(min_password_length)
 
-
 /*
  * check_password
  *

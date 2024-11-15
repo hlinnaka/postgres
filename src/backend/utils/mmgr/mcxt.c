@@ -170,6 +170,9 @@ session_local MemoryContext MessageContext = NULL;
 session_local MemoryContext TopTransactionContext = NULL;
 session_local MemoryContext CurTransactionContext = NULL;
 
+/* FIXME: update README */
+pg_global MemoryContext MultiThreadGlobalContext = NULL;
+
 /* This is a transient link to the active portal's memory context: */
 session_local MemoryContext PortalContext = NULL;
 session_local dsa_area   *MemoryStatsDsaArea = NULL;
