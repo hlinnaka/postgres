@@ -43,11 +43,18 @@ static session_local WaitEventSet *InterruptWaitSet;
 #define InterruptWaitSetPostmasterDeathPos 1
 
 static session_local PendingInterrupts LocalPendingInterrupts;
-session_local PendingInterrupts *MyPendingInterrupts = NULL; // FIXME: &LocalPendingInterrupts;
-session_local pg_atomic_uint32 *MyPendingInterruptsFlags = NULL; // FIXME: &LocalPendingInterrupts.flags;
+session_local PendingInterrupts *MyPendingInterrupts = NULL;
+session_local pg_atomic_uint32 *MyPendingInterruptsFlags = NULL;
 const pg_atomic_uint32 ZeroPendingInterruptsFlags;
 
 static pg_global int	nextAddinInterruptBit = BEGIN_ADDIN_INTERRUPTS;
+
+void
+InitializeInterruptSupport(void)
+{
+	MyPendingInterrupts = &LocalPendingInterrupts;
+	MyPendingInterruptsFlags = &LocalPendingInterrupts.flags;
+}
 
 /*
  * Install an interrupt handler callback function for the given interrupt.

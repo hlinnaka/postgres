@@ -173,6 +173,7 @@ extern int	WaitInterruptOrSocket(InterruptMask interruptMask, int wakeEvents, pg
 extern void SwitchToLocalInterrupts(void);
 extern void SwitchToSharedInterrupts(void);
 extern void InitializeInterruptWaitSet(void);
+extern void InitializeInterruptSupport(void);
 
 
 /*****************************************************************************
