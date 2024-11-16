@@ -24,15 +24,21 @@
 #include "utils/resowner.h"
 
 /* A common WaitEventSet used to implement WaitInterrupt() */
-static WaitEventSet *InterruptWaitSet;
+static session_local WaitEventSet *InterruptWaitSet;
 
 /* The position of the interrupt in InterruptWaitSet. */
 #define InterruptWaitSetInterruptPos 0
 #define InterruptWaitSetPostmasterDeathPos 1
 
-static pg_atomic_uint32 LocalPendingInterrupts;
+static session_local pg_atomic_uint32 LocalPendingInterrupts;
 
-pg_atomic_uint32 *MyPendingInterrupts = &LocalPendingInterrupts;
+session_local pg_atomic_uint32 *MyPendingInterrupts;
+
+void
+InitializeInterruptSupport(void)
+{
+	MyPendingInterrupts = &LocalPendingInterrupts;
+}
 
 /*
  * Switch to local interrupts.  Other backends can't send interrupts to this

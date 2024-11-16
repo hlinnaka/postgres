@@ -110,7 +110,10 @@ static bool injection_point_local = false;
  * during a test with injection points, like for example if a test relies
  * on a callback run in a critical section where no allocation should happen.
  */
-bool		inj_stats_enabled = false;
+postmaster_guc bool		inj_stats_enabled = false;
+
+DEFINE_BOOL_GUC_ADDR(inj_stats_enabled)
+
 
 /* Shared memory init callbacks */
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
@@ -526,7 +529,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("injection_points.stats",
 							 "Enables statistics for injection points.",
 							 NULL,
-							 &inj_stats_enabled,
+							 GUC_ADDR(inj_stats_enabled),
 							 false,
 							 PGC_POSTMASTER,
 							 0,

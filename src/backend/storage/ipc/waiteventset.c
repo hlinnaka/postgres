@@ -264,44 +264,49 @@ InitializeWaitEventSupport(void)
 {
 	int			n;
 
+	InitializeInterruptSupport();
+
 	if (!IsMultiThreaded)
 	{
 		InitializeWaitEventSupportProcess();
 		return;
 	}
 
-	/* FIXME: this is called very early at startup, before GUCs are processed */
-	// n = MaxLivePostmasterChildren();
-	n = 300;
-	thread_wakeup_readfds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
-	thread_wakeup_writefds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
-	for (int i = 0; i < n + 1; i++)
+	if (thread_wakeup_readfds == NULL)
 	{
-		int			pipefd[2];
+		/* FIXME: this is called very early at startup, before GUCs are processed */
+		// n = MaxLivePostmasterChildren();
+		n = 300;
+		thread_wakeup_readfds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+		thread_wakeup_writefds = MemoryContextAlloc(MultiThreadGlobalContext, (n + 1) * sizeof(int));
+		for (int i = 0; i < n + 1; i++)
+		{
+			int			pipefd[2];
 
-		/*
-		 * Set up the self-pipe that allows a signal handler to wake up the
-		 * poll()/epoll_wait() in WaitInterrupt. Make the write-end
-		 * non-blocking, so that SendInterrupt won't block if the event has
-		 * already been set many times filling the kernel buffer. Make the
-		 * read-end non-blocking too, so that we can easily clear the pipe by
-		 * reading until EAGAIN or EWOULDBLOCK.  Also, make both FDs
-		 * close-on-exec, since we surely do not want any child processes
-		 * messing with them.
-		 */
-		if (pipe(pipefd) < 0)
-			elog(FATAL, "pipe() failed: %m");
-		if (fcntl(pipefd[0], F_SETFL, O_NONBLOCK) == -1)
-			elog(FATAL, "fcntl(F_SETFL) failed on read-end of thread wakeup pipe: %m");
-		if (fcntl(pipefd[1], F_SETFL, O_NONBLOCK) == -1)
-			elog(FATAL, "fcntl(F_SETFL) failed on write-end of thread wakeup pipe: %m");
-		if (fcntl(pipefd[0], F_SETFD, FD_CLOEXEC) == -1)
-			elog(FATAL, "fcntl(F_SETFD) failed on read-end of thread wakeup pipe: %m");
-		if (fcntl(pipefd[1], F_SETFD, FD_CLOEXEC) == -1)
-			elog(FATAL, "fcntl(F_SETFD) failed on write-end of thread wakeup pipe: %m");
+			/*
+			 * Set up the self-pipe that allows a signal handler to wake up the
+			 * poll()/epoll_wait() in WaitInterrupt. Make the write-end
+			 * non-blocking, so that SendInterrupt won't block if the event has
+			 * already been set many times filling the kernel buffer. Make the
+			 * read-end non-blocking too, so that we can easily clear the pipe by
+			 * reading until EAGAIN or EWOULDBLOCK.  Also, make both FDs
+			 * close-on-exec, since we surely do not want any child processes
+			 * messing with them.
+			 */
+			if (pipe(pipefd) < 0)
+				elog(FATAL, "pipe() failed: %m");
+			if (fcntl(pipefd[0], F_SETFL, O_NONBLOCK) == -1)
+				elog(FATAL, "fcntl(F_SETFL) failed on read-end of thread wakeup pipe: %m");
+			if (fcntl(pipefd[1], F_SETFL, O_NONBLOCK) == -1)
+				elog(FATAL, "fcntl(F_SETFL) failed on write-end of thread wakeup pipe: %m");
+			if (fcntl(pipefd[0], F_SETFD, FD_CLOEXEC) == -1)
+				elog(FATAL, "fcntl(F_SETFD) failed on read-end of thread wakeup pipe: %m");
+			if (fcntl(pipefd[1], F_SETFD, FD_CLOEXEC) == -1)
+				elog(FATAL, "fcntl(F_SETFD) failed on write-end of thread wakeup pipe: %m");
 
-		thread_wakeup_readfds[i] = pipefd[0];
-		thread_wakeup_writefds[i] = pipefd[1];
+			thread_wakeup_readfds[i] = pipefd[0];
+			thread_wakeup_writefds[i] = pipefd[1];
+		}
 	}
 }
 
@@ -682,16 +687,24 @@ AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd, uint32 interrup
 	{
 		set->interrupt_mask = interruptMask;
 		set->interrupt_pos = event->pos;
+
+		if (IsMultiThreaded)
+		{
+			event->fd = thread_wakeup_readfds[IsUnderPostmaster ? MyPMChildSlot : 0];
+		}
+		else
+		{
 #if defined(WAIT_USE_SELF_PIPE)
-		event->fd = selfpipe_readfd;
+			event->fd = selfpipe_readfd;
 #elif defined(WAIT_USE_SIGNALFD)
-		event->fd = signal_fd;
+			event->fd = signal_fd;
 #else
-		event->fd = PGINVALID_SOCKET;
+			event->fd = PGINVALID_SOCKET;
 #ifdef WAIT_USE_EPOLL
-		return event->pos;
+			return event->pos;
 #endif
 #endif
+		}
 	}
 	else if (events == WL_POSTMASTER_DEATH)
 	{
