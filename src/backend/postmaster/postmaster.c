@@ -551,6 +551,9 @@ PostmasterMain(int argc, char *argv[])
 	 * CAUTION: when changing this list, check for side-effects on the signal
 	 * handling setup of child processes.  See
 	 * SetPostmasterChildSignalHandlers()
+	 *
+	 * FIXME: in multithreaded mode, do we need to redo these with
+	 * pthread_sigmask()?
 	 */
 	pqinitmask();
 	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
@@ -590,7 +593,10 @@ PostmasterMain(int argc, char *argv[])
 	/* note: we do not install the standard interrupt handlers in postmaster */
 
 	/* Begin accepting signals. */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (IsMultiThreaded)
+		pthread_sigmask(SIG_SETMASK, &UnBlockSig, NULL);
+	else
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Options setup

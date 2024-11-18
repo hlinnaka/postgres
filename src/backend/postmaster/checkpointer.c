@@ -222,14 +222,17 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	 * backends to exit, whereupon the postmaster will tell us it's okay to
 	 * shut down (via INTERRUPT_SHUTDOWN_XLOG).
 	 */
-	pqsignal(SIGTERM, PG_SIG_IGN);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGTERM, PG_SIG_IGN);
 
-	/*
-	 * Postmaster uses SIGINT to send us INTERRUPT_SHUTDOWN_XLOG, and SIGUSR2
-	 * for INTERRUP_TERMINATE
-	 */
-	pqsignal(SIGINT, ReqShutdownXLOG);
-	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+		/*
+		 * Postmaster uses SIGINT to send us INTERRUPT_SHUTDOWN_XLOG, and SIGUSR2
+		 * for INTERRUP_TERMINATE
+		 */
+		pqsignal(SIGINT, ReqShutdownXLOG);
+		pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+	}
 
 	/* Set up interrupt handling */
 	SetStandardInterruptHandlers();
@@ -354,7 +357,8 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Ensure all shared memory values are set correctly for the config. Doing

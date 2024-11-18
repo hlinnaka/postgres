@@ -1603,7 +1603,8 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
 	PG_exception_stack = &local_sigjmp_buf;
 
 	/* Setup signal handling */
-	pqsignal(SIGFPE, FloatExceptionHandler);
+	if (!IsMultiThreaded)
+		pqsignal(SIGFPE, FloatExceptionHandler);
 	SetStandardInterruptHandlers();
 
 	check_and_set_sync_info(MyProcNumber);
@@ -1628,7 +1629,8 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Set always-secure search path, so malicious users can't redirect user

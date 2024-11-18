@@ -292,15 +292,19 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	 * upstream processes are gone, to ensure we don't miss any dying gasps of
 	 * broken backends...
 	 */
-	pqsignal(SIGINT, PG_SIG_IGN);
-	pqsignal(SIGTERM, PG_SIG_IGN);
-	pqsignal(SIGQUIT, PG_SIG_IGN);
-	pqsignal(SIGUSR1, sigUsr1Handler);	/* request log rotation */
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGINT, PG_SIG_IGN);
+		pqsignal(SIGTERM, PG_SIG_IGN);
+		pqsignal(SIGQUIT, PG_SIG_IGN);
+		pqsignal(SIGUSR1, sigUsr1Handler);	/* request log rotation */
+	}
 
 	SetStandardInterruptHandlers();
 	DisableInterrupt(INTERRUPT_TERMINATE);
 
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 #ifdef WIN32
 	/* Fire up separate data transfer thread */
@@ -712,14 +716,9 @@ SysLogger_Start(int child_slot, pid_or_threadid *id)
 	startup_data.syslogFile = syslogger_fdget(syslogFile);
 	startup_data.csvlogFile = syslogger_fdget(csvlogFile);
 	startup_data.jsonlogFile = syslogger_fdget(jsonlogFile);
-<<<<<<< HEAD
-	sysloggerPid = postmaster_child_launch(B_LOGGER, child_slot,
-										   &startup_data, sizeof(startup_data), NULL);
-=======
 	success = postmaster_child_launch(B_LOGGER, child_slot,
-									  (char *) &startup_data, sizeof(startup_data), NULL,
+									  &startup_data, sizeof(startup_data), NULL,
 									  &sysloggerPid);
->>>>>>> b98d5eeb630 (more work)
 #else
 	success = postmaster_child_launch(B_LOGGER, child_slot,
 									  NULL, 0, NULL,

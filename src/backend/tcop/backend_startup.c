@@ -196,7 +196,8 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	pqsignal(SIGTERM, process_startup_packet_die);
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	InitializeTimeouts();		/* establishes SIGALRM handler */
-	sigprocmask(SIG_SETMASK, &StartupBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &StartupBlockSig, NULL);
 
 	/*
 	 * FIXME: install INTERRUPT_TERMINATE handler at least? Not really needed
@@ -359,7 +360,8 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	 * Disable the timeout, and prevent SIGTERM again.
 	 */
 	disable_timeout(STARTUP_PACKET_TIMEOUT, false);
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
 
 	/*
 	 * As a safety check that nothing in startup has yet performed

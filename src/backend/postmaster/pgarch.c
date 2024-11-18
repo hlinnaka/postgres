@@ -223,11 +223,13 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	 * no query cancel. XXX: should we leave the signal handler in place and
 	 * just not install an interrupt handler for it?
 	 */
-	/* an interrupt handler for it? */
-	pqsignal(SIGINT, PG_SIG_IGN);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGINT, PG_SIG_IGN);
 
-	/* TODO: use interrupt for this directly */
-	pqsignal(SIGUSR2, pgarch_waken_stop);
+		/* TODO: use interrupt for this directly */
+		pqsignal(SIGUSR2, pgarch_waken_stop);
+	}
 
 	/*
 	 * These interrupt handlers are called in the loops pgarch_MainLoop and
@@ -242,7 +244,8 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	EnableInterrupt(INTERRUPT_LOG_MEMORY_CONTEXT);
 
 	/* Unblock signals (they were blocked when the postmaster forked us) */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/* We shouldn't be launched unnecessarily. */
 	Assert(XLogArchivingActive());

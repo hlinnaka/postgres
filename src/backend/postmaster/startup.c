@@ -203,8 +203,11 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	 */
 
 	/* override SIGTERM because we need a little more complicated handling */
-	pqsignal(SIGTERM, StartupProcShutdownHandler);	/* request shutdown */
-	pqsignal(SIGUSR2, StartupProcTriggerHandler);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGTERM, StartupProcShutdownHandler);	/* request shutdown */
+		pqsignal(SIGUSR2, StartupProcTriggerHandler);
+	}
 
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
@@ -225,7 +228,8 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Do what we came for.

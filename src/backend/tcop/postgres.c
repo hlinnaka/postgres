@@ -2842,7 +2842,10 @@ static void
 quickdie(SIGNAL_ARGS)
 {
 	sigaddset(&BlockSig, SIGQUIT);	/* prevent nested calls */
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	if (IsMultiThreaded)
+		pthread_sigmask(SIG_SETMASK, &BlockSig, NULL);
+	else
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
 
 	/*
 	 * Prevent interrupts while exiting; though we just blocked signals that
@@ -4204,7 +4207,8 @@ PostgresMain(const char *dbname, const char *username)
 		 * complicated in backend processes. so we we cannot use
 		 * SignalHandlerForShutdownRequest.
 		 */
-		pqsignal(SIGTERM, die);
+		if (!IsMultiThreaded)
+			pqsignal(SIGTERM, die);
 
 		/*
 		 * In a postmaster child backend, replace SignalHandlerForCrashExit
@@ -4214,10 +4218,13 @@ PostgresMain(const char *dbname, const char *username)
 		 * easily, while SIGTERM cannot, so we make both signals do die()
 		 * rather than quickdie().
 		 */
-		if (IsUnderPostmaster)
-			pqsignal(SIGQUIT, quickdie);	/* hard crash time */
-		else
-			pqsignal(SIGQUIT, die); /* cancel current query and exit */
+		if (!IsMultiThreaded)
+		{
+			if (IsUnderPostmaster)
+				pqsignal(SIGQUIT, quickdie);	/* hard crash time */
+			else
+				pqsignal(SIGQUIT, die); /* cancel current query and exit */
+		}
 
 		/*
 		 * Ignore failure to write to frontend. Note: if frontend closes
@@ -4225,8 +4232,11 @@ PostgresMain(const char *dbname, const char *username)
 		 * returns to outer loop.  This seems safer than forcing exit in the
 		 * midst of output during who-knows-what operation...
 		 */
-		pqsignal(SIGPIPE, PG_SIG_IGN);
-		pqsignal(SIGFPE, FloatExceptionHandler);
+		if (!IsMultiThreaded)
+		{
+			pqsignal(SIGPIPE, PG_SIG_IGN);
+			pqsignal(SIGFPE, FloatExceptionHandler);
+		}
 
 		/* Set handlers for various timeouts */
 		SetInterruptHandler(INTERRUPT_TRANSACTION_TIMEOUT, ProcessTransactionTimeoutInterrupt);
@@ -4263,7 +4273,8 @@ PostgresMain(const char *dbname, const char *username)
 	BaseInit();
 
 	/* We need to allow SIGINT, etc during the initial transaction */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Generate a random cancel key, if this is a backend serving a

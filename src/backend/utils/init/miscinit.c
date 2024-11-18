@@ -145,7 +145,8 @@ InitPostmasterChild(void)
 	 * We don't unblock the signals yet, so that if the process needs special
 	 * signal handling, it can install custom handlers before unblocking.
 	 */
-	SetPostmasterChildSignalHandlers();
+	if (!IsMultiThreaded)
+		SetPostmasterChildSignalHandlers();
 
 	/*
 	 * It is up to the *Main() function to set signal handlers appropriate for

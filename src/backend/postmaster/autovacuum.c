@@ -441,7 +441,8 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
 	/* Postmaster uses SIGUSR2 to raise INTERRUPT_AUTOVACUUM_WORKER_FINISHED */
-	pqsignal(SIGUSR2, avl_sigusr2_handler);
+	if (!IsMultiThreaded)
+		pqsignal(SIGUSR2, avl_sigusr2_handler);
 
 	SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
 	EnableInterrupt(INTERRUPT_QUERY_CANCEL);
@@ -553,7 +554,8 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	PG_exception_stack = &local_sigjmp_buf;
 
 	/* must unblock signals before calling rebuild_database_list */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Set always-secure search path.  Launcher doesn't connect to a database,
@@ -1481,7 +1483,8 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
 
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Set always-secure search path, so malicious users can't redirect user

@@ -792,13 +792,17 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
 		EnableInterrupt(INTERRUPT_QUERY_CANCEL);
 
 		/* like in regular backends */
-		pqsignal(SIGFPE, FloatExceptionHandler);
+		if (!IsMultiThreaded)
+			pqsignal(SIGFPE, FloatExceptionHandler);
 	}
 	else
 	{
 		/* no cancellation in backends that don't run queries */
-		pqsignal(SIGINT, PG_SIG_IGN);
-		pqsignal(SIGFPE, PG_SIG_IGN);
+		if (!IsMultiThreaded)
+		{
+			pqsignal(SIGINT, PG_SIG_IGN);
+			pqsignal(SIGFPE, PG_SIG_IGN);
+		}
 	}
 
 	InitializeTimeouts();		/* establishes SIGALRM handler */
@@ -946,13 +950,15 @@ BackgroundWorkerInitializeConnectionByOid(Oid dboid, Oid useroid, uint32 flags)
 void
 BackgroundWorkerBlockSignals(void)
 {
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
 }
 
 void
 BackgroundWorkerUnblockSignals(void)
 {
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 }
 
 /*
