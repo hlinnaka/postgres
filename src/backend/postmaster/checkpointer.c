@@ -197,19 +197,22 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	 * want to wait for the backends to exit, whereupon the postmaster will
 	 * tell us it's okay to shut down (via SIGUSR2).
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, ReqShutdownXLOG);
-	pqsignal(SIGTERM, SIG_IGN); /* ignore SIGTERM */
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload);
+		pqsignal(SIGINT, ReqShutdownXLOG);
+		pqsignal(SIGTERM, SIG_IGN); /* ignore SIGTERM */
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
 
-	/*
-	 * Reset some signals that are accepted by postmaster but not here
-	 */
-	pqsignal(SIGCHLD, SIG_DFL);
+		/*
+		 * Reset some signals that are accepted by postmaster but not here
+		 */
+		pqsignal(SIGCHLD, SIG_DFL);
+	}
 
 	/*
 	 * Initialize so that first time-driven event happens at the correct time.
@@ -326,7 +329,8 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Ensure all shared memory values are set correctly for the config. Doing

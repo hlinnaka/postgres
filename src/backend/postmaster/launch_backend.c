@@ -35,6 +35,7 @@
 #include <pthread.h>
 
 #include "libpq/libpq-be.h"
+#include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "postmaster/autovacuum.h"
 #include "postmaster/bgworker_internals.h"
@@ -261,6 +262,8 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 		/* TODO: support windows threads, see pgbench.c */
 		pthread_t thread_id;
 		thread_startup_info *sinfo;
+		sigset_t save_mask;
+		int			create_rc;
 
 		sinfo = malloc(offsetof(thread_startup_info, startup_data) + startup_data_len);
 		if (sinfo == NULL)
@@ -278,8 +281,29 @@ postmaster_child_launch(BackendType child_type, int child_slot,
 		if (startup_data_len > 0)
 			memcpy(&sinfo->startup_data, startup_data, startup_data_len);
 
-		if (pthread_create(&thread_id, NULL, backend_thread_main, sinfo) < 0)
+		/*
+		 * Start the thread with all signals blocked
+		 *
+		 * FIXME: Except SIGQUIT?
+		 * XXX: On glibc, could use pthread_attr_setsigmask_np
+		 */
+		if (pthread_sigmask(SIG_SETMASK, &BlockSig, &save_mask) != 0)
 			return false;
+
+		create_rc = pthread_create(&thread_id, NULL, backend_thread_main, sinfo);
+
+		if (pthread_sigmask(SIG_SETMASK, &save_mask, NULL) != 0)
+		{
+			/*
+			 * FIXME should not fail. If it does, how do we recover?
+			 * fork_process() just assumes that sigprocmask() never fails
+			 */
+			elog(PANIC, "could not restore signal mask");
+		}
+
+		if (create_rc < 0)
+			return false;		
+
 		id->threadid = thread_id;
 		return true;
 	}

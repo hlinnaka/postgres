@@ -38,8 +38,11 @@ static const OAuthValidatorCallbacks validator_callbacks = {
 };
 
 /* GUCs */
-static char *authn_id = NULL;
-static bool authorize_tokens = true;
+static sighup_guc char *authn_id = NULL;
+static sighup_guc bool authorize_tokens = true;
+
+DEFINE_STRING_GUC_ADDR(authn_id)
+DEFINE_BOOL_GUC_ADDR(authorize_tokens)
 
 /*---
  * Extension entry point. Sets up GUCs for use by tests:
@@ -58,7 +61,7 @@ _PG_init(void)
 	DefineCustomStringVariable("oauth_validator.authn_id",
 							   "Authenticated identity to use for future connections",
 							   NULL,
-							   &authn_id,
+							   GUC_ADDR(authn_id),
 							   NULL,
 							   PGC_SIGHUP,
 							   0,
@@ -66,7 +69,7 @@ _PG_init(void)
 	DefineCustomBoolVariable("oauth_validator.authorize_tokens",
 							 "Should tokens be marked valid?",
 							 NULL,
-							 &authorize_tokens,
+							 GUC_ADDR(authorize_tokens),
 							 true,
 							 PGC_SIGHUP,
 							 0,

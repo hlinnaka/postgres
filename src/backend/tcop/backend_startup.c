@@ -196,7 +196,8 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	pqsignal(SIGTERM, process_startup_packet_die);
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	InitializeTimeouts();		/* establishes SIGALRM handler */
-	sigprocmask(SIG_SETMASK, &StartupBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &StartupBlockSig, NULL);
 
 	/*
 	 * Get the remote host name and port for logging and status display.
@@ -351,7 +352,8 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	 * Disable the timeout, and prevent SIGTERM again.
 	 */
 	disable_timeout(STARTUP_PACKET_TIMEOUT, false);
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
 
 	/*
 	 * As a safety check that nothing in startup has yet performed

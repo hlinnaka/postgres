@@ -103,19 +103,22 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 	 * We have no particular use for SIGINT at the moment, but seems
 	 * reasonable to treat like SIGTERM.
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, SIG_IGN); /* not used */
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload);
+		pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+		pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, SIG_IGN); /* not used */
 
-	/*
-	 * Reset some signals that are accepted by postmaster but not here
-	 */
-	pqsignal(SIGCHLD, SIG_DFL);
+		/*
+		 * Reset some signals that are accepted by postmaster but not here
+		 */
+		pqsignal(SIGCHLD, SIG_DFL);
+	}
 
 	/*
 	 * Create a memory context that we will do all our work in.  We do this so
@@ -200,7 +203,8 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Reset hibernation state after any error.

@@ -145,11 +145,17 @@ InitPostmasterChild(void)
 	 * BlockSig and install a suitable signal handler.  (Client-facing
 	 * processes may choose to replace this default choice of handler with
 	 * quickdie().)  All other blockable signals remain blocked for now.
+	 *
+	 * FIXME: should we still have a signal handler for SIGQUIT in individual
+	 * threads?
 	 */
-	pqsignal(SIGQUIT, SignalHandlerForCrashExit);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGQUIT, SignalHandlerForCrashExit);
 
-	sigdelset(&BlockSig, SIGQUIT);
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+		sigdelset(&BlockSig, SIGQUIT);
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	}
 
 	/* Request a signal if the postmaster dies, if possible. */
 	PostmasterDeathSignalInit();

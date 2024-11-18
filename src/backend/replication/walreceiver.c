@@ -246,18 +246,21 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 	on_shmem_exit(WalRcvDie, PointerGetDatum(&startpointTLI));
 
 	/* Properly accept or ignore signals the postmaster might send us */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
-													 * file */
-	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, die);		/* request shutdown */
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, SIG_IGN);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
+														 * file */
+		pqsignal(SIGINT, SIG_IGN);
+		pqsignal(SIGTERM, die);		/* request shutdown */
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, SIG_IGN);
 
-	/* Reset some signals that are accepted by postmaster but not here */
-	pqsignal(SIGCHLD, SIG_DFL);
+		/* Reset some signals that are accepted by postmaster but not here */
+		pqsignal(SIGCHLD, SIG_DFL);
+	}
 
 	/* Load the libpq-specific functions */
 	load_file("libpqwalreceiver", false);
@@ -265,7 +268,8 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 		elog(ERROR, "libpqwalreceiver didn't initialize correctly");
 
 	/* Unblock signals (they were blocked when the postmaster forked us) */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/* Establish the connection to the primary for XLOG streaming */
 	appname = cluster_name[0] ? cluster_name : "walreceiver";

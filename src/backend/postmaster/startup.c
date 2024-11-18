@@ -235,19 +235,25 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Properly accept or ignore signals the postmaster might send us.
 	 */
-	pqsignal(SIGHUP, StartupProcSigHupHandler); /* reload config file */
-	pqsignal(SIGINT, SIG_IGN);	/* ignore query cancel */
-	pqsignal(SIGTERM, StartupProcShutdownHandler);	/* request shutdown */
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, StartupProcSigHupHandler); /* reload config file */
+		pqsignal(SIGINT, SIG_IGN);	/* ignore query cancel */
+		pqsignal(SIGTERM, StartupProcShutdownHandler);	/* request shutdown */
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+	}
 	InitializeTimeouts();		/* establishes SIGALRM handler */
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, StartupProcTriggerHandler);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, StartupProcTriggerHandler);
 
-	/*
-	 * Reset some signals that are accepted by postmaster but not here
-	 */
-	pqsignal(SIGCHLD, SIG_DFL);
+		/*
+		 * Reset some signals that are accepted by postmaster but not here
+		 */
+		pqsignal(SIGCHLD, SIG_DFL);
+	}
 
 	/*
 	 * Register timeouts needed for standby mode
@@ -259,7 +265,8 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Do what we came for.

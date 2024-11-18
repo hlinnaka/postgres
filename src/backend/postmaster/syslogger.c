@@ -274,23 +274,25 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	 * upstream processes are gone, to ensure we don't miss any dying gasps of
 	 * broken backends...
 	 */
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
+														 * file */
+		pqsignal(SIGINT, SIG_IGN);
+		pqsignal(SIGTERM, SIG_IGN);
+		pqsignal(SIGQUIT, SIG_IGN);
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, sigUsr1Handler);	/* request log rotation */
+		pqsignal(SIGUSR2, SIG_IGN);
 
-	pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
-													 * file */
-	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SIG_IGN);
-	pqsignal(SIGQUIT, SIG_IGN);
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, sigUsr1Handler);	/* request log rotation */
-	pqsignal(SIGUSR2, SIG_IGN);
+		/*
+		 * Reset some signals that are accepted by postmaster but not here
+		 */
+		pqsignal(SIGCHLD, SIG_DFL);
 
-	/*
-	 * Reset some signals that are accepted by postmaster but not here
-	 */
-	pqsignal(SIGCHLD, SIG_DFL);
-
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	}
 
 #ifdef WIN32
 	/* Fire up separate data transfer thread */

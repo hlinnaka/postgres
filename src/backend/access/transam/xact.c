@@ -2871,7 +2871,8 @@ AbortTransaction(void)
 	 * handler.  We do this fairly early in the sequence so that the timeout
 	 * infrastructure will be functional if needed while aborting.
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * check the current transaction state
@@ -5276,8 +5277,11 @@ AbortSubTransaction(void)
 	 * Re-enable signals, in case we got here by longjmp'ing out of a signal
 	 * handler.  We do this fairly early in the sequence so that the timeout
 	 * infrastructure will be functional if needed while aborting.
+	 *
+	 * FIXME: we should no longer longjmp out of any signal handlers
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * check the current transaction state

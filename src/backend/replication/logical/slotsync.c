@@ -1411,14 +1411,17 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
 	PG_exception_stack = &local_sigjmp_buf;
 
 	/* Setup signal handling */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
-	pqsignal(SIGTERM, die);
-	pqsignal(SIGFPE, FloatExceptionHandler);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGCHLD, SIG_DFL);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload);
+		pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+		pqsignal(SIGTERM, die);
+		pqsignal(SIGFPE, FloatExceptionHandler);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGCHLD, SIG_DFL);
+	}
 
 	check_and_set_sync_info(MyProcNumber);
 
@@ -1439,7 +1442,8 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Set always-secure search path, so malicious users can't redirect user

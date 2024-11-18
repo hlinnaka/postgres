@@ -2950,7 +2950,10 @@ void
 quickdie(SIGNAL_ARGS)
 {
 	sigaddset(&BlockSig, SIGQUIT);	/* prevent nested calls */
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	if (IsMultiThreaded)
+		pthread_sigmask(SIG_SETMASK, &BlockSig, NULL);
+	else
+		sigprocmask(SIG_SETMASK, &BlockSig, NULL);
 
 	/*
 	 * Prevent interrupts while exiting; though we just blocked signals that
@@ -4166,52 +4169,57 @@ PostgresMain(const char *dbname, const char *username)
 	 * an issue for signals that are locally generated, such as SIGALRM and
 	 * SIGPIPE.)
 	 */
-	if (am_walsender)
-		WalSndSignals();
-	else
+	if (!IsMultiThreaded)
 	{
-		pqsignal(SIGHUP, SignalHandlerForConfigReload);
-		pqsignal(SIGINT, StatementCancelHandler);	/* cancel current query */
-		pqsignal(SIGTERM, die); /* cancel current query and exit */
-
-		/*
-		 * In a postmaster child backend, replace SignalHandlerForCrashExit
-		 * with quickdie, so we can tell the client we're dying.
-		 *
-		 * In a standalone backend, SIGQUIT can be generated from the keyboard
-		 * easily, while SIGTERM cannot, so we make both signals do die()
-		 * rather than quickdie().
-		 */
-		if (IsUnderPostmaster)
-			pqsignal(SIGQUIT, quickdie);	/* hard crash time */
+		if (am_walsender)
+			WalSndSignals();
 		else
-			pqsignal(SIGQUIT, die); /* cancel current query and exit */
+		{
+			pqsignal(SIGHUP, SignalHandlerForConfigReload);
+			pqsignal(SIGINT, StatementCancelHandler);	/* cancel current query */
+			pqsignal(SIGTERM, die); /* cancel current query and exit */
+
+			/*
+			 * In a postmaster child backend, replace SignalHandlerForCrashExit
+			 * with quickdie, so we can tell the client we're dying.
+			 *
+			 * In a standalone backend, SIGQUIT can be generated from the keyboard
+			 * easily, while SIGTERM cannot, so we make both signals do die()
+			 * rather than quickdie().
+			 */
+			if (IsUnderPostmaster)
+				pqsignal(SIGQUIT, quickdie);	/* hard crash time */
+			else
+				pqsignal(SIGQUIT, die); /* cancel current query and exit */
+			InitializeTimeouts();	/* establishes SIGALRM handler */
+
+			/*
+			 * Ignore failure to write to frontend. Note: if frontend closes
+			 * connection, we will notice it and exit cleanly when control next
+			 * returns to outer loop.  This seems safer than forcing exit in the
+			 * midst of output during who-knows-what operation...
+			 */
+			pqsignal(SIGPIPE, SIG_IGN);
+			pqsignal(SIGUSR1, SIG_IGN);
+			pqsignal(SIGUSR2, SIG_IGN);
+			pqsignal(SIGFPE, FloatExceptionHandler);
+
+			/*
+			 * Reset some signals that are accepted by postmaster but not by
+			 * backend
+			 */
+			pqsignal(SIGCHLD, SIG_DFL); /* system() requires this on some
+										 * platforms */
+		}
+	} else
 		InitializeTimeouts();	/* establishes SIGALRM handler */
-
-		/*
-		 * Ignore failure to write to frontend. Note: if frontend closes
-		 * connection, we will notice it and exit cleanly when control next
-		 * returns to outer loop.  This seems safer than forcing exit in the
-		 * midst of output during who-knows-what operation...
-		 */
-		pqsignal(SIGPIPE, SIG_IGN);
-		pqsignal(SIGUSR1, SIG_IGN);
-		pqsignal(SIGUSR2, SIG_IGN);
-		pqsignal(SIGFPE, FloatExceptionHandler);
-
-		/*
-		 * Reset some signals that are accepted by postmaster but not by
-		 * backend
-		 */
-		pqsignal(SIGCHLD, SIG_DFL); /* system() requires this on some
-									 * platforms */
-	}
 
 	/* Early initialization */
 	BaseInit();
 
 	/* We need to allow SIGINT, etc during the initial transaction */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Generate a random cancel key, if this is a backend serving a

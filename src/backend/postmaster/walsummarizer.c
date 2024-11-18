@@ -246,14 +246,17 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 	 * We have no particular use for SIGINT at the moment, but seems
 	 * reasonable to treat like SIGTERM.
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, SIG_IGN); /* not used */
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload);
+		pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+		pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, SIG_IGN); /* not used */
+	}
 
 	/* Advertise ourselves. */
 	on_shmem_exit(WalSummarizerShutdown, (Datum) 0);
@@ -270,7 +273,8 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Reset some signals that are accepted by postmaster but not here
 	 */
-	pqsignal(SIGCHLD, SIG_DFL);
+	if (!IsMultiThreaded)
+		pqsignal(SIGCHLD, SIG_DFL);
 
 	/*
 	 * If an exception is encountered, processing resumes here.
@@ -333,7 +337,8 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (!IsMultiThreaded)
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Fetch information about previous progress from shared memory, and ask

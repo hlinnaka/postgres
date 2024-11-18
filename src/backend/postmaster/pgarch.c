@@ -226,20 +226,23 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	 * Ignore all signals usually bound to some action in the postmaster,
 	 * except for SIGHUP, SIGTERM, SIGUSR1, SIGUSR2, and SIGQUIT.
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, SIG_IGN);
-	pqsignal(SIGUSR2, pgarch_waken_stop);
+	if (!IsMultiThreaded)
+	{
+		pqsignal(SIGHUP, SignalHandlerForConfigReload);
+		pqsignal(SIGINT, SIG_IGN);
+		pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+		/* SIGQUIT handler was already set up by InitPostmasterChild */
+		pqsignal(SIGALRM, SIG_IGN);
+		pqsignal(SIGPIPE, SIG_IGN);
+		pqsignal(SIGUSR1, SIG_IGN);
+		pqsignal(SIGUSR2, pgarch_waken_stop);
 
-	/* Reset some signals that are accepted by postmaster but not here */
-	pqsignal(SIGCHLD, SIG_DFL);
+		/* Reset some signals that are accepted by postmaster but not here */
+		pqsignal(SIGCHLD, SIG_DFL);
 
-	/* Unblock signals (they were blocked when the postmaster forked us) */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+		/* Unblock signals (they were blocked when the postmaster forked us) */
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	}
 
 	/* We shouldn't be launched unnecessarily. */
 	Assert(XLogArchivingActive());

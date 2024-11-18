@@ -550,6 +550,9 @@ PostmasterMain(int argc, char *argv[])
 	 * bootstrap/bootstrap.c, postmaster/bgwriter.c, postmaster/walwriter.c,
 	 * postmaster/autovacuum.c, postmaster/pgarch.c, postmaster/syslogger.c,
 	 * postmaster/bgworker.c and postmaster/checkpointer.c.
+	 *
+	 * FIXME: in multithreaded mode, do we need to redo these with
+	 * pthread_sigmask()?
 	 */
 	pqinitmask();
 	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
@@ -587,7 +590,10 @@ PostmasterMain(int argc, char *argv[])
 #endif
 
 	/* Begin accepting signals. */
-	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
+	if (IsMultiThreaded)
+		pthread_sigmask(SIG_SETMASK, &UnBlockSig, NULL);
+	else
+		sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Options setup

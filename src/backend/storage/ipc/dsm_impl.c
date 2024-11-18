@@ -363,6 +363,8 @@ dsm_impl_posix_resize(int fd, off_t size)
 	int			save_errno;
 	sigset_t	save_sigmask;
 
+	Assert(!IsMultiThreaded);
+
 	/*
 	 * Block all blockable signals, except SIGQUIT.  posix_fallocate() can run
 	 * for quite a long time, and is an all-or-nothing operation.  If we
