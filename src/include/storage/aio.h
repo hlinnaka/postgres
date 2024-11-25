@@ -222,6 +222,9 @@ typedef struct PgAioHandleSharedCallbacks
 
 
 
+typedef struct PgAioBounceBuffer PgAioBounceBuffer;
+
+
 /*
  * How many callbacks can be registered for one IO handle. Currently we only
  * need two, but it's not hard to imagine needing a few more.
@@ -295,6 +298,20 @@ extern void pgaio_result_log(PgAioResult result, const PgAioSubjectData *subject
 
 
 /* --------------------------------------------------------------------------------
+ * Bounce Buffers
+ * --------------------------------------------------------------------------------
+ */
+
+extern PgAioBounceBuffer *pgaio_bounce_buffer_get(void);
+extern void pgaio_io_assoc_bounce_buffer(PgAioHandle *ioh, PgAioBounceBuffer *bb);
+extern uint32 pgaio_bounce_buffer_id(PgAioBounceBuffer *bb);
+extern void pgaio_bounce_buffer_release(PgAioBounceBuffer *bb);
+extern char *pgaio_bounce_buffer_buffer(PgAioBounceBuffer *bb);
+extern void pgaio_bounce_buffer_release_resowner(dlist_node *bb_node, bool on_error);
+
+
+
+/* --------------------------------------------------------------------------------
  * Actions on multiple IOs.
  * --------------------------------------------------------------------------------
  */
@@ -354,6 +371,7 @@ typedef enum IoMethod
 extern const struct config_enum_entry io_method_options[];
 extern int	io_method;
 extern int	io_max_concurrency;
+extern int	io_bounce_buffers;
 
 
 #endif							/* AIO_H */

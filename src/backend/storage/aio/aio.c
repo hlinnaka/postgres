@@ -54,6 +54,8 @@ static void pgaio_io_resowner_register(PgAioHandle *ioh);
 static void pgaio_io_wait_for_free(void);
 static PgAioHandle *pgaio_io_from_ref(PgAioHandleRef *ior, uint64 *ref_generation);
 
+static void pgaio_bounce_buffer_wait_for_free(void);
+
 
 
 /* Options for io_method. */
@@ -68,6 +70,7 @@ const struct config_enum_entry io_method_options[] = {
 
 int			io_method = DEFAULT_IO_METHOD;
 int			io_max_concurrency = -1;
+int			io_bounce_buffers = -1;
 
 
 /* global control for AIO */
@@ -732,6 +735,21 @@ pgaio_io_reclaim(PgAioHandle *ioh)
 		}
 	}
 
+	/* reclaim all associated bounce buffers */
+	if (!slist_is_empty(&ioh->bounce_buffers))
+	{
+		slist_mutable_iter it;
+
+		slist_foreach_modify(it, &ioh->bounce_buffers)
+		{
+			PgAioBounceBuffer *bb = slist_container(PgAioBounceBuffer, node, it.cur);
+
+			slist_delete_current(&it);
+
+			slist_push_head(&my_aio->idle_bbs, &bb->node);
+		}
+	}
+
 	if (ioh->resowner)
 	{
 		ResourceOwnerForgetAioHandle(ioh->resowner, &ioh->resowner_node);
@@ -856,6 +874,168 @@ pgaio_io_wait_for_free(void)
 
 
 /* --------------------------------------------------------------------------------
+ * Bounce Buffers
+ * --------------------------------------------------------------------------------
+ */
+
+PgAioBounceBuffer *
+pgaio_bounce_buffer_get(void)
+{
+	PgAioBounceBuffer *bb = NULL;
+	slist_node *node;
+
+	if (my_aio->handed_out_bb != NULL)
+		elog(ERROR, "can only hand out one BB");
+
+	/*
+	 * FIXME It probably is not correct to have bounce buffers be per backend,
+	 * they use too much memory.
+	 */
+	if (slist_is_empty(&my_aio->idle_bbs))
+	{
+		pgaio_bounce_buffer_wait_for_free();
+	}
+
+	node = slist_pop_head_node(&my_aio->idle_bbs);
+	bb = slist_container(PgAioBounceBuffer, node, node);
+
+	my_aio->handed_out_bb = bb;
+
+	bb->resowner = CurrentResourceOwner;
+	ResourceOwnerRememberAioBounceBuffer(bb->resowner, &bb->resowner_node);
+
+	return bb;
+}
+
+void
+pgaio_io_assoc_bounce_buffer(PgAioHandle *ioh, PgAioBounceBuffer *bb)
+{
+	if (my_aio->handed_out_bb != bb)
+		elog(ERROR, "can only assign handed out BB");
+	my_aio->handed_out_bb = NULL;
+
+	/*
+	 * There can be many bounce buffers assigned in case of vectorized IOs.
+	 */
+	slist_push_head(&ioh->bounce_buffers, &bb->node);
+
+	/* once associated with an IO, the IO has ownership */
+	ResourceOwnerForgetAioBounceBuffer(bb->resowner, &bb->resowner_node);
+	bb->resowner = NULL;
+}
+
+uint32
+pgaio_bounce_buffer_id(PgAioBounceBuffer *bb)
+{
+	return bb - aio_ctl->bounce_buffers;
+}
+
+void
+pgaio_bounce_buffer_release(PgAioBounceBuffer *bb)
+{
+	if (my_aio->handed_out_bb != bb)
+		elog(ERROR, "can only release handed out BB");
+
+	slist_push_head(&my_aio->idle_bbs, &bb->node);
+	my_aio->handed_out_bb = NULL;
+
+	ResourceOwnerForgetAioBounceBuffer(bb->resowner, &bb->resowner_node);
+	bb->resowner = NULL;
+}
+
+void
+pgaio_bounce_buffer_release_resowner(dlist_node *bb_node, bool on_error)
+{
+	PgAioBounceBuffer *bb = dlist_container(PgAioBounceBuffer, resowner_node, bb_node);
+
+	Assert(bb->resowner);
+
+	if (!on_error)
+		elog(WARNING, "leaked AIO bounce buffer");
+
+	pgaio_bounce_buffer_release(bb);
+}
+
+char *
+pgaio_bounce_buffer_buffer(PgAioBounceBuffer *bb)
+{
+	return bb->buffer;
+}
+
+static void
+pgaio_bounce_buffer_wait_for_free(void)
+{
+	static uint32 lastpos = 0;
+
+	if (my_aio->num_staged_ios > 0)
+	{
+		elog(DEBUG2, "submitting while acquiring free bb");
+		pgaio_submit_staged();
+	}
+
+	for (uint32 i = lastpos; i < lastpos + io_max_concurrency; i++)
+	{
+		uint32		thisoff = my_aio->io_handle_off + (i % io_max_concurrency);
+		PgAioHandle *ioh = &aio_ctl->io_handles[thisoff];
+
+		switch (ioh->state)
+		{
+			case AHS_IDLE:
+			case AHS_HANDED_OUT:
+				continue;
+			case AHS_DEFINED:	/* should have been submitted above */
+			case AHS_PREPARED:
+				elog(ERROR, "shouldn't get here with io:%d in state %d",
+					 pgaio_io_get_id(ioh), ioh->state);
+				break;
+			case AHS_REAPED:
+			case AHS_IN_FLIGHT:
+				if (!slist_is_empty(&ioh->bounce_buffers))
+				{
+					PgAioHandleRef ior;
+
+					ior.aio_index = ioh - aio_ctl->io_handles;
+					ior.generation_upper = (uint32) (ioh->generation >> 32);
+					ior.generation_lower = (uint32) ioh->generation;
+
+					pgaio_io_ref_wait(&ior);
+					elog(DEBUG2, "waited for io:%d to reclaim BB",
+						 pgaio_io_get_id(ioh));
+
+					if (slist_is_empty(&my_aio->idle_bbs))
+						elog(WARNING, "empty after wait");
+
+					if (!slist_is_empty(&my_aio->idle_bbs))
+					{
+						lastpos = i;
+						return;
+					}
+				}
+				break;
+			case AHS_COMPLETED_SHARED:
+			case AHS_COMPLETED_LOCAL:
+				/* reclaim */
+				pgaio_io_reclaim(ioh);
+
+				if (!slist_is_empty(&my_aio->idle_bbs))
+				{
+					lastpos = i;
+					return;
+				}
+				break;
+		}
+	}
+
+	/*
+	 * The submission above could have caused the IO to complete at any time.
+	 */
+	if (slist_is_empty(&my_aio->idle_bbs))
+		elog(PANIC, "no more bbs");
+}
+
+
+
+/* --------------------------------------------------------------------------------
  * Actions on multiple IOs.
  * --------------------------------------------------------------------------------
  */
@@ -929,6 +1109,7 @@ void
 pgaio_at_xact_end(bool is_subxact, bool is_commit)
 {
 	Assert(!my_aio->handed_out_io);
+	Assert(!my_aio->handed_out_bb);
 }
 
 /*
@@ -939,6 +1120,7 @@ void
 pgaio_at_error(void)
 {
 	Assert(!my_aio->handed_out_io);
+	Assert(!my_aio->handed_out_bb);
 }
 
 
