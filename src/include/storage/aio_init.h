@@ -21,4 +21,6 @@ extern void AioShmemInit(void);
 
 extern void pgaio_init_backend(void);
 
+extern bool pgaio_workers_enabled(void);
+
 #endif							/* AIO_INIT_H */

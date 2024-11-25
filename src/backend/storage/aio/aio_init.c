@@ -217,3 +217,10 @@ pgaio_init_backend(void)
 	if (pgaio_impl->init_backend)
 		pgaio_impl->init_backend();
 }
+
+bool
+pgaio_workers_enabled(void)
+{
+	/* placeholder for future commit */
+	return false;
+}
