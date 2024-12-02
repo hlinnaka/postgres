@@ -26,6 +26,7 @@
 #include "access/xlogrecovery.h"
 #include "pgstat.h"
 #include "replication/walreceiver.h"
+#include "storage/interrupt.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/shmem.h"
@@ -317,7 +318,7 @@ RequestXLogStreaming(TimeLineID tli, XLogRecPtr recptr, const char *conninfo,
 	if (launch)
 		SendPostmasterSignal(PMSIGNAL_START_WALRECEIVER);
 	else if (walrcv_proc != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(walrcv_proc)->procLatch);
+		SendInterrupt(INTERRUPT_GENERAL, walrcv_proc);
 }
 
 /*

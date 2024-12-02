@@ -227,7 +227,7 @@ typedef struct BackgroundWorker
    reinitializes the cluster due to a backend failure.  Backends which need
    to suspend execution only temporarily should use an interruptible sleep
    rather than exiting; this can be achieved by calling
-   <function>WaitLatch()</function>. Make sure the
+   <function>WaitInterrupt()</function>. Make sure the
    <literal>WL_POSTMASTER_DEATH</literal> flag is set when calling that function, and
    verify the return code for a prompt exit in the emergency case that
    <command>postgres</command> itself has terminated.

@@ -28,6 +28,7 @@
 #include "postmaster/startup.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
+#include "storage/proc.h"
 #include "storage/procsignal.h"
 #include "storage/standby.h"
 #include "utils/guc.h"
@@ -40,7 +41,7 @@
  * On systems that need to make a system call to find out if the postmaster has
  * gone away, we'll do so only every Nth call to HandleStartupProcInterrupts().
  * This only affects how long it takes us to detect the condition while we're
- * busy replaying WAL.  Latch waits and similar which should react immediately
+ * busy replaying WAL.  Interrupt waits and similar should react immediately
  * through the usual techniques.
  */
 #define POSTMASTER_POLL_RATE_LIMIT 1024
@@ -205,6 +206,8 @@ StartupProcExit(int code, Datum arg)
 	/* Shutdown the recovery environment */
 	if (standbyState != STANDBY_DISABLED)
 		ShutdownRecoveryTransactionEnvironment();
+
+	ProcGlobal->startupProc = INVALID_PROC_NUMBER;
 }
 
 
@@ -219,6 +222,12 @@ StartupProcessMain(char *startup_data, size_t startup_data_len)
 
 	MyBackendType = B_STARTUP;
 	AuxiliaryProcessMainCommon();
+
+	/*
+	 * Advertise our proc number so that backends can wake us up, when the
+	 * server is promoted or recovery is paused/resumed.
+	 */
+	ProcGlobal->startupProc = MyProcNumber;
 
 	/* Arrange to clean up at startup process exit */
 	on_shmem_exit(StartupProcExit, 0);

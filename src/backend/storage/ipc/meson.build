@@ -5,9 +5,9 @@ backend_sources += files(
   'dsm.c',
   'dsm_impl.c',
   'dsm_registry.c',
+  'interrupt.c',
   'ipc.c',
   'ipci.c',
-  'latch.c',
   'pmsignal.c',
   'procarray.c',
   'procsignal.c',
@@ -18,5 +18,6 @@ backend_sources += files(
   'sinval.c',
   'sinvaladt.c',
   'standby.c',
+  'waiteventset.c',
 
 )

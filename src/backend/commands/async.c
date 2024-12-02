@@ -91,7 +91,7 @@
  *	  should go out immediately after each commit.
  *
  * 5. Upon receipt of a PROCSIG_NOTIFY_INTERRUPT signal, the signal handler
- *	  sets the process's latch, which triggers the event to be processed
+ *	  raises INTERRUPT_GENERAL, which triggers the event to be processed
  *	  immediately if this backend is idle (i.e., it is waiting for a frontend
  *	  command and is not within a transaction block. C.f.
  *	  ProcessClientReadInterrupt()).  Otherwise the handler may only set a
@@ -140,6 +140,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/procsignal.h"
@@ -406,9 +407,9 @@ static NotificationList *pendingNotifies = NULL;
 /*
  * Inbound notifications are initially processed by HandleNotifyInterrupt(),
  * called from inside a signal handler. That just sets the
- * notifyInterruptPending flag and sets the process
- * latch. ProcessNotifyInterrupt() will then be called whenever it's safe to
- * actually deal with the interrupt.
+ * notifyInterruptPending flag and raises the INTERRUPT_GENERAL interrupt.
+ * ProcessNotifyInterrupt() will then be called whenever it's safe to actually
+ * deal with the interrupt.
  */
 volatile sig_atomic_t notifyInterruptPending = false;
 
@@ -1812,7 +1813,7 @@ HandleNotifyInterrupt(void)
 	notifyInterruptPending = true;
 
 	/* make sure the event is processed in due course */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -1821,10 +1822,10 @@ HandleNotifyInterrupt(void)
  *		This is called if we see notifyInterruptPending set, just before
  *		transmitting ReadyForQuery at the end of a frontend command, and
  *		also if a notify signal occurs while reading from the frontend.
- *		HandleNotifyInterrupt() will cause the read to be interrupted
- *		via the process's latch, and this routine will get called.
- *		If we are truly idle (ie, *not* inside a transaction block),
- *		process the incoming notifies.
+ *		HandleNotifyInterrupt() will cause the read to be interrupted with
+ *		INTERRUPT_GENERAL, and this routine will get called.  If we are truly
+ *		idle (ie, *not* inside a transaction block), process the incoming
+ *		notifies.
  *
  *		If "flush" is true, force any frontend messages out immediately.
  *		This can be false when being called at the end of a frontend command,

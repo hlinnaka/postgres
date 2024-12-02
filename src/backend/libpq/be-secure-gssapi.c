@@ -21,6 +21,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/pg_bswap.h"
+#include "storage/interrupt.h"
 #include "utils/injection_point.h"
 #include "utils/memutils.h"
 
@@ -414,7 +415,7 @@ be_gssapi_read(Port *port, void *ptr, size_t len)
 
 /*
  * Read the specified number of bytes off the wire, waiting using
- * WaitLatchOrSocket if we would block.
+ * WaitInterruptOrSocket if we would block.
  *
  * Results are read into PqGSSRecvBuffer.
  *
@@ -450,9 +451,8 @@ read_or_wait(Port *port, ssize_t len)
 		 */
 		if (ret <= 0)
 		{
-			WaitLatchOrSocket(NULL,
-							  WL_SOCKET_READABLE | WL_EXIT_ON_PM_DEATH,
-							  port->sock, 0, WAIT_EVENT_GSS_OPEN_SERVER);
+			WaitInterruptOrSocket(0, WL_SOCKET_READABLE | WL_EXIT_ON_PM_DEATH,
+								  port->sock, 0, WAIT_EVENT_GSS_OPEN_SERVER);
 
 			/*
 			 * If we got back zero bytes, and then waited on the socket to be
@@ -489,7 +489,7 @@ read_or_wait(Port *port, ssize_t len)
  *
  * Note that unlike the be_gssapi_read/be_gssapi_write functions, this
  * function WILL block on the socket to be ready for read/write (using
- * WaitLatchOrSocket) as appropriate while establishing the GSSAPI
+ * WaitInterruptOrSocket) as appropriate while establishing the GSSAPI
  * session.
  */
 ssize_t
@@ -668,9 +668,8 @@ secure_open_gssapi(Port *port)
 				/* Wait and retry if we couldn't write yet */
 				if (ret <= 0)
 				{
-					WaitLatchOrSocket(NULL,
-									  WL_SOCKET_WRITEABLE | WL_EXIT_ON_PM_DEATH,
-									  port->sock, 0, WAIT_EVENT_GSS_OPEN_SERVER);
+					WaitInterruptOrSocket(0, WL_SOCKET_WRITEABLE | WL_EXIT_ON_PM_DEATH,
+										  port->sock, 0, WAIT_EVENT_GSS_OPEN_SERVER);
 					continue;
 				}
 

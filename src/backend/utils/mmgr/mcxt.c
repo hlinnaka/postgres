@@ -1273,7 +1273,7 @@ HandleLogMemoryContextInterrupt(void)
 {
 	InterruptPending = true;
 	LogMemoryContextPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
+	/* INTERRUPT_GENERAL will be raised by procsignal_sigusr1_handler */
 }
 
 /*

@@ -207,6 +207,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/pg_lfind.h"
+#include "storage/interrupt.h"
 #include "storage/predicate.h"
 #include "storage/predicate_internals.h"
 #include "storage/proc.h"
@@ -1576,7 +1577,10 @@ GetSafeSnapshot(Snapshot origSnapshot)
 				 SxactIsROUnsafe(MySerializableXact)))
 		{
 			LWLockRelease(SerializableXactHashLock);
-			ProcWaitForSignal(WAIT_EVENT_SAFE_SNAPSHOT);
+			WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+						  WAIT_EVENT_SAFE_SNAPSHOT);
+			ClearInterrupt(INTERRUPT_GENERAL);
+			CHECK_FOR_INTERRUPTS();
 			LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 		}
 		MySerializableXact->flags &= ~SXACT_FLAG_DEFERRABLE_WAITING;
@@ -3609,7 +3613,7 @@ ReleasePredicateLocks(bool isCommit, bool isReadOnlySafe)
 			 */
 			if (SxactIsDeferrableWaiting(roXact) &&
 				(SxactIsROUnsafe(roXact) || SxactIsROSafe(roXact)))
-				ProcSendSignal(roXact->pgprocno);
+				SendInterrupt(INTERRUPT_GENERAL, roXact->pgprocno);
 		}
 	}
 

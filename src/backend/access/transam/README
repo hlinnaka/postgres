@@ -794,7 +794,7 @@ commit to minimize the window in which the filesystem change has been made
 but the transaction isn't guaranteed committed.
 
 The walwriter regularly wakes up (via wal_writer_delay) or is woken up
-(via its latch, which is set by backends committing asynchronously) and
+(via an interrupt, which is set by backends committing asynchronously) and
 performs an XLogBackgroundFlush().  This checks the location of the last
 completely filled WAL page.  If that has moved forwards, then we write all
 the changed buffers up to that point, so that under full load we write
