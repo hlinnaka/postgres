@@ -89,8 +89,8 @@
 #include "postmaster/interrupt_handlers.h"
 #include "postmaster/postmaster.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -575,24 +575,24 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 		bool		can_launch;
 
 		/*
-		 * This loop is a bit different from the normal use of WaitLatch,
+		 * This loop is a bit different from the normal use of WaitInterrupt,
 		 * because we'd like to sleep before the first launch of a child
-		 * process.  So it's WaitLatch, then ResetLatch, then check for
-		 * wakening conditions.
+		 * process.  So it's WaitInterrupt, then ClearInterrupt, then check
+		 * for wakening conditions.
 		 */
 
 		launcher_determine_sleep(av_worker_available(), false, &nap);
 
 		/*
 		 * Wait until naptime expires or we get some type of signal (all the
-		 * signal handlers will wake us by calling SetLatch).
+		 * signal handlers will wake us by calling RaiseInterrupt).
 		 */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
-						 WAIT_EVENT_AUTOVACUUM_MAIN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
+							 WAIT_EVENT_AUTOVACUUM_MAIN);
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		ProcessAutoVacLauncherInterrupts();
 
@@ -1359,7 +1359,7 @@ static void
 avl_sigusr2_handler(SIGNAL_ARGS)
 {
 	got_SIGUSR2 = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 

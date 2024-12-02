@@ -67,6 +67,7 @@
 #include "postmaster/interrupt_handlers.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -146,17 +147,17 @@ static void ProcessWalSndrMessage(XLogRecPtr walEnd, TimestampTz sendTime);
 static void WalRcvComputeNextWakeup(WalRcvWakeupReason reason, TimestampTz now);
 
 /*
- * Process any interrupts the walreceiver process may have received.
- * This should be called any time the process's latch has become set.
+ * Process any interrupts the walreceiver process may have received.  This
+ * should be called any time the INTERRUPT_GENERAL interrupt has become set.
  *
  * Currently, only SIGTERM is of interest.  We can't just exit(1) within the
  * SIGTERM signal handler, because the signal might arrive in the middle of
  * some critical operation, like while we're holding a spinlock.  Instead, the
- * signal handler sets a flag variable as well as setting the process's latch.
+ * signal handler sets a flag variable as well as raising INTERRUPT_GENERAL.
  * We must check the flag (by calling ProcessWalRcvInterrupts) anytime the
- * latch has become set.  Operations that could block for a long time, such as
- * reading from a remote server, must pay attention to the latch too; see
- * libpqrcv_PQgetResult for example.
+ * INTERRUPT_GENERAL has become set.  Operations that could block for a long
+ * time, such as reading from a remote server, must pay attention to the
+ * interrupt too; see libpqrcv_PQgetResult for example.
  */
 void
 ProcessWalRcvInterrupts(void)
@@ -536,25 +537,25 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 
 				/*
 				 * Ideally we would reuse a WaitEventSet object repeatedly
-				 * here to avoid the overheads of WaitLatchOrSocket on epoll
-				 * systems, but we can't be sure that libpq (or any other
-				 * walreceiver implementation) has the same socket (even if
-				 * the fd is the same number, it may have been closed and
+				 * here to avoid the overheads of WaitInterruptOrSocket on
+				 * epoll systems, but we can't be sure that libpq (or any
+				 * other walreceiver implementation) has the same socket (even
+				 * if the fd is the same number, it may have been closed and
 				 * reopened since the last time).  In future, if there is a
 				 * function for removing sockets from WaitEventSet, then we
 				 * could add and remove just the socket each time, potentially
 				 * avoiding some system calls.
 				 */
 				Assert(wait_fd != PGINVALID_SOCKET);
-				rc = WaitLatchOrSocket(MyLatch,
-									   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
-									   WL_TIMEOUT | WL_LATCH_SET,
-									   wait_fd,
-									   nap,
-									   WAIT_EVENT_WAL_RECEIVER_MAIN);
-				if (rc & WL_LATCH_SET)
+				rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+										   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
+										   WL_TIMEOUT | WL_INTERRUPT,
+										   wait_fd,
+										   nap,
+										   WAIT_EVENT_WAL_RECEIVER_MAIN);
+				if (rc & WL_INTERRUPT)
 				{
-					ResetLatch(MyLatch);
+					ClearInterrupt(INTERRUPT_GENERAL);
 					ProcessWalRcvInterrupts();
 
 					if (walrcv->force_reply)
@@ -702,7 +703,7 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 	WakeupRecovery();
 	for (;;)
 	{
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		ProcessWalRcvInterrupts();
 
@@ -734,8 +735,10 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 		}
 		SpinLockRelease(&walrcv->mutex);
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 0,
+							 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
 	}
 
 	if (update_process_title)
@@ -1376,7 +1379,7 @@ WalRcvForceReply(void)
 	procno = WalRcv->procno;
 	SpinLockRelease(&WalRcv->mutex);
 	if (procno != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(procno)->procLatch);
+		SendInterrupt(INTERRUPT_GENERAL, procno);
 }
 
 /*

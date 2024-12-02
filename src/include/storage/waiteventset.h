@@ -3,17 +3,16 @@
  * waiteventset.h
  *		ppoll() / pselect() like interface for waiting for events
  *
- * WaitEventSets allow to wait for latches being set and additional events -
+ * WaitEventSets allow to wait for interrupts being set and additional events -
  * postmaster dying and socket readiness of several sockets currently - at the
  * same time.  On many platforms using a long lived event set is more
  * efficient than using WaitInterrupt or WaitInterruptOrSocket.
  *
- * WaitEventSetWait includes a provision for timeouts (which should be avoided
+ * WaitInterrupt includes a provision for timeouts (which should be avoided
  * when possible, as they incur extra overhead) and a provision for postmaster
  * child processes to wake up immediately on postmaster death.  See
- * storage/ipc/waiteventset.c for detailed specifications for the exported
+ * storage/ipc/interrupt.c for detailed specifications for the exported
  * functions.
- *
  *
  * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -25,13 +24,16 @@
 #ifndef WAITEVENTSET_H
 #define WAITEVENTSET_H
 
+#include <signal.h>
+
+#include "storage/procnumber.h"
 #include "utils/resowner.h"
 
 /*
- * Bitmasks for events that may wake-up WaitLatch(), WaitLatchOrSocket(), or
- * WaitEventSetWait().
+ * Bitmasks for events that may wake-up WaitInterrupt(),
+ * WaitInterruptOrSocket(), or WaitEventSetWait().
  */
-#define WL_LATCH_SET		 (1 << 0)
+#define WL_INTERRUPT		 (1 << 0)
 #define WL_SOCKET_READABLE	 (1 << 1)
 #define WL_SOCKET_WRITEABLE  (1 << 2)
 #define WL_TIMEOUT			 (1 << 3)	/* not for WaitEventSetWait() */
@@ -67,29 +69,35 @@ typedef struct WaitEvent
 #endif
 } WaitEvent;
 
-/* forward declarations to avoid exposing waiteventset.c implementation details */
+/* forward declaration to avoid exposing interrupt.c implementation details */
 typedef struct WaitEventSet WaitEventSet;
 
-typedef struct Latch Latch;
+struct PGPROC;
 
 /*
  * prototypes for functions in waiteventset.c
  */
 extern void InitializeWaitEventSupport(void);
+#ifdef WIN32
+extern HANDLE CreateSharedWakeupHandle(void);
+#endif
 
 extern WaitEventSet *CreateWaitEventSet(ResourceOwner resowner, int nevents);
 extern void FreeWaitEventSet(WaitEventSet *set);
 extern void FreeWaitEventSetAfterFork(WaitEventSet *set);
 extern int	AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd,
-							  Latch *latch, void *user_data);
-extern void ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch);
+							  uint32 interruptMask, void *user_data);
+extern void ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, uint32 interruptMask);
+
 extern int	WaitEventSetWait(WaitEventSet *set, long timeout,
 							 WaitEvent *occurred_events, int nevents,
 							 uint32 wait_event_info);
+extern void InitializeInterruptWaitSet(void);
 extern int	GetNumRegisteredWaitEvents(WaitEventSet *set);
 extern bool WaitEventSetCanReportClosed(void);
 
+/* low level functions used to implement SendInterrupt */
 extern void WakeupMyProc(void);
-extern void WakeupOtherProc(int pid);
+extern void WakeupOtherProc(struct PGPROC *proc);
 
 #endif							/* WAITEVENTSET_H */
