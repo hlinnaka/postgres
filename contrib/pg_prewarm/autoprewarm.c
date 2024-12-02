@@ -919,9 +919,6 @@ apw_start_leader_worker(void)
 		return;
 	}
 
-	/* must set notify PID to wait for startup */
-	worker.bgw_notify_pid = MyProcPid;
-
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
@@ -953,9 +950,6 @@ apw_start_database_worker(void)
 	strcpy(worker.bgw_function_name, "autoprewarm_database_main");
 	strcpy(worker.bgw_name, "autoprewarm worker");
 	strcpy(worker.bgw_type, "autoprewarm worker");
-
-	/* must set notify PID to wait for shutdown */
-	worker.bgw_notify_pid = MyProcPid;
 
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,

@@ -60,6 +60,14 @@
 #define BGWORKER_BACKEND_DATABASE_CONNECTION		0x0002
 
 /*
+ * Dynamic workers created with shared memory access usually send an interrupt
+ * to the creating backend when they start and stop, allowing
+ * WaitForBackgroundWorker{Startup,Shutdown}() to work.  Such notifications
+ * can be suppressed with this flag.
+ */
+#define BGWORKER_NO_NOTIFY							0x0004
+
+/*
  * This class is used internally for parallel queries, to keep track of the
  * number of active parallel workers and make sure we never launch more than
  * max_parallel_workers parallel workers at the same time.  Third party
@@ -97,7 +105,7 @@ typedef struct BackgroundWorker
 	char		bgw_function_name[BGW_MAXLEN];
 	Datum		bgw_main_arg;
 	char		bgw_extra[BGW_EXTRALEN];
-	pid_t		bgw_notify_pid; /* SIGUSR1 this backend on start/stop */
+	pid_t		bgw_notify_pid; /* not used */
 } BackgroundWorker;
 
 typedef enum BgwHandleStatus

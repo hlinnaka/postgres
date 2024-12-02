@@ -4272,15 +4272,15 @@ maybe_start_bgworkers(void)
 		{
 			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART)
 			{
-				int			notify_pid;
+				ProcNumber	notify_proc_number;
 
-				notify_pid = rw->rw_worker.bgw_notify_pid;
+				notify_proc_number = GetNotifyProcNumberForRegisteredWorker(rw);
 
 				ForgetBackgroundWorker(rw);
 
 				/* Report worker is gone now. */
-				if (notify_pid != 0)
-					kill(notify_pid, SIGUSR1);
+				if (notify_proc_number != INVALID_PROC_NUMBER)
+					SendInterrupt(INTERRUPT_GENERAL, notify_proc_number);
 
 				continue;
 			}
