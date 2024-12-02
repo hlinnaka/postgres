@@ -105,6 +105,9 @@ RaiseInterrupt(InterruptType reason)
 
 /*
  * Set an interrupt flag in another backend.
+ *
+ * Note: This can also be called from the postmaster, so be careful to not
+ * trust the contents of shared memory.
  */
 void
 SendInterrupt(InterruptType reason, ProcNumber pgprocno)
@@ -144,7 +147,6 @@ InitializeInterruptWaitSet(void)
 
 	Assert(interrupt_pos == InterruptWaitSetInterruptPos);
 }
-
 
 /*
  * Wait for any of the interrupts in interruptMask to be set, or for

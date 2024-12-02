@@ -134,6 +134,7 @@ setup_dynamic_shared_memory(int64 queue_size, int nworkers,
 
 	/* Set up the header region. */
 	hdr = shm_toc_allocate(toc, sizeof(test_shm_mq_header));
+	hdr->leader_proc_number = MyProcNumber;
 	SpinLockInit(&hdr->mutex);
 	hdr->workers_total = nworkers;
 	hdr->workers_attached = 0;
@@ -223,8 +224,6 @@ setup_background_workers(int nworkers, dsm_segment *seg)
 	sprintf(worker.bgw_function_name, "test_shm_mq_main");
 	snprintf(worker.bgw_type, BGW_MAXLEN, "test_shm_mq");
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(seg));
-	/* set bgw_notify_pid, so we can detect if the worker stops */
-	worker.bgw_notify_pid = MyProcPid;
 
 	/* Register the workers. */
 	for (i = 0; i < nworkers; ++i)
