@@ -111,6 +111,7 @@
 #include "replication/slot.h"
 #include "replication/walreceiver.h"
 #include "replication/worker_internal.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "utils/acl.h"
@@ -209,11 +210,11 @@ wait_for_relation_state_change(Oid relid, char expected_state)
 		if (!worker)
 			break;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return false;
@@ -259,15 +260,15 @@ wait_for_worker_state_change(char expected_state)
 			break;
 
 		/*
-		 * Wait.  We expect to get a latch signal back from the apply worker,
+		 * Wait.  We expect to get an interrupt wakeup from the apply worker,
 		 * but use a timeout in case it dies without sending one.
 		 */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
+		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
 
-		if (rc & WL_LATCH_SET)
-			ResetLatch(MyLatch);
+		if (rc & WL_INTERRUPT)
+			ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return false;
@@ -554,7 +555,7 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 						 * the existing locks before entering a busy loop.
 						 * This is required to avoid any undetected deadlocks
 						 * due to any existing lock as deadlock detector won't
-						 * be able to detect the waits on the latch.
+						 * be able to detect the waits on the interrupt
 						 */
 						CommitTransactionCommand();
 						pgstat_report_stat(false);
@@ -770,14 +771,14 @@ copy_read_data(void *outbuf, int minread, int maxread)
 		}
 
 		/*
-		 * Wait for more data or latch.
+		 * Wait for more data or interrupt.
 		 */
-		(void) WaitLatchOrSocket(MyLatch,
-								 WL_SOCKET_READABLE | WL_LATCH_SET |
-								 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-								 fd, 1000L, WAIT_EVENT_LOGICAL_SYNC_DATA);
+		(void) WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+									 WL_SOCKET_READABLE | WL_INTERRUPT |
+									 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+									 fd, 1000L, WAIT_EVENT_LOGICAL_SYNC_DATA);
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return bytesread;

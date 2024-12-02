@@ -40,8 +40,8 @@
 #include "replication/walreceiver.h"
 #include "storage/aio_subsys.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -318,10 +318,8 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 		 * So a really fast retry time doesn't seem to be especially
 		 * beneficial, and it will clutter the logs.
 		 */
-		(void) WaitLatch(NULL,
-						 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 10000,
-						 WAIT_EVENT_WAL_SUMMARIZER_ERROR);
+		(void) WaitInterrupt(0, WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 10000,
+							 WAIT_EVENT_WAL_SUMMARIZER_ERROR);
 	}
 
 	/* We can now handle ereport(ERROR) */
@@ -633,8 +631,8 @@ GetOldestUnsummarizedLSN(TimeLineID *tli, bool *lsn_is_exact)
  *
  * This might not work, because there's no guarantee that the WAL summarizer
  * process was successfully started, and it also might have started but
- * subsequently terminated. So, under normal circumstances, this will get the
- * latch set, but there's no guarantee.
+ * subsequently terminated. So, under normal circumstances, this will send
+ * the interrupt, but there's no guarantee.
  */
 void
 WakeupWalSummarizer(void)
@@ -649,7 +647,7 @@ WakeupWalSummarizer(void)
 	LWLockRelease(WALSummarizerLock);
 
 	if (pgprocno != INVALID_PROC_NUMBER)
-		SetLatch(&ProcGlobal->allProcs[pgprocno].procLatch);
+		SendInterrupt(INTERRUPT_GENERAL, pgprocno);
 }
 
 /*
@@ -1647,11 +1645,11 @@ summarizer_wait_for_wal(void)
 	pgstat_report_wal(false);
 
 	/* OK, now sleep. */
-	(void) WaitLatch(MyLatch,
-					 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					 sleep_quanta * MS_PER_SLEEP_QUANTUM,
-					 WAIT_EVENT_WAL_SUMMARIZER_WAL);
-	ResetLatch(MyLatch);
+	(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+						 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						 sleep_quanta * MS_PER_SLEEP_QUANTUM,
+						 WAIT_EVENT_WAL_SUMMARIZER_WAL);
+	ClearInterrupt(INTERRUPT_GENERAL);
 
 	/* Reset count of pages read. */
 	pages_read_since_last_sleep = 0;

@@ -18,8 +18,8 @@
 
 #include "miscadmin.h"
 #include "postmaster/interrupt_handlers.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/procsignal.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -65,7 +65,7 @@ void
 SignalHandlerForConfigReload(SIGNAL_ARGS)
 {
 	ConfigReloadPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -109,5 +109,5 @@ void
 SignalHandlerForShutdownRequest(SIGNAL_ARGS)
 {
 	ShutdownRequestPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }

@@ -61,9 +61,9 @@
 #include "executor/execPartition.h"
 #include "executor/executor.h"
 #include "executor/nodeAppend.h"
-#include "miscadmin.h"
 #include "pgstat.h"
-#include "storage/latch.h"
+#include "storage/interrupt.h"
+#include "storage/waiteventset.h"
 
 /* Shared state for parallel-aware Append. */
 struct ParallelAppendState
@@ -1043,7 +1043,7 @@ ExecAppendAsyncEventWait(AppendState *node)
 	Assert(node->as_eventset == NULL);
 	node->as_eventset = CreateWaitEventSet(CurrentResourceOwner, nevents);
 	AddWaitEventToSet(node->as_eventset, WL_EXIT_ON_PM_DEATH, PGINVALID_SOCKET,
-					  NULL, NULL);
+					  0, NULL);
 
 	/* Give each waiting subplan a chance to add an event. */
 	i = -1;
@@ -1067,7 +1067,7 @@ ExecAppendAsyncEventWait(AppendState *node)
 	}
 
 	/*
-	 * Add the process latch to the set, so that we wake up to process the
+	 * Add INTERRUPT_GENERAL to the set, so that we wake up to process the
 	 * standard interrupts with CHECK_FOR_INTERRUPTS().
 	 *
 	 * NOTE: For historical reasons, it's important that this is added to the
@@ -1078,8 +1078,8 @@ ExecAppendAsyncEventWait(AppendState *node)
 	 * we cannot change it now.  The pattern has possibly been copied to other
 	 * extensions too.
 	 */
-	AddWaitEventToSet(node->as_eventset, WL_LATCH_SET, PGINVALID_SOCKET,
-					  MyLatch, NULL);
+	AddWaitEventToSet(node->as_eventset, WL_INTERRUPT, PGINVALID_SOCKET,
+					  1 << INTERRUPT_GENERAL, NULL);
 
 	/* Return at most EVENT_BUFFER_SIZE events in one call. */
 	if (nevents > EVENT_BUFFER_SIZE)
@@ -1124,9 +1124,9 @@ ExecAppendAsyncEventWait(AppendState *node)
 		}
 
 		/* Handle standard interrupts */
-		if ((w->events & WL_LATCH_SET) != 0)
+		if ((w->events & WL_INTERRUPT) != 0)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
 		}
 	}

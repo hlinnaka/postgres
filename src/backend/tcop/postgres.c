@@ -61,6 +61,7 @@
 #include "replication/walsender.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -520,15 +521,15 @@ ProcessClientReadInterrupt(bool blocked)
 		/*
 		 * We're dying.  If there is no data available to read, then it's safe
 		 * (and sane) to handle that now.  If we haven't tried to read yet,
-		 * make sure the process latch is set, so that if there is no data
+		 * make sure the interrupt flag is set, so that if there is no data
 		 * then we'll come back here and die.  If we're done reading, also
-		 * make sure the process latch is set, as we might've undesirably
+		 * make sure the interrupt flag is set, as we might've undesirably
 		 * cleared it while reading.
 		 */
 		if (blocked)
 			CHECK_FOR_INTERRUPTS();
 		else
-			SetLatch(MyLatch);
+			RaiseInterrupt(INTERRUPT_GENERAL);
 	}
 
 	errno = save_errno;
@@ -554,9 +555,9 @@ ProcessClientWriteInterrupt(bool blocked)
 		 * We're dying.  If it's not possible to write, then we should handle
 		 * that immediately, else a stuck client could indefinitely delay our
 		 * response to the signal.  If we haven't tried to write yet, make
-		 * sure the process latch is set, so that if the write would block
+		 * sure the interrupt flag is set, so that if the write would block
 		 * then we'll come back here and die.  If we're done writing, also
-		 * make sure the process latch is set, as we might've undesirably
+		 * make sure the interrupt flag is set, as we might've undesirably
 		 * cleared it while writing.
 		 */
 		if (blocked)
@@ -580,7 +581,7 @@ ProcessClientWriteInterrupt(bool blocked)
 			}
 		}
 		else
-			SetLatch(MyLatch);
+			RaiseInterrupt(INTERRUPT_GENERAL);
 	}
 
 	errno = save_errno;
@@ -3037,12 +3038,12 @@ die(SIGNAL_ARGS)
 	/* for the cumulative stats system */
 	pgStatSessionEndCause = DISCONNECT_KILLED;
 
-	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+	/* If we're still here, waken anything waiting on the interrupt */
+	RaiseInterrupt(INTERRUPT_GENERAL);
 
 	/*
 	 * If we're in single user mode, we want to quit immediately - we can't
-	 * rely on latches as they wouldn't work when stdin/stdout is a file.
+	 * rely on interrupts as they wouldn't work when stdin/stdout is a file.
 	 * Rather ugly, but it's unlikely to be worthwhile to invest much more
 	 * effort just for the benefit of single user mode.
 	 */
@@ -3066,8 +3067,8 @@ StatementCancelHandler(SIGNAL_ARGS)
 		QueryCancelPending = true;
 	}
 
-	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+	/* If we're still here, waken anything waiting on the interrupt */
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /* signal handler for floating point exception */
@@ -3093,7 +3094,7 @@ HandleRecoveryConflictInterrupt(ProcSignalReason reason)
 	RecoveryConflictPendingReasons[reason] = true;
 	RecoveryConflictPending = true;
 	InterruptPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
+	/* INTERRUPT_GENERAL will be raised by procsignal_sigusr1_handler */
 }
 
 /*

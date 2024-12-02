@@ -25,8 +25,8 @@
 #include "replication/logicalworker.h"
 #include "replication/walsender.h"
 #include "storage/condition_variable.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/shmem.h"
 #include "storage/sinval.h"
 #include "storage/smgr.h"
@@ -277,8 +277,6 @@ CleanupProcSignalState(int status, Datum arg)
  *
  * On success (a signal was sent), zero is returned.
  * On error, -1 is returned, and errno is set (typically to ESRCH or EPERM).
- *
- * Not to be confused with ProcSendSignal
  */
 int
 SendProcSignal(pid_t pid, ProcSignalReason reason, ProcNumber procNumber)
@@ -484,7 +482,7 @@ HandleProcSignalBarrierInterrupt(void)
 {
 	InterruptPending = true;
 	ProcSignalBarrierPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
+	/* interrupt will be raised by procsignal_sigusr1_handler */
 }
 
 /*
@@ -718,7 +716,7 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 	if (CheckProcSignal(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN))
 		HandleRecoveryConflictInterrupt(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
 
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*

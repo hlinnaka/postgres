@@ -84,9 +84,9 @@
 #include "replication/walsender.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/large_object.h"
-#include "storage/latch.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -2797,7 +2797,7 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 		ProcNumber	walwriterProc = procglobal->walwriterProc;
 
 		if (walwriterProc != INVALID_PROC_NUMBER)
-			SetLatch(&GetPGProcByNumber(walwriterProc)->procLatch);
+			SendInterrupt(INTERRUPT_GENERAL, ProcGlobal->walwriterProc);
 	}
 }
 
@@ -9524,11 +9524,11 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 				reported_waiting = true;
 			}
 
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 1000L,
-							 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 1000L,
+								 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);
+			ClearInterrupt(INTERRUPT_GENERAL);
 
 			if (++waits >= seconds_before_warning)
 			{

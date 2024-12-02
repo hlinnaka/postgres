@@ -37,9 +37,9 @@
 #include "storage/aio.h"
 #include "storage/aio_internal.h"
 #include "storage/aio_subsys.h"
+#include "storage/interrupt.h"
 #include "storage/io_worker.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/memdebug.h"
@@ -62,7 +62,7 @@ typedef struct AioWorkerSubmissionQueue
 
 typedef struct AioWorkerSlot
 {
-	Latch	   *latch;
+	ProcNumber	proc_number;
 	bool		in_use;
 } AioWorkerSlot;
 
@@ -154,7 +154,7 @@ pgaio_worker_shmem_init(bool first_time)
 		io_worker_control->idle_worker_mask = 0;
 		for (int i = 0; i < MAX_IO_WORKERS; ++i)
 		{
-			io_worker_control->workers[i].latch = NULL;
+			io_worker_control->workers[i].proc_number = INVALID_PROC_NUMBER;
 			io_worker_control->workers[i].in_use = false;
 		}
 	}
@@ -243,7 +243,7 @@ pgaio_worker_submit_internal(int nios, PgAioHandle *ios[])
 {
 	PgAioHandle *synchronous_ios[PGAIO_SUBMIT_BATCH_SIZE];
 	int			nsync = 0;
-	Latch	   *wakeup = NULL;
+	ProcNumber	wakeup = INVALID_PROC_NUMBER;
 	int			worker;
 
 	Assert(nios <= PGAIO_SUBMIT_BATCH_SIZE);
@@ -262,12 +262,12 @@ pgaio_worker_submit_internal(int nios, PgAioHandle *ios[])
 			continue;
 		}
 
-		if (wakeup == NULL)
+		if (wakeup == INVALID_PROC_NUMBER)
 		{
 			/* Choose an idle worker to wake up if we haven't already. */
 			worker = pgaio_choose_idle_worker();
 			if (worker >= 0)
-				wakeup = io_worker_control->workers[worker].latch;
+				wakeup = io_worker_control->workers[worker].proc_number;
 
 			pgaio_debug_io(DEBUG4, ios[i],
 						   "choosing worker %d",
@@ -276,8 +276,8 @@ pgaio_worker_submit_internal(int nios, PgAioHandle *ios[])
 	}
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 
-	if (wakeup)
-		SetLatch(wakeup);
+	if (wakeup != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_GENERAL, wakeup);
 
 	/* Run whatever is left synchronously. */
 	if (nsync > 0)
@@ -313,10 +313,10 @@ pgaio_worker_die(int code, Datum arg)
 {
 	LWLockAcquire(AioWorkerSubmissionQueueLock, LW_EXCLUSIVE);
 	Assert(io_worker_control->workers[MyIoWorkerId].in_use);
-	Assert(io_worker_control->workers[MyIoWorkerId].latch == MyLatch);
+	Assert(io_worker_control->workers[MyIoWorkerId].proc_number == MyProcNumber);
 
 	io_worker_control->workers[MyIoWorkerId].in_use = false;
-	io_worker_control->workers[MyIoWorkerId].latch = NULL;
+	io_worker_control->workers[MyIoWorkerId].proc_number = INVALID_PROC_NUMBER;
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 }
 
@@ -339,20 +339,20 @@ pgaio_worker_register(void)
 	{
 		if (!io_worker_control->workers[i].in_use)
 		{
-			Assert(io_worker_control->workers[i].latch == NULL);
+			Assert(io_worker_control->workers[i].proc_number == INVALID_PROC_NUMBER);
 			io_worker_control->workers[i].in_use = true;
 			MyIoWorkerId = i;
 			break;
 		}
 		else
-			Assert(io_worker_control->workers[i].latch != NULL);
+			Assert(io_worker_control->workers[i].proc_number != INVALID_PROC_NUMBER);
 	}
 
 	if (MyIoWorkerId == -1)
 		elog(ERROR, "couldn't find a free worker slot");
 
 	io_worker_control->idle_worker_mask |= (UINT64_C(1) << MyIoWorkerId);
-	io_worker_control->workers[MyIoWorkerId].latch = MyLatch;
+	io_worker_control->workers[MyIoWorkerId].proc_number = MyProcNumber;
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 
 	on_shmem_exit(pgaio_worker_die, 0);
@@ -455,8 +455,8 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 	while (!ShutdownRequestPending)
 	{
 		uint32		io_index;
-		Latch	   *latches[IO_WORKER_WAKEUP_FANOUT];
-		int			nlatches = 0;
+		ProcNumber	peers[IO_WORKER_WAKEUP_FANOUT];
+		int			npeers = 0;
 		int			nwakeups = 0;
 		int			worker;
 
@@ -484,13 +484,13 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 			{
 				if ((worker = pgaio_choose_idle_worker()) < 0)
 					break;
-				latches[nlatches++] = io_worker_control->workers[worker].latch;
+				peers[npeers++] = io_worker_control->workers[worker].proc_number;
 			}
 		}
 		LWLockRelease(AioWorkerSubmissionQueueLock);
 
-		for (int i = 0; i < nlatches; ++i)
-			SetLatch(latches[i]);
+		for (int i = 0; i < npeers; ++i)
+			SendInterrupt(INTERRUPT_GENERAL, peers[i]);
 
 		if (io_index != UINT32_MAX)
 		{
@@ -561,9 +561,10 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 		}
 		else
 		{
-			WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1,
-					  WAIT_EVENT_IO_WORKER_MAIN);
-			ResetLatch(MyLatch);
+			WaitInterrupt(1 << INTERRUPT_GENERAL,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
+						  WAIT_EVENT_IO_WORKER_MAIN);
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 
 		CHECK_FOR_INTERRUPTS();

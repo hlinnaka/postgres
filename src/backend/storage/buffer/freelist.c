@@ -19,6 +19,7 @@
 #include "port/atomics.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/proc.h"
 
 #define INT_ACCESS_ONCE(var)	((int)(*((volatile int *)&(var))))
@@ -219,27 +220,25 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint32 *buf_state, bool *from_r
 	/*
 	 * If asked, we need to waken the bgwriter. Since we don't want to rely on
 	 * a spinlock for this we force a read from shared memory once, and then
-	 * set the latch based on that value. We need to go through that length
-	 * because otherwise bgwprocno might be reset while/after we check because
-	 * the compiler might just reread from memory.
+	 * send the interrupt based on that value. We need to go through that
+	 * length because otherwise bgwprocno might be reset while/after we check
+	 * because the compiler might just reread from memory.
 	 *
-	 * This can possibly set the latch of the wrong process if the bgwriter
-	 * dies in the wrong moment. But since PGPROC->procLatch is never
-	 * deallocated the worst consequence of that is that we set the latch of
-	 * some arbitrary process.
+	 * This can possibly send the interrupt to the wrong process if the
+	 * bgwriter dies in the wrong moment, but that's harmless.
 	 */
 	bgwprocno = INT_ACCESS_ONCE(StrategyControl->bgwprocno);
 	if (bgwprocno != -1)
 	{
-		/* reset bgwprocno first, before setting the latch */
+		/* reset bgwprocno first, before sending the interrupt */
 		StrategyControl->bgwprocno = -1;
 
 		/*
-		 * Not acquiring ProcArrayLock here which is slightly icky. It's
-		 * actually fine because procLatch isn't ever freed, so we just can
-		 * potentially set the wrong process' (or no process') latch.
+		 * Not acquiring ProcArrayLock here which is slightly icky, because we
+		 * can potentially send the interrupt to the wrong process (or no
+		 * process), but it's harmless.
 		 */
-		SetLatch(&ProcGlobal->allProcs[bgwprocno].procLatch);
+		SendInterrupt(INTERRUPT_GENERAL, bgwprocno);
 	}
 
 	/*
@@ -420,10 +419,10 @@ StrategySyncStart(uint32 *complete_passes, uint32 *num_buf_alloc)
 }
 
 /*
- * StrategyNotifyBgWriter -- set or clear allocation notification latch
+ * StrategyNotifyBgWriter -- set or clear allocation notification process
  *
  * If bgwprocno isn't -1, the next invocation of StrategyGetBuffer will
- * set that latch.  Pass -1 to clear the pending notification before it
+ * interrupt that process.  Pass -1 to clear the pending notification before it
  * happens.  This feature is used by the bgwriter process to wake itself up
  * from hibernation, and is not meant for anybody else to use.
  */

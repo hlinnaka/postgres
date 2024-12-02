@@ -13,9 +13,9 @@ OBJS = \
 	dsm.o \
 	dsm_impl.o \
 	dsm_registry.o \
+	interrupt.o \
 	ipc.o \
 	ipci.o \
-	latch.o \
 	pmsignal.o \
 	procarray.o \
 	procsignal.o \

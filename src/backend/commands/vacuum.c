@@ -2507,8 +2507,8 @@ vacuum_delay_point(bool is_analyze)
 		/*
 		 * We don't want to ignore postmaster death during very long vacuums
 		 * with vacuum_cost_delay configured.  We can't use the usual
-		 * WaitLatch() approach here because we want microsecond-based sleep
-		 * durations above.
+		 * WaitInterrupt() approach here because we want microsecond-based
+		 * sleep durations above.
 		 */
 		if (IsUnderPostmaster && !PostmasterIsAlive())
 			exit(1);

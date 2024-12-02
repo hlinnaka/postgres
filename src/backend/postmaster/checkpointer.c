@@ -53,6 +53,7 @@
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
@@ -354,7 +355,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 		bool		chkpt_or_rstpt_timed = false;
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		/*
 		 * Process any requests or signals received recently.
@@ -536,7 +537,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 
 			/*
 			 * We may have received an interrupt during the checkpoint and the
-			 * latch might have been reset (e.g. in CheckpointWriteDelay).
+			 * interrupt might have been reset (e.g. in CheckpointWriteDelay).
 			 */
 			ProcessCheckpointerInterrupts();
 			if (ShutdownXLOGPending || ShutdownRequestPending)
@@ -574,10 +575,10 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 			cur_timeout = Min(cur_timeout, XLogArchiveTimeout - elapsed_secs);
 		}
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 cur_timeout * 1000L /* convert to ms */ ,
-						 WAIT_EVENT_CHECKPOINTER_MAIN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 cur_timeout * 1000L /* convert to ms */ ,
+							 WAIT_EVENT_CHECKPOINTER_MAIN);
 	}
 
 	/*
@@ -615,17 +616,17 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	for (;;)
 	{
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		ProcessCheckpointerInterrupts();
 
 		if (ShutdownRequestPending)
 			break;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-						 0,
-						 WAIT_EVENT_CHECKPOINTER_SHUTDOWN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 0,
+							 WAIT_EVENT_CHECKPOINTER_SHUTDOWN);
 	}
 
 	/* Normal exit from the checkpointer is here */
@@ -810,10 +811,11 @@ CheckpointWriteDelay(int flags, double progress)
 		 * Checkpointer and bgwriter are no longer related so take the Big
 		 * Sleep.
 		 */
-		WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
-				  100,
-				  WAIT_EVENT_CHECKPOINT_WRITE_DELAY);
-		ResetLatch(MyLatch);
+		WaitInterrupt(1 << INTERRUPT_GENERAL,
+					  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
+					  100,
+					  WAIT_EVENT_CHECKPOINT_WRITE_DELAY);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 	else if (--absorb_counter <= 0)
 	{
@@ -922,7 +924,7 @@ static void
 ReqShutdownXLOG(SIGNAL_ARGS)
 {
 	ShutdownXLOGPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 
@@ -1039,14 +1041,14 @@ RequestCheckpoint(int flags)
 	SpinLockRelease(&CheckpointerShmem->ckpt_lck);
 
 	/*
-	 * Set checkpointer's latch to request checkpoint.  It's possible that the
-	 * checkpointer hasn't started yet, so we will retry a few times if
+	 * Send INTERRUPT_GENERAL to wake up the checkpointer.  It's possible that
+	 * the checkpointer hasn't started yet, so we will retry a few times if
 	 * needed.  (Actually, more than a few times, since on slow or overloaded
 	 * buildfarm machines, it's been observed that the checkpointer can take
 	 * several seconds to start.)  However, if not told to wait for the
-	 * checkpoint to occur, we consider failure to set the latch to be
-	 * nonfatal and merely LOG it.  The checkpointer should see the request
-	 * when it does start, with or without the SetLatch().
+	 * checkpoint to occur, we consider failure to wake up the checkpointer to
+	 * be nonfatal and merely LOG it.  The checkpointer should see the request
+	 * when it does start, with or without the SendInterrupt().
 	 */
 #define MAX_SIGNAL_TRIES 600	/* max wait 60.0 sec */
 	for (ntries = 0;; ntries++)
@@ -1065,7 +1067,7 @@ RequestCheckpoint(int flags)
 		}
 		else
 		{
-			SetLatch(&GetPGProcByNumber(checkpointerProc)->procLatch);
+			SendInterrupt(INTERRUPT_GENERAL, checkpointerProc);
 			/* notified successfully */
 			break;
 		}
@@ -1192,7 +1194,7 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 		ProcNumber	checkpointerProc = procglobal->checkpointerProc;
 
 		if (checkpointerProc != INVALID_PROC_NUMBER)
-			SetLatch(&GetPGProcByNumber(checkpointerProc)->procLatch);
+			SendInterrupt(INTERRUPT_GENERAL, ProcGlobal->checkpointerProc);
 	}
 
 	return true;

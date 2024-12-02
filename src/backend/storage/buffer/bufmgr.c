@@ -55,6 +55,7 @@
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
@@ -3248,7 +3249,7 @@ WakePinCountWaiter(BufferDesc *buf)
 
 		buf_state &= ~BM_PIN_COUNT_WAITER;
 		UnlockBufHdr(buf, buf_state);
-		ProcSendSignal(wait_backend_pgprocno);
+		SendInterrupt(INTERRUPT_GENERAL, wait_backend_pgprocno);
 	}
 	else
 		UnlockBufHdr(buf, buf_state);
@@ -5800,12 +5801,17 @@ LockBufferForCleanup(Buffer buffer)
 			SetStartupBufferPinWaitBufId(-1);
 		}
 		else
-			ProcWaitForSignal(WAIT_EVENT_BUFFER_PIN);
+		{
+			WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+						  WAIT_EVENT_BUFFER_PIN);
+			ClearInterrupt(INTERRUPT_GENERAL);
+			CHECK_FOR_INTERRUPTS();
+		}
 
 		/*
 		 * Remove flag marking us as waiter. Normally this will not be set
-		 * anymore, but ProcWaitForSignal() can return for other signals as
-		 * well.  We take care to only reset the flag if we're the waiter, as
+		 * anymore, but INTERRUPT_GENERAL can be set for other events as well.
+		 * We take care to only reset the flag if we're the waiter, as
 		 * theoretically another backend could have started waiting. That's
 		 * impossible with the current usages due to table level locking, but
 		 * better be safe.

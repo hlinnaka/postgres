@@ -55,6 +55,7 @@
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/interrupt.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -224,12 +225,12 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 
 		/*
 		 * Advertise whether we might hibernate in this cycle.  We do this
-		 * before resetting the latch to ensure that any async commits will
-		 * see the flag set if they might possibly need to wake us up, and
-		 * that we won't miss any signal they send us.  (If we discover work
-		 * to do in the last cycle before we would hibernate, the global flag
-		 * will be set unnecessarily, but little harm is done.)  But avoid
-		 * touching the global flag if it doesn't need to change.
+		 * before clearing the interrupt flag to ensure that any async commits
+		 * will see the flag set if they might possibly need to wake us up,
+		 * and that we won't miss any signal they send us.  (If we discover
+		 * work to do in the last cycle before we would hibernate, the global
+		 * flag will be set unnecessarily, but little harm is done.)  But
+		 * avoid touching the global flag if it doesn't need to change.
 		 */
 		if (hibernating != (left_till_hibernate <= 1))
 		{
@@ -238,7 +239,7 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 		}
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		/* Process any signals received recently */
 		ProcessMainLoopInterrupts();
@@ -265,9 +266,9 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 		else
 			cur_timeout = WalWriterDelay * HIBERNATE_FACTOR;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 cur_timeout,
-						 WAIT_EVENT_WAL_WRITER_MAIN);
+		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 cur_timeout,
+							 WAIT_EVENT_WAL_WRITER_MAIN);
 	}
 }

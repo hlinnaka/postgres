@@ -28,7 +28,7 @@
 #include <arpa/inet.h>
 
 #include "libpq/libpq.h"
-#include "miscadmin.h"
+#include "storage/interrupt.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
 #include "utils/wait_event.h"
@@ -213,7 +213,7 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_READ);
@@ -228,12 +228,12 @@ retry:
 		 * new connections can be accepted.  Exiting clears the deck for a
 		 * postmaster restart.
 		 *
-		 * (Note that we only make this check when we would otherwise sleep on
-		 * our latch.  We might still continue running for a while if the
-		 * postmaster is killed in mid-query, or even through multiple queries
-		 * if we never have to wait for read.  We don't want to burn too many
-		 * cycles checking for this very rare condition, and this should cause
-		 * us to exit quickly in most cases.)
+		 * (Note that we only make this check when we would otherwise sleep
+		 * waiting for interrupt.  We might still continue running for a while
+		 * if the postmaster is killed in mid-query, or even through multiple
+		 * queries if we never have to wait for read.  We don't want to burn
+		 * too many cycles checking for this very rare condition, and this
+		 * should cause us to exit quickly in most cases.)
 		 */
 		if (event.events & WL_POSTMASTER_DEATH)
 			ereport(FATAL,
@@ -241,9 +241,9 @@ retry:
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
 		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL);
 			ProcessClientReadInterrupt(true);
 
 			/*
@@ -284,7 +284,8 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 
 	/*
 	 * Try to read from the socket without blocking. If it succeeds we're
-	 * done, otherwise we'll wait for the socket using the latch mechanism.
+	 * done, otherwise we'll wait for the socket using the interrupt
+	 * mechanism.
 	 */
 #ifdef WIN32
 	pgwin32_noblock = true;
@@ -338,7 +339,7 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_WRITE);
@@ -350,9 +351,9 @@ retry:
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
 		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL);
 			ProcessClientWriteInterrupt(true);
 
 			/*
