@@ -568,6 +568,11 @@ WakeupMyProc(void)
 void
 WakeupOtherProc(PGPROC *proc)
 {
+	/*
+	 * Note: This can also be called from the postmaster, so be careful to not
+	 * assume that the contents of shared memory are valid.  Reading the 'pid'
+	 * (or event handle on Windows) is safe enough.
+	 */
 #ifndef WIN32
 	kill(proc->pid, SIGURG);
 #else

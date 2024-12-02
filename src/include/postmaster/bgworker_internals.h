@@ -15,6 +15,7 @@
 #include "datatype/timestamp.h"
 #include "lib/ilist.h"
 #include "postmaster/bgworker.h"
+#include "storage/procnumber.h"
 
 /* GUC options */
 
@@ -47,9 +48,10 @@ extern void BackgroundWorkerStateChange(bool allow_new_workers);
 extern void ForgetBackgroundWorker(RegisteredBgWorker *rw);
 extern void ReportBackgroundWorkerPID(RegisteredBgWorker *rw);
 extern void ReportBackgroundWorkerExit(RegisteredBgWorker *rw);
-extern void BackgroundWorkerStopNotifications(pid_t pid);
+extern void BackgroundWorkerStopNotifications(int pmchild);
 extern void ForgetUnstartedBackgroundWorkers(void);
 extern void ResetBackgroundWorkerCrashTimes(void);
+extern ProcNumber GetNotifyProcNumberForRegisteredWorker(RegisteredBgWorker *rw);
 
 /* Entry point for background worker processes */
 extern void BackgroundWorkerMain(char *startup_data, size_t startup_data_len) pg_attribute_noreturn();
