@@ -122,6 +122,8 @@ typedef struct SnapshotData *Snapshot;
 
 #define InvalidSnapshot		((Snapshot) NULL)
 
+struct inprogress_cache_radix_tree; /* private to snapmgr.c */
+
 /*
  * Struct representing all kind of possible snapshots.
  *
@@ -158,7 +160,7 @@ typedef struct SnapshotData
 	TransactionId xmax;			/* all XID >= xmax are invisible to me */
 
 	/*
-	 * For normal MVCC snapshot this contains the all xact IDs that are in
+	 * For normal MVCC snapshot this contains all the xact IDs that are in
 	 * progress, unless the snapshot was taken during recovery in which case
 	 * it's empty. For historic MVCC snapshots, the meaning is inverted, i.e.
 	 * it contains *committed* transactions between xmin and xmax.
@@ -187,6 +189,12 @@ typedef struct SnapshotData
 	 * LSN are considered as visible.
 	 */
 	XLogRecPtr	snapshotCsn;
+
+	/*
+	 * Cache of XIDs known to be running or not according to the snapshot.
+	 * Used in snapshots taken during recovery.
+	 */
+	struct inprogress_cache_radix_tree *inprogress_cache;
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 	bool		copied;			/* false if it's a static snapshot */

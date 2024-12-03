@@ -66,6 +66,35 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+/*
+ * Define a radix tree implementation to cache CSN lookups in a snapshot.
+ *
+ * We need only one bit of information for each XID stored in the cache: was
+ * the XID running or not.  However, the radix tree implementation uses 8
+ * bytes for each entry (on 64-bit machines) even if the value type is smaller
+ * than that.  To reduce memory usage, we use uint64 as the value type, and
+ * store multiple XIDs in each value.
+ *
+ * The 64-bit value word holds two bits for each XID: whether the XID is
+ * present in the cache or not, and if it's present, whether it's considered
+ * as in-progress by the snapshot or not.  So each entry in the radix tree
+ * holds the status for 32 XIDs.
+ */
+#define RT_PREFIX inprogress_cache
+#define RT_SCOPE
+#define RT_DECLARE
+#define RT_DEFINE
+#define RT_VALUE_TYPE uint64
+#include "lib/radixtree.h"
+
+#define INPROGRESS_CACHE_BITS 2
+#define INPROGRESS_CACHE_XIDS_PER_WORD 32
+
+#define INPROGRESS_CACHE_XID_IS_CACHED(word, slotno) \
+	((((word) & (UINT64CONST(1) << (slotno)))) != 0)
+
+#define INPROGRESS_CACHE_XID_IS_IN_PROGRESS(word, slotno) \
+	((((word) & (UINT64CONST(1) << ((slotno) + 1)))) != 0)
 
 /*
  * CurrentSnapshot points to the only snapshot taken in transaction-snapshot
@@ -595,6 +624,12 @@ CopySnapshot(Snapshot snapshot)
 	newsnap->copied = true;
 	newsnap->snapXactCompletionCount = 0;
 
+	/*
+	 * TODO: If we had a separate reference count on the cache, we could share
+	 * it between the copies.
+	 */
+	newsnap->inprogress_cache = NULL;
+
 	/* setup XID array */
 	if (snapshot->xcnt > 0)
 	{
@@ -609,7 +644,7 @@ CopySnapshot(Snapshot snapshot)
 	 * Setup subXID array. Don't bother to copy it if it had overflowed,
 	 * though, because it's not used anywhere in that case. Except if it's a
 	 * snapshot taken during recovery; all the top-level XIDs are in subxip as
-	 * well in that case, so we mustn't lose them.
+	 * well in that case, so we mustn't lose them. XXX
 	 */
 	if (snapshot->subxcnt > 0 &&
 		(!snapshot->suboverflowed || snapshot->takenDuringRecovery))
@@ -635,6 +670,8 @@ FreeSnapshot(Snapshot snapshot)
 	Assert(snapshot->active_count == 0);
 	Assert(snapshot->copied);
 
+	if (snapshot->inprogress_cache)
+		inprogress_cache_free(snapshot->inprogress_cache);
 	pfree(snapshot);
 }
 
@@ -1807,6 +1844,7 @@ RestoreSnapshot(char *start_address)
 	snapshot->whenTaken = serialized_snapshot.whenTaken;
 	snapshot->lsn = serialized_snapshot.lsn;
 	snapshot->snapshotCsn = serialized_snapshot.snapshotCsn;
+	snapshot->inprogress_cache = NULL;
 	snapshot->snapXactCompletionCount = 0;
 
 	/* Copy XIDs, if present. */
@@ -1917,12 +1955,56 @@ XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
 	}
 	else
 	{
-		XLogRecPtr	csn = CSNLogGetCSNByXid(xid);
+		XLogRecPtr	csn;
+		bool		inprogress;
+		uint64	   *cache_entry = NULL;
+		uint64		cache_word = 0;
 
-		if (csn != InvalidXLogRecPtr && csn <= snapshot->snapshotCsn)
-			return false;
+		/*
+		 * Calculate the word and bit slot for the XID in the cache. We use an
+		 * offset from xmax as the key instead of the XID directly, because
+		 * the radix tree can compact away leading zeros and is thus slightly
+		 * more efficient with keys closer to 0.
+		 */
+		uint32		cache_idx = snapshot->xmax - xid;
+		uint64		wordno = cache_idx / INPROGRESS_CACHE_XIDS_PER_WORD;
+		uint64		slotno = (cache_idx % INPROGRESS_CACHE_XIDS_PER_WORD) * INPROGRESS_CACHE_BITS;
+
+		if (snapshot->inprogress_cache)
+		{
+			cache_entry = inprogress_cache_find(snapshot->inprogress_cache, wordno);
+			if (cache_entry)
+			{
+				cache_word = *cache_entry;
+				if (INPROGRESS_CACHE_XID_IS_CACHED(cache_word, slotno))
+					return INPROGRESS_CACHE_XID_IS_IN_PROGRESS(cache_word, slotno);
+			}
+		}
+
+		/* Not found in cache, look up the CSN */
+		csn = CSNLogGetCSNByXid(xid);
+		inprogress = (csn == InvalidXLogRecPtr || csn > snapshot->snapshotCsn);
+
+		/* Update the cache word, and store it back to the radix tree */
+		cache_word |= UINT64CONST(1) << slotno;	/* cached */
+		if (inprogress)
+			cache_word |= UINT64CONST(1) << (slotno + 1);	/* in-progress */
+
+		if (!snapshot->inprogress_cache)
+		{
+			MemoryContext cache_ctx;
+
+			cache_ctx = AllocSetContextCreate(TopTransactionContext,
+											  "snapshot inprogress cache context",
+											  ALLOCSET_SMALL_SIZES);
+			snapshot->inprogress_cache = inprogress_cache_create(cache_ctx);
+		}
+		if (cache_entry)
+			*cache_entry = cache_word;
 		else
-			return true;
+			inprogress_cache_set(snapshot->inprogress_cache, wordno, &cache_word);
+
+		return inprogress;
 	}
 
 	return false;
