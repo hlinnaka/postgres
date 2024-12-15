@@ -51,13 +51,13 @@ typedef struct PMChildPool
 	dlist_head	freelist;		/* currently unused PMChild entries */
 } PMChildPool;
 
-static PMChildPool pmchild_pools[BACKEND_NUM_TYPES];
-NON_EXEC_STATIC int num_pmchild_slots = 0;
+static pg_global PMChildPool pmchild_pools[BACKEND_NUM_TYPES];
+NON_EXEC_STATIC pg_global int num_pmchild_slots = 0;
 
 /*
  * List of active child processes.  This includes dead-end children.
  */
-dlist_head	ActiveChildList;
+dlist_head pg_global ActiveChildList;
 
 /*
  * MaxLivePostmasterChildren

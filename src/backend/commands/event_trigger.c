@@ -81,7 +81,7 @@ typedef struct EventTriggerQueryState
 static session_local EventTriggerQueryState *currentEventTriggerState = NULL;
 
 /* GUC parameter */
-bool		event_triggers = true;
+suset_guc bool		event_triggers = true;
 
 /* Support for dropped objects */
 typedef struct SQLDropObject

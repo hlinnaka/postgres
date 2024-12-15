@@ -515,7 +515,7 @@ session_guc bool		check_function_bodies = true;
  * This GUC exists solely for backward compatibility, check its definition for
  * details.
  */
-static bool default_with_oids = false;
+static userset_guc bool default_with_oids = false;
 
 session_guc bool		current_role_is_superuser;
 

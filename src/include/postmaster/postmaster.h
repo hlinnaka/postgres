@@ -61,7 +61,7 @@ typedef struct PMChild
 } PMChild;
 
 #ifdef EXEC_BACKEND
-extern int	num_pmchild_slots;
+extern pg_global int	num_pmchild_slots;
 #endif
 
 extern void thread_pre_exit(pthread_t threadid, int code);
@@ -90,7 +90,7 @@ extern PGDLLIMPORT sighup_guc bool send_abort_for_kill;
 #ifdef WIN32
 extern PGDLLIMPORT HANDLE PostmasterHandle;
 #else
-extern PGDLLIMPORT int postmaster_alive_fds[2];
+extern pg_global PGDLLIMPORT int postmaster_alive_fds[2];
 
 /*
  * Constants that represent which of postmaster_alive_fds is held by
@@ -103,8 +103,8 @@ extern PGDLLIMPORT int postmaster_alive_fds[2];
 
 extern PGDLLIMPORT const char *progname;
 
-extern PGDLLIMPORT bool redirection_done;
-extern PGDLLIMPORT bool LoadedSSL;
+extern pg_global PGDLLIMPORT bool redirection_done;
+extern pg_global PGDLLIMPORT bool LoadedSSL;
 
 extern void PostmasterMain(int argc, char *argv[]) pg_attribute_noreturn();
 extern void ClosePostmasterPorts(bool am_syslogger);
@@ -137,7 +137,7 @@ extern void SubPostmasterMain(int argc, char *argv[]) pg_attribute_noreturn();
 #endif
 
 /* defined in pmchild.c */
-extern dlist_head ActiveChildList;
+extern pg_global dlist_head ActiveChildList;
 
 extern void InitPostmasterChildSlots(void);
 extern PMChild *AssignPostmasterChildSlot(BackendType btype);

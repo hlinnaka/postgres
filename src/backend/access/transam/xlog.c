@@ -283,7 +283,7 @@ static session_local XLogRecPtr RedoRecPtr;
  * and respond appropriately if it turns out that the previous value wasn't
  * accurate.
  */
-static bool doPageWrites;
+static session_local bool doPageWrites;
 
 /*----------
  * Shared-memory data structures for XLOG control

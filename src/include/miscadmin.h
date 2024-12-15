@@ -27,7 +27,7 @@
 
 #include "datatype/timestamp.h" /* for TimestampTz */
 #include "pgtime.h"				/* for pg_time_t */
-
+#include "postgres.h"			/* for pg_global */
 
 #define InvalidPid				(-1)
 
@@ -494,12 +494,12 @@ extern void BaseInit(void);
 
 /* in utils/init/miscinit.c */
 extern PGDLLIMPORT bool session_local IgnoreSystemIndexes;
-extern PGDLLIMPORT bool process_shared_preload_libraries_in_progress;
-extern PGDLLIMPORT bool process_shared_preload_libraries_done;
-extern PGDLLIMPORT bool process_shmem_requests_in_progress;
-extern PGDLLIMPORT char *session_preload_libraries_string;
-extern PGDLLIMPORT char *shared_preload_libraries_string;
-extern PGDLLIMPORT char *local_preload_libraries_string;
+extern PGDLLIMPORT pg_global bool process_shared_preload_libraries_in_progress;
+extern PGDLLIMPORT pg_global bool process_shared_preload_libraries_done;
+extern PGDLLIMPORT pg_global bool process_shmem_requests_in_progress;
+extern PGDLLIMPORT suset_guc		char *session_preload_libraries_string;
+extern PGDLLIMPORT postmaster_guc	char *shared_preload_libraries_string;
+extern PGDLLIMPORT userset_guc		char *local_preload_libraries_string;
 
 extern void CreateDataDirLockFile(bool amPostmaster);
 extern void CreateSocketLockFile(const char *socketfile, bool amPostmaster,

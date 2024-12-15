@@ -104,7 +104,7 @@ typedef struct
 } SummarizerReadLocalXLogPrivate;
 
 /* Pointer to shared memory state. */
-static WalSummarizerData *WalSummarizerCtl;
+static session_local WalSummarizerData *WalSummarizerCtl;
 
 /*
  * When we reach end of WAL and need to read more, we sleep for a number of
@@ -112,7 +112,7 @@ static WalSummarizerData *WalSummarizerCtl;
  * the multiplier. It should vary between 1 and MAX_SLEEP_QUANTA, depending
  * on system activity. See summarizer_wait_for_wal() for how we adjust this.
  */
-static long sleep_quanta = 1;
+static session_local long sleep_quanta = 1;
 
 /*
  * The sleep time will always be a multiple of 200ms and will not exceed
@@ -129,18 +129,18 @@ static long sleep_quanta = 1;
  * This is a count of the number of pages of WAL that we've read since the
  * last time we waited for more WAL to appear.
  */
-static long pages_read_since_last_sleep = 0;
+static session_local long pages_read_since_last_sleep = 0;
 
 /*
  * Most recent RedoRecPtr value observed by MaybeRemoveOldWalSummaries.
  */
-static XLogRecPtr redo_pointer_at_last_summary_removal = InvalidXLogRecPtr;
+static session_local XLogRecPtr redo_pointer_at_last_summary_removal = InvalidXLogRecPtr;
 
 /*
  * GUC parameters
  */
-bool		summarize_wal = false;
-int			wal_summary_keep_time = 10 * HOURS_PER_DAY * MINS_PER_HOUR;
+sighup_guc bool		summarize_wal = false;
+sighup_guc int		wal_summary_keep_time = 10 * HOURS_PER_DAY * MINS_PER_HOUR;
 
 static void WalSummarizerShutdown(int code, Datum arg);
 static XLogRecPtr GetLatestLSN(TimeLineID *tli);

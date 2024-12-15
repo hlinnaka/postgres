@@ -14,7 +14,7 @@
 
 #include "replication/walreceiver.h"
 
-extern PGDLLIMPORT bool sync_replication_slots;
+extern PGDLLIMPORT sighup_guc bool sync_replication_slots;
 
 /*
  * GUCs needed by slot sync worker to connect to the primary

@@ -145,8 +145,8 @@ static session_local XLogReaderState *xlogreader = NULL;
  * that object and all of its subordinate data. Otherwise, both values will
  * be NULL.
  */
-static IncrementalBackupInfo *uploaded_manifest = NULL;
-static MemoryContext uploaded_manifest_mcxt = NULL;
+static session_local IncrementalBackupInfo *uploaded_manifest = NULL;
+static session_local MemoryContext uploaded_manifest_mcxt = NULL;
 
 /*
  * These variables keep track of the state of the timeline we're currently

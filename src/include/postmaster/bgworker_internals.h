@@ -40,7 +40,7 @@ typedef struct RegisteredBgWorker
 	dlist_node	rw_lnode;		/* list link */
 } RegisteredBgWorker;
 
-extern PGDLLIMPORT dlist_head BackgroundWorkerList;
+extern pg_global PGDLLIMPORT dlist_head BackgroundWorkerList;
 
 extern Size BackgroundWorkerShmemSize(void);
 extern void BackgroundWorkerShmemInit(void);

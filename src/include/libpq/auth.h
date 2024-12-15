@@ -32,6 +32,6 @@ extern PGDLLIMPORT session_local ClientAuthentication_hook_type ClientAuthentica
 typedef char *(*auth_password_hook_typ) (char *input);
 
 /* Default LDAP password mutator hook, can be overridden by a shared library */
-extern PGDLLIMPORT auth_password_hook_typ ldap_password_hook;
+extern PGDLLIMPORT dynamic_singleton auth_password_hook_typ ldap_password_hook;
 
 #endif							/* AUTH_H */

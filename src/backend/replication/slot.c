@@ -148,13 +148,13 @@ postmaster_guc int			max_replication_slots = 10; /* the maximum number of replic
 sighup_guc char	   *synchronized_standby_slots;
 
 /* This is the parsed and cached configuration for synchronized_standby_slots */
-static SyncStandbySlotsConfigData *synchronized_standby_slots_config;
+static session_local SyncStandbySlotsConfigData *synchronized_standby_slots_config;
 
 /*
  * Oldest LSN that has been confirmed to be flushed to the standbys
  * corresponding to the physical slots specified in the synchronized_standby_slots GUC.
  */
-static XLogRecPtr ss_oldest_flush_lsn = InvalidXLogRecPtr;
+static session_local XLogRecPtr ss_oldest_flush_lsn = InvalidXLogRecPtr;
 
 static void ReplicationSlotShmemExit(int code, Datum arg);
 static void ReplicationSlotDropPtr(ReplicationSlot *slot);

@@ -92,7 +92,7 @@ typedef struct PgArchData
 } PgArchData;
 
 sighup_guc char	   *XLogArchiveLibrary = "";
-char	   *arch_module_check_errdetail_string;
+session_local char *arch_module_check_errdetail_string;
 
 
 /* ----------

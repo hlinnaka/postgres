@@ -79,7 +79,7 @@ static void pgoutput_stream_commit(struct LogicalDecodingContext *ctx,
 static void pgoutput_stream_prepare_txn(LogicalDecodingContext *ctx,
 										ReorderBufferTXN *txn, XLogRecPtr prepare_lsn);
 
-static bool publications_valid;
+static session_local bool publications_valid;
 
 static List *LoadPublications(List *pubnames);
 static void publication_invalidation_cb(Datum arg, int cacheid,

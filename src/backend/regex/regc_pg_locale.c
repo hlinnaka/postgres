@@ -633,7 +633,7 @@ typedef struct pg_ctype_cache
 	struct pg_ctype_cache *next;	/* chain link */
 } pg_ctype_cache;
 
-static pg_ctype_cache *pg_ctype_cache_list = NULL;
+static session_local pg_ctype_cache *pg_ctype_cache_list = NULL;
 
 /*
  * Add a chr or range to pcc->cv; return false if run out of memory

@@ -26,7 +26,7 @@
 #include "utils/datum.h"
 
 /* State flag that determines how nodeToStringInternal() should treat location fields */
-static bool write_location_fields = false;
+static session_local bool write_location_fields = false;
 
 static void outChar(StringInfo str, char c);
 static void outDouble(StringInfo str, double d);

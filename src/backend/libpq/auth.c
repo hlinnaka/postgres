@@ -144,7 +144,7 @@ static int	CheckLDAPAuth(Port *port);
 
 /* Default LDAP password mutator hook, can be overridden by a shared library */
 static char *dummy_ldap_password_mutator(char *input);
-auth_password_hook_typ ldap_password_hook = dummy_ldap_password_mutator;
+dynamic_singleton auth_password_hook_typ ldap_password_hook = dummy_ldap_password_mutator;
 
 #endif							/* USE_LDAP */
 

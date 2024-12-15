@@ -1777,16 +1777,16 @@ ValidatePgVersion(const char *path)
  * GUC variables: lists of library names to be preloaded at postmaster
  * start and at backend start
  */
-char	   *session_preload_libraries_string = NULL;
-char	   *shared_preload_libraries_string = NULL;
-char	   *local_preload_libraries_string = NULL;
+suset_guc		char	   *session_preload_libraries_string = NULL;
+postmaster_guc	char	   *shared_preload_libraries_string = NULL;
+userset_guc		char	   *local_preload_libraries_string = NULL;
 
 /* Flag telling that we are loading shared_preload_libraries */
-bool		process_shared_preload_libraries_in_progress = false;
-bool		process_shared_preload_libraries_done = false;
+pg_global bool process_shared_preload_libraries_in_progress = false;
+pg_global bool process_shared_preload_libraries_done = false;
 
 pg_global shmem_request_hook_type shmem_request_hook = NULL;
-bool		process_shmem_requests_in_progress = false;
+pg_global bool		process_shmem_requests_in_progress = false;
 
 /*
  * load the shared libraries listed in 'libraries'

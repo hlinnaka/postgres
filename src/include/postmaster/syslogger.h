@@ -81,9 +81,9 @@ extern PGDLLIMPORT pg_time_t first_syslogger_file_time;
 #endif
 
 #ifndef WIN32
-extern PGDLLIMPORT int syslogPipe[2];
+extern pg_global PGDLLIMPORT int syslogPipe[2];
 #else
-extern PGDLLIMPORT HANDLE syslogPipe[2];
+extern pg_global PGDLLIMPORT HANDLE syslogPipe[2];
 #endif
 
 

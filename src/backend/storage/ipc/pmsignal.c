@@ -89,7 +89,7 @@ NON_EXEC_STATIC pg_global volatile PMSignalData *PMSignalState = NULL;
  * postmaster.  Postmaster keeps a local copy so that it doesn't need to
  * trust the value in shared memory.
  */
-static int	num_child_flags;
+static dynamic_singleton int	num_child_flags;
 
 /*
  * Signal handler to be notified if postmaster dies.

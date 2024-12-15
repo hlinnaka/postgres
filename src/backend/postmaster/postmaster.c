@@ -370,8 +370,8 @@ static pg_global bool avlauncher_needs_signal = false;
 static pg_global bool WalReceiverRequested = false;
 
 /* set when there's a worker that needs to be started up */
-static bool StartWorkerNeeded = true;
-static bool HaveCrashedWorker = false;
+static pg_global bool StartWorkerNeeded = true;
+static pg_global bool HaveCrashedWorker = false;
 
 /* set when signals arrive */
 static pg_global volatile sig_atomic_t pending_pm_pmsignal;
@@ -4290,8 +4290,8 @@ typedef struct threadnode
 	struct threadnode *next;
 } threadnode;
 
-static slock_t thread_exit_lock;
-static threadnode *thread_exit_head = NULL;
+static pg_global slock_t thread_exit_lock;
+static pg_global threadnode *thread_exit_head = NULL;
 
 /* this is similar to pgwin32_deadchild_callback() on Windows */
 void

@@ -83,7 +83,7 @@ struct XidCache
  * lock table.  This eases contention on the lock manager LWLocks.  See
  * storage/lmgr/README for additional details.
  */
-extern PGDLLIMPORT int FastPathLockGroupsPerBackend;
+extern dynamic_singleton PGDLLIMPORT int FastPathLockGroupsPerBackend;
 
 #define		FP_LOCK_GROUPS_PER_BACKEND_MAX	1024
 #define		FP_LOCK_SLOTS_PER_GROUP		16	/* don't change */

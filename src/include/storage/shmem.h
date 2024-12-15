@@ -26,7 +26,7 @@
 
 
 /* shmem.c */
-extern PGDLLIMPORT slock_t *ShmemLock;
+extern pg_global PGDLLIMPORT slock_t *ShmemLock;
 extern void InitShmemAccess(void *seghdr);
 extern void InitShmemAllocation(void);
 extern void *ShmemAlloc(Size size);

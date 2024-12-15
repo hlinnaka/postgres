@@ -117,7 +117,7 @@ static const char *const lock_mode_names[] =
 };
 
 #ifndef LOCK_DEBUG
-static bool Dummy_trace = false;
+static pg_global bool Dummy_trace = false;
 #endif
 
 static const LockMethodData default_lockmethod = {
@@ -197,7 +197,7 @@ static session_local bool IsRelationExtensionLockHeld PG_USED_FOR_ASSERTS_ONLY =
  * the best information about expected number of locks per backend we have.
  * See InitializeFastPathLocks() for details.
  */
-int			FastPathLockGroupsPerBackend = 0;
+int	dynamic_singleton	FastPathLockGroupsPerBackend = 0;
 
 /*
  * Macros to calculate the fast-path group and index for a relation.

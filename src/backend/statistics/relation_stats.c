@@ -41,7 +41,7 @@ enum relation_stats_argnum
 	NUM_RELATION_STATS_ARGS
 };
 
-static struct StatsArgInfo relarginfo[] =
+static static_singleton struct StatsArgInfo relarginfo[] =
 {
 	[RELATION_ARG] = {"relation", REGCLASSOID},
 	[RELPAGES_ARG] = {"relpages", INT4OID},

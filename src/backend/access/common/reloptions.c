@@ -91,7 +91,7 @@
  * value has no effect until the next VACUUM, so no need for stronger lock.
  */
 
-static relopt_bool boolRelOpts[] =
+static static_singleton relopt_bool boolRelOpts[] =
 {
 	{
 		{
@@ -170,7 +170,7 @@ static relopt_bool boolRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_int intRelOpts[] =
+static static_singleton relopt_int intRelOpts[] =
 {
 	{
 		{
@@ -385,7 +385,7 @@ static relopt_int intRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_real realRelOpts[] =
+static static_singleton relopt_real realRelOpts[] =
 {
 	{
 		{
@@ -505,7 +505,7 @@ static const relopt_enum_elt_def viewCheckOptValues[] =
 	{(const char *) NULL}		/* list terminator */
 };
 
-static relopt_enum enumRelOpts[] =
+static static_singleton relopt_enum enumRelOpts[] =
 {
 	{
 		{
@@ -544,7 +544,7 @@ static relopt_enum enumRelOpts[] =
 	{{NULL}}
 };
 
-static relopt_string stringRelOpts[] =
+static static_singleton relopt_string stringRelOpts[] =
 {
 	/* list terminator */
 	{{NULL}}

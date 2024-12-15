@@ -74,7 +74,7 @@ static session_local DynamicFileList *file_tail = NULL;
 #define SAME_INODE(A,B) false
 #endif
 
-char	   *Dynamic_library_path;
+suset_guc char	   *Dynamic_library_path;
 
 static void *internal_load_library(const char *libname);
 static void incompatible_module_error(const char *libname,

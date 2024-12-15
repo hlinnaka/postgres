@@ -105,7 +105,7 @@ session_guc int			PostAuthDelay = 0;
 session_guc int			client_connection_check_interval = 0;
 
 /* flags for non-system relation kinds to restrict use */
-int			restrict_nonsystem_relation_kind;
+userset_guc int			restrict_nonsystem_relation_kind;
 
 /* ----------------
  *		private typedefs etc

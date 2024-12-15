@@ -58,7 +58,7 @@ extern PGDLLEXPORT const ArchiveModuleCallbacks *_PG_archive_module_init(void);
 
 /* Support for messages reported from archive module callbacks. */
 
-extern PGDLLIMPORT char *arch_module_check_errdetail_string;
+extern session_local PGDLLIMPORT char *arch_module_check_errdetail_string;
 
 #define arch_module_check_errdetail \
 	pre_format_elog_string(errno, TEXTDOMAIN), \
