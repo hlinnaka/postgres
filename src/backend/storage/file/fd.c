@@ -588,7 +588,7 @@ retry:
 #if !defined(WIN32) && defined(MS_ASYNC)
 	{
 		void	   *p;
-		static int	pagesize = 0;
+		static session_local int	pagesize = 0;
 
 		/*
 		 * On several OSs msync(MS_ASYNC) on a mmap'ed file triggers

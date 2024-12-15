@@ -610,8 +610,8 @@ MarkSubxactTopXidLogged(void)
 TransactionId
 GetStableLatestTransactionId(void)
 {
-	static LocalTransactionId lxid = InvalidLocalTransactionId;
-	static TransactionId stablexid = InvalidTransactionId;
+	static session_local LocalTransactionId lxid = InvalidLocalTransactionId;
+	static session_local TransactionId stablexid = InvalidTransactionId;
 
 	if (lxid != MyProc->vxid.lxid)
 	{

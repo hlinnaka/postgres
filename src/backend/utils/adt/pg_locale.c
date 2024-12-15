@@ -237,7 +237,7 @@ pg_perm_setlocale(int category, const char *locale)
 	 */
 	if (category == LC_CTYPE)
 	{
-		static char save_lc_ctype[LOCALE_NAME_BUFLEN];
+		static session_local char save_lc_ctype[LOCALE_NAME_BUFLEN];
 
 		/* copy setlocale() return value before callee invokes it again */
 		strlcpy(save_lc_ctype, result, sizeof(save_lc_ctype));
@@ -534,8 +534,8 @@ db_encoding_convert(int encoding, char **str)
 struct lconv *
 PGLC_localeconv(void)
 {
-	static struct lconv CurrentLocaleConv;
-	static bool CurrentLocaleConvAllocated = false;
+	static session_local struct lconv CurrentLocaleConv;
+	static session_local bool CurrentLocaleConvAllocated = false;
 	struct lconv *extlconv;
 	struct lconv worklconv;
 	char	   *save_lc_monetary;

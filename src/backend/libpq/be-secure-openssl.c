@@ -1483,7 +1483,7 @@ static const char *
 SSLerrmessage(unsigned long ecode)
 {
 	const char *errreason;
-	static char errbuf[36];
+	static session_local char errbuf[36];
 
 	if (ecode == 0)
 		return _("no SSL error reported");

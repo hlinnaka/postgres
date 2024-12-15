@@ -3169,7 +3169,7 @@ log_status_format(StringInfo buf, const char *format, ErrorData *edata)
 char *
 unpack_sql_state(int sql_state)
 {
-	static char buf[12];
+	static session_local char buf[12];
 	int			i;
 
 	for (i = 0; i < 5; i++)

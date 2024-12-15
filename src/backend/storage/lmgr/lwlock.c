@@ -309,8 +309,8 @@ static void
 init_lwlock_stats(void)
 {
 	HASHCTL		ctl;
-	static MemoryContext lwlock_stats_cxt = NULL;
-	static bool exit_registered = false;
+	static session_local MemoryContext lwlock_stats_cxt = NULL;
+	static session_local bool exit_registered = false;
 
 	if (lwlock_stats_cxt != NULL)
 		MemoryContextDelete(lwlock_stats_cxt);

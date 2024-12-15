@@ -1006,7 +1006,7 @@ XLogInsertRecord(XLogRecData *rdata,
 #ifdef WAL_DEBUG
 	if (XLOG_DEBUG)
 	{
-		static XLogReaderState *debug_reader = NULL;
+		static session_local XLogReaderState *debug_reader = NULL;
 		XLogRecord *record;
 		DecodedXLogRecord *decoded;
 		StringInfoData buf;
@@ -1633,8 +1633,8 @@ GetXLogBuffer(XLogRecPtr ptr, TimeLineID tli)
 {
 	int			idx;
 	XLogRecPtr	endptr;
-	static uint64 cachedPage = 0;
-	static char *cachedPos = NULL;
+	static session_local uint64 cachedPage = 0;
+	static session_local char *cachedPos = NULL;
 	XLogRecPtr	expectedEndPtr;
 
 	/*
@@ -2991,7 +2991,7 @@ XLogBackgroundFlush(void)
 {
 	XLogwrtRqst WriteRqst;
 	bool		flexible = true;
-	static TimestampTz lastflush;
+	static session_local TimestampTz lastflush;
 	TimestampTz now;
 	int			flushblocks;
 	TimeLineID	insertTLI;
@@ -9420,7 +9420,7 @@ do_pg_abort_backup(int code, Datum arg)
 void
 register_persistent_abort_backup_handler(void)
 {
-	static bool already_done = false;
+	static session_local bool already_done = false;
 
 	if (already_done)
 		return;

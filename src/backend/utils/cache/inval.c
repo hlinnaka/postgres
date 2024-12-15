@@ -892,7 +892,7 @@ AcceptInvalidationMessages(void)
 	 */
 #ifdef DISCARD_CACHES_ENABLED
 	{
-		static int	recursion_depth = 0;
+		static session_local int	recursion_depth = 0;
 
 		if (recursion_depth < debug_discard_caches)
 		{

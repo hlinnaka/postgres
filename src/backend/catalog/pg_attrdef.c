@@ -50,7 +50,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	Relation	adrel;
 	HeapTuple	tuple;
 	Datum		values[4];
-	static bool nulls[4] = {false, false, false, false};
+	static session_local bool nulls[4] = {false, false, false, false};
 	Relation	attrrel;
 	HeapTuple	atttup;
 	Form_pg_attribute attStruct;

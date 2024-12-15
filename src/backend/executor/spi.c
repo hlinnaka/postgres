@@ -1971,7 +1971,7 @@ SPI_plan_is_valid(SPIPlanPtr plan)
 const char *
 SPI_result_code_string(int code)
 {
-	static char buf[64];
+	static session_local char buf[64];
 
 	switch (code)
 	{

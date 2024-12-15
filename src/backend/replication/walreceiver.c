@@ -1109,8 +1109,8 @@ XLogWalRcvClose(XLogRecPtr recptr, TimeLineID tli)
 static void
 XLogWalRcvSendReply(bool force, bool requestReply)
 {
-	static XLogRecPtr writePtr = 0;
-	static XLogRecPtr flushPtr = 0;
+	static session_local XLogRecPtr writePtr = 0;
+	static session_local XLogRecPtr flushPtr = 0;
 	XLogRecPtr	applyPtr;
 	TimestampTz now;
 
@@ -1187,7 +1187,7 @@ XLogWalRcvSendHSFeedback(bool immed)
 				catalog_xmin;
 
 	/* initially true so we always send at least one feedback message */
-	static bool primary_has_standby_xmin = true;
+	static session_local bool primary_has_standby_xmin = true;
 
 	/*
 	 * If the user doesn't want status to be reported to the primary, be sure

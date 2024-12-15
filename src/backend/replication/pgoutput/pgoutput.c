@@ -425,7 +425,7 @@ pgoutput_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 				 bool is_init)
 {
 	PGOutputData *data = palloc0(sizeof(PGOutputData));
-	static bool publication_callback_registered = false;
+	static session_local bool publication_callback_registered = false;
 
 	/* Create our memory context for private allocations. */
 	data->context = AllocSetContextCreate(ctx->context,
@@ -1926,7 +1926,7 @@ static void
 init_rel_sync_cache(MemoryContext cachectx)
 {
 	HASHCTL		ctl;
-	static bool relation_callbacks_registered = false;
+	static session_local bool relation_callbacks_registered = false;
 
 	/* Nothing to do if hash table already exists */
 	if (RelationSyncCache != NULL)

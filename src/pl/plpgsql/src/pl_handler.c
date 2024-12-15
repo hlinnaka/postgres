@@ -150,7 +150,7 @@ void
 _PG_init(void)
 {
 	/* Be sure we do initialization only once (should be redundant now) */
-	static bool inited = false;
+	static session_local bool inited = false;
 
 	if (inited)
 		return;

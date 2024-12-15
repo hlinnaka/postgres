@@ -797,7 +797,7 @@ is_scram_printable(char *p)
 static char *
 sanitize_char(char c)
 {
-	static char buf[5];
+	static session_local char buf[5];
 
 	if (c >= 0x21 && c <= 0x7E)
 		snprintf(buf, sizeof(buf), "'%c'", c);
@@ -817,7 +817,7 @@ sanitize_char(char c)
 static char *
 sanitize_str(const char *s)
 {
-	static char buf[30 + 1];
+	static session_local char buf[30 + 1];
 	int			i;
 
 	for (i = 0; i < sizeof(buf) - 1; i++)
@@ -1464,7 +1464,7 @@ scram_mock_salt(const char *username, pg_cryptohash_type hash_type,
 				int key_length)
 {
 	pg_cryptohash_ctx *ctx;
-	static uint8 sha_digest[SCRAM_MAX_KEY_LEN];
+	static session_local uint8 sha_digest[SCRAM_MAX_KEY_LEN];
 	char	   *mock_auth_nonce = GetMockAuthenticationNonce();
 
 	/*

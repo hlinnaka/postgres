@@ -2851,7 +2851,7 @@ get_config_unit_name(int flags)
 			return "MB";
 		case GUC_UNIT_BLOCKS:
 			{
-				static char bbuf[8];
+				static session_local char bbuf[8];
 
 				/* initialize if first time through */
 				if (bbuf[0] == '\0')
@@ -2860,7 +2860,7 @@ get_config_unit_name(int flags)
 			}
 		case GUC_UNIT_XBLOCKS:
 			{
-				static char xbuf[8];
+				static session_local char xbuf[8];
 
 				/* initialize if first time through */
 				if (xbuf[0] == '\0')
@@ -4373,7 +4373,7 @@ const char *
 GetConfigOption(const char *name, bool missing_ok, bool restrict_privileged)
 {
 	struct config_generic *record;
-	static char buffer[256];
+	static session_local char buffer[256];
 
 	record = find_option(name, false, missing_ok, ERROR);
 	if (record == NULL)
@@ -4423,7 +4423,7 @@ const char *
 GetConfigOptionResetString(const char *name)
 {
 	struct config_generic *record;
-	static char buffer[256];
+	static session_local char buffer[256];
 
 	record = find_option(name, false, false, ERROR);
 	Assert(record != NULL);

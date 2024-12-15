@@ -1336,7 +1336,7 @@ internal_flush(void)
 static pg_noinline int
 internal_flush_buffer(const char *buf, size_t *start, size_t *end)
 {
-	static int	last_reported_send_errno = 0;
+	static session_local int	last_reported_send_errno = 0;
 
 	const char *bufptr = buf + *start;
 	const char *bufend = buf + *end;
@@ -1949,7 +1949,7 @@ const char *
 show_tcp_keepalives_idle(void)
 {
 	/* See comments in assign_tcp_keepalives_idle */
-	static char nbuf[16];
+	static session_local char nbuf[16];
 
 	snprintf(nbuf, sizeof(nbuf), "%d", pq_getkeepalivesidle(MyProcPort));
 	return nbuf;
@@ -1972,7 +1972,7 @@ const char *
 show_tcp_keepalives_interval(void)
 {
 	/* See comments in assign_tcp_keepalives_idle */
-	static char nbuf[16];
+	static session_local char nbuf[16];
 
 	snprintf(nbuf, sizeof(nbuf), "%d", pq_getkeepalivesinterval(MyProcPort));
 	return nbuf;
@@ -1995,7 +1995,7 @@ const char *
 show_tcp_keepalives_count(void)
 {
 	/* See comments in assign_tcp_keepalives_idle */
-	static char nbuf[16];
+	static session_local char nbuf[16];
 
 	snprintf(nbuf, sizeof(nbuf), "%d", pq_getkeepalivescount(MyProcPort));
 	return nbuf;
@@ -2018,7 +2018,7 @@ const char *
 show_tcp_user_timeout(void)
 {
 	/* See comments in assign_tcp_keepalives_idle */
-	static char nbuf[16];
+	static session_local char nbuf[16];
 
 	snprintf(nbuf, sizeof(nbuf), "%d", pq_gettcpusertimeout(MyProcPort));
 	return nbuf;
