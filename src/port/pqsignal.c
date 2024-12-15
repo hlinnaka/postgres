@@ -78,7 +78,7 @@ StaticAssertDecl(SIGHUP < PG_NSIG, "SIGHUP >= PG_NSIG");
 StaticAssertDecl(SIGTERM < PG_NSIG, "SIGTERM >= PG_NSIG");
 StaticAssertDecl(SIGALRM < PG_NSIG, "SIGALRM >= PG_NSIG");
 
-static volatile pqsigfunc pqsignal_handlers[PG_NSIG];
+static volatile session_local pqsigfunc pqsignal_handlers[PG_NSIG];
 
 /*
  * Except when called with SIG_IGN or SIG_DFL, pqsignal() sets up this function

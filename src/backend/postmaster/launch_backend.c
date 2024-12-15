@@ -184,7 +184,7 @@ typedef struct
 	bool		shmem_attach;
 } child_process_kind;
 
-static child_process_kind child_process_kinds[] = {
+static static_singleton child_process_kind child_process_kinds[] = {
 #define PG_PROCTYPE(bktype, bkcategory, description, main_func, shmem_attach) \
 	[bktype] = {description, main_func, shmem_attach},
 #include "postmaster/proctypelist.h"

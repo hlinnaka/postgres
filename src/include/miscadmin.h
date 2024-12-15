@@ -27,6 +27,8 @@
 #include "pgtime.h"				/* for pg_time_t */
 
 
+#include "postgres.h"			/* for pg_global */
+
 #define InvalidPid				(-1)
 
 
@@ -406,12 +408,12 @@ extern void StoreConnectionWarning(char *msg, char *detail,
 
 /* in utils/init/miscinit.c */
 extern PGDLLIMPORT session_local bool IgnoreSystemIndexes;
-extern PGDLLIMPORT session_local bool process_shared_preload_libraries_in_progress;
-extern PGDLLIMPORT session_local bool process_shared_preload_libraries_done;
-extern PGDLLIMPORT session_local bool process_shmem_requests_in_progress;
-extern PGDLLIMPORT session_local char *session_preload_libraries_string;
-extern PGDLLIMPORT pg_global char *shared_preload_libraries_string;
-extern PGDLLIMPORT session_local char *local_preload_libraries_string;
+extern PGDLLIMPORT pg_global bool process_shared_preload_libraries_in_progress;
+extern PGDLLIMPORT pg_global bool process_shared_preload_libraries_done;
+extern PGDLLIMPORT pg_global bool process_shmem_requests_in_progress;
+extern PGDLLIMPORT suset_guc char *session_preload_libraries_string;
+extern PGDLLIMPORT postmaster_guc char *shared_preload_libraries_string;
+extern PGDLLIMPORT userset_guc char *local_preload_libraries_string;
 
 extern void CreateDataDirLockFile(bool amPostmaster);
 extern void CreateSocketLockFile(const char *socketfile, bool amPostmaster,

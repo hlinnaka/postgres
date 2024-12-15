@@ -560,8 +560,8 @@ session_guc bool		check_function_bodies = true;
 /*
  * These GUCs exist solely for backward compatibility.
  */
-static bool default_with_oids = false;
-static bool standard_conforming_strings = true;
+static userset_guc bool default_with_oids = false;
+static userset_guc bool standard_conforming_strings = true;
 
 session_guc bool		current_role_is_superuser;
 

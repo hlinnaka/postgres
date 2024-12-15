@@ -109,7 +109,7 @@ session_guc int			PostAuthDelay = 0;
 session_guc int			client_connection_check_interval = 0;
 
 /* flags for non-system relation kinds to restrict use */
-int			restrict_nonsystem_relation_kind;
+userset_guc int			restrict_nonsystem_relation_kind;
 
 /*
  * Include signal sender PID/UID in the server log when available

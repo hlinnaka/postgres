@@ -1744,11 +1744,11 @@ pg_global char	   *shared_preload_libraries_string = NULL;
 session_local char	   *local_preload_libraries_string = NULL;
 
 /* Flag telling that we are loading shared_preload_libraries */
-session_local bool		process_shared_preload_libraries_in_progress = false;
-session_local bool		process_shared_preload_libraries_done = false;
+pg_global bool		process_shared_preload_libraries_in_progress = false;
+pg_global bool		process_shared_preload_libraries_done = false;
 
 pg_global shmem_request_hook_type shmem_request_hook = NULL;
-session_local bool		process_shmem_requests_in_progress = false;
+pg_global bool		process_shmem_requests_in_progress = false;
 
 /*
  * load the shared libraries listed in 'libraries'
