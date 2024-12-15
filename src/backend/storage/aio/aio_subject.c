@@ -20,6 +20,7 @@
 #include "storage/aio_internal.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
+#include "storage/md.h"
 #include "storage/smgr.h"
 #include "utils/memutils.h"
 
@@ -35,6 +36,7 @@ static const PgAioSubjectInfo *aio_subject_info[] = {
 	[ASI_INVALID] = &(PgAioSubjectInfo) {
 		.name = "invalid",
 	},
+	[ASI_SMGR] = &aio_smgr_subject_info,
 };
 
 
@@ -46,6 +48,8 @@ typedef struct PgAioHandleSharedCallbacksEntry
 
 static const PgAioHandleSharedCallbacksEntry aio_shared_cbs[] = {
 #define CALLBACK_ENTRY(id, callback)  [id] = {.cb = &callback, .name = #callback}
+	CALLBACK_ENTRY(ASC_MD_READV, aio_md_readv_cb),
+	CALLBACK_ENTRY(ASC_MD_WRITEV, aio_md_writev_cb),
 #undef CALLBACK_ENTRY
 };
 

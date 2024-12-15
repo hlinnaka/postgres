@@ -31,6 +31,7 @@
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "pgstat.h"
+#include "storage/aio.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
 #include "storage/md.h"
@@ -131,6 +132,22 @@ static MdfdVec *_mdfd_getseg(SMgrRelation reln, ForkNumber forknum,
 							 BlockNumber blkno, bool skipFsync, int behavior);
 static BlockNumber _mdnblocks(SMgrRelation reln, ForkNumber forknum,
 							  MdfdVec *seg);
+
+static PgAioResult md_readv_complete(PgAioHandle *ioh, PgAioResult prior_result);
+static void md_readv_error(PgAioResult result, const PgAioSubjectData *subject_data, int elevel);
+static PgAioResult md_writev_complete(PgAioHandle *ioh, PgAioResult prior_result);
+static void md_writev_error(PgAioResult result, const PgAioSubjectData *subject_data, int elevel);
+
+const struct PgAioHandleSharedCallbacks aio_md_readv_cb = {
+	.complete = md_readv_complete,
+	.error = md_readv_error,
+};
+
+const struct PgAioHandleSharedCallbacks aio_md_writev_cb = {
+	.complete = md_writev_complete,
+	.error = md_writev_error,
+};
+
 
 static inline int
 _mdfd_open_flags(void)
@@ -927,6 +944,52 @@ mdreadv(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	}
 }
 
+void
+mdstartreadv(PgAioHandle *ioh,
+			 SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+			 void **buffers, BlockNumber nblocks)
+{
+	off_t		seekpos;
+	MdfdVec    *v;
+	BlockNumber nblocks_this_segment;
+	struct iovec *iov;
+	int			iovcnt;
+
+	v = _mdfd_getseg(reln, forknum, blocknum, false,
+					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
+
+	seekpos = (off_t) BLCKSZ * (blocknum % ((BlockNumber) RELSEG_SIZE));
+
+	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
+
+	nblocks_this_segment =
+		Min(nblocks,
+			RELSEG_SIZE - (blocknum % ((BlockNumber) RELSEG_SIZE)));
+
+	if (nblocks_this_segment != nblocks)
+		elog(ERROR, "read crossing segment boundary");
+
+	iovcnt = pgaio_io_get_iovec(ioh, &iov);
+
+	Assert(nblocks <= iovcnt);
+
+	iovcnt = buffers_to_iovec(iov, buffers, nblocks_this_segment);
+
+	Assert(iovcnt <= nblocks_this_segment);
+
+	if (!(io_direct_flags & IO_DIRECT_DATA))
+		pgaio_io_set_flag(ioh, AHF_BUFFERED);
+
+	pgaio_io_set_subject_smgr(ioh,
+							  reln,
+							  forknum,
+							  blocknum,
+							  nblocks);
+	pgaio_io_add_shared_cb(ioh, ASC_MD_READV);
+
+	FileStartReadV(ioh, v->mdfd_vfd, iovcnt, seekpos, WAIT_EVENT_DATA_FILE_READ);
+}
+
 /*
  * mdwritev() -- Write the supplied blocks at the appropriate location.
  *
@@ -1030,6 +1093,52 @@ mdwritev(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 		buffers += nblocks_this_segment;
 		blocknum += nblocks_this_segment;
 	}
+}
+
+void
+mdstartwritev(PgAioHandle *ioh,
+			  SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+			  const void **buffers, BlockNumber nblocks, bool skipFsync)
+{
+	off_t		seekpos;
+	MdfdVec    *v;
+	BlockNumber nblocks_this_segment;
+	struct iovec *iov;
+	int			iovcnt;
+
+	v = _mdfd_getseg(reln, forknum, blocknum, false,
+					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
+
+	seekpos = (off_t) BLCKSZ * (blocknum % ((BlockNumber) RELSEG_SIZE));
+
+	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
+
+	nblocks_this_segment =
+		Min(nblocks,
+			RELSEG_SIZE - (blocknum % ((BlockNumber) RELSEG_SIZE)));
+
+	if (nblocks_this_segment != nblocks)
+		elog(ERROR, "write crossing segment boundary");
+
+	iovcnt = pgaio_io_get_iovec(ioh, &iov);
+
+	Assert(nblocks <= iovcnt);
+
+	iovcnt = buffers_to_iovec(iov, unconstify(void **, buffers), nblocks_this_segment);
+
+	Assert(iovcnt <= nblocks_this_segment);
+
+	if (!(io_direct_flags & IO_DIRECT_DATA))
+		pgaio_io_set_flag(ioh, AHF_BUFFERED);
+
+	pgaio_io_set_subject_smgr(ioh,
+							  reln,
+							  forknum,
+							  blocknum,
+							  nblocks);
+	pgaio_io_add_shared_cb(ioh, ASC_MD_WRITEV);
+
+	FileStartWriteV(ioh, v->mdfd_vfd, iovcnt, seekpos, WAIT_EVENT_DATA_FILE_WRITE);
 }
 
 
@@ -1353,6 +1462,21 @@ mdimmedsync(SMgrRelation reln, ForkNumber forknum)
 
 		segno--;
 	}
+}
+
+int
+mdfd(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, uint32 *off)
+{
+	MdfdVec    *v = mdopenfork(reln, forknum, EXTENSION_FAIL);
+
+	v = _mdfd_getseg(reln, forknum, blocknum, false,
+					 EXTENSION_FAIL);
+
+	*off = (off_t) BLCKSZ * (blocknum % ((BlockNumber) RELSEG_SIZE));
+
+	Assert(*off < (off_t) BLCKSZ * RELSEG_SIZE);
+
+	return FileGetRawDesc(v->mdfd_vfd);
 }
 
 /*
@@ -1837,4 +1961,194 @@ mdfiletagmatches(const FileTag *ftag, const FileTag *candidate)
 	 * the ftag from the SYNC_FILTER_REQUEST request, so they're forgotten.
 	 */
 	return ftag->rlocator.dbOid == candidate->rlocator.dbOid;
+}
+
+/*
+ * AIO completion callback for mdstartreadv().
+ */
+static PgAioResult
+md_readv_complete(PgAioHandle *ioh, PgAioResult prior_result)
+{
+	PgAioSubjectData *sd = pgaio_io_get_subject_data(ioh);
+	PgAioResult result = prior_result;
+
+	if (prior_result.result < 0)
+	{
+		result.status = ARS_ERROR;
+		result.id = ASC_MD_READV;
+		/* For "hard" errors, track the error number in error_data */
+		result.error_data = -prior_result.result;
+		result.result = 0;
+
+		md_readv_error(result, sd, LOG);
+
+		return result;
+	}
+
+	result.result /= BLCKSZ;
+
+	if (result.result == 0)
+	{
+		/* consider 0 blocks read a failure */
+		result.status = ARS_ERROR;
+		result.id = ASC_MD_READV;
+		result.error_data = 0;
+
+		md_readv_error(result, sd, LOG);
+	}
+
+	if (result.status != ARS_ERROR &&
+		result.result < sd->smgr.nblocks)
+	{
+		/* partial reads should be retried at upper level */
+		result.status = ARS_PARTIAL;
+		result.id = ASC_MD_READV;
+	}
+
+	/* AFIXME: post-read portion of mdreadv() */
+
+	return result;
+}
+
+/*
+ * AIO error reporting callback for mdstartreadv().
+ */
+static void
+md_readv_error(PgAioResult result, const PgAioSubjectData *subject_data, int elevel)
+{
+	MemoryContext oldContext = CurrentMemoryContext;
+
+	/* AFIXME: */
+	oldContext = MemoryContextSwitchTo(ErrorContext);
+
+	if (result.error_data != 0)
+	{
+		errno = result.error_data;	/* for errcode_for_file_access() */
+
+		ereport(elevel,
+				errcode_for_file_access(),
+				errmsg("could not read blocks %u..%u in file \"%s\": %m",
+					   subject_data->smgr.blockNum,
+					   subject_data->smgr.blockNum + subject_data->smgr.nblocks,
+					   relpathperm(subject_data->smgr.rlocator, subject_data->smgr.forkNum)
+					   )
+			);
+	}
+	else
+	{
+		/*
+		 * NB: This will typically only be output in debug messages, while
+		 * retrying a partial IO.
+		 */
+		ereport(elevel,
+				errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("could not read blocks %u..%u in file \"%s\": read only %zu of %zu bytes",
+					   subject_data->smgr.blockNum,
+					   subject_data->smgr.blockNum + subject_data->smgr.nblocks - 1,
+					   relpathperm(subject_data->smgr.rlocator, subject_data->smgr.forkNum),
+					   result.result * (size_t) BLCKSZ,
+					   subject_data->smgr.nblocks * (size_t) BLCKSZ
+					   )
+			);
+	}
+
+	MemoryContextSwitchTo(oldContext);
+}
+
+/*
+ * AIO completion callback for mdstartwritev().
+ */
+static PgAioResult
+md_writev_complete(PgAioHandle *ioh, PgAioResult prior_result)
+{
+	PgAioSubjectData *sd = pgaio_io_get_subject_data(ioh);
+	PgAioResult result = prior_result;
+
+	if (prior_result.result < 0)
+	{
+		result.status = ARS_ERROR;
+		result.id = ASC_MD_WRITEV;
+		/* For "hard" errors, track the error number in error_data */
+		result.error_data = -prior_result.result;
+		result.result = 0;
+
+		md_writev_error(result, sd, LOG);
+
+		return result;
+	}
+
+	result.result /= BLCKSZ;
+
+	if (result.result == 0)
+	{
+		/* consider 0 blocks written a failure */
+		result.status = ARS_ERROR;
+		result.id = ASC_MD_WRITEV;
+		result.error_data = 0;
+
+		md_writev_error(result, sd, LOG);
+	}
+
+	if (result.status != ARS_ERROR &&
+		result.result < sd->smgr.nblocks)
+	{
+		/* partial writes should be retried at upper level */
+		result.status = ARS_PARTIAL;
+		result.id = ASC_MD_WRITEV;
+	}
+
+	if (prior_result.status == ARS_ERROR)
+	{
+		/* AFIXME: complain */
+		return prior_result;
+	}
+
+	prior_result.result /= BLCKSZ;
+
+	return prior_result;
+}
+
+/*
+ * AIO error reporting callback for mdstartwritev().
+ */
+static void
+md_writev_error(PgAioResult result, const PgAioSubjectData *subject_data, int elevel)
+{
+	MemoryContext oldContext = CurrentMemoryContext;
+
+	/* AFIXME: */
+	oldContext = MemoryContextSwitchTo(ErrorContext);
+
+	if (result.error_data != 0)
+	{
+		errno = result.error_data;	/* for errcode_for_file_access() */
+
+		ereport(elevel,
+				errcode_for_file_access(),
+				errmsg("could not write blocks %u..%u in file \"%s\": %m",
+					   subject_data->smgr.blockNum,
+					   subject_data->smgr.blockNum + subject_data->smgr.nblocks,
+					   relpathperm(subject_data->smgr.rlocator, subject_data->smgr.forkNum)
+					   )
+			);
+	}
+	else
+	{
+		/*
+		 * NB: This will typically only be output in debug messages, while
+		 * retrying a partial IO.
+		 */
+		ereport(elevel,
+				errcode(ERRCODE_DATA_CORRUPTED),
+				errmsg("could not write blocks %u..%u in file \"%s\": wrote only %zu of %zu bytes",
+					   subject_data->smgr.blockNum,
+					   subject_data->smgr.blockNum + subject_data->smgr.nblocks - 1,
+					   relpathperm(subject_data->smgr.rlocator, subject_data->smgr.forkNum),
+					   result.result * (size_t) BLCKSZ,
+					   subject_data->smgr.nblocks * (size_t) BLCKSZ
+					   )
+			);
+	}
+
+	MemoryContextSwitchTo(oldContext);
 }
