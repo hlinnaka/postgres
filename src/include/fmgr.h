@@ -788,7 +788,7 @@ extern bool CheckFunctionValidatorAccess(Oid validatorOid, Oid functionOid);
  */
 typedef struct DynamicFileList DynamicFileList; /* opaque outside dfmgr.c */
 
-extern PGDLLIMPORT char *Dynamic_library_path;
+extern PGDLLIMPORT suset_guc char *Dynamic_library_path;
 
 extern char *substitute_path_macro(const char *str, const char *macro, const char *value);
 extern char *find_in_path(const char *basename, const char *path, const char *path_param,

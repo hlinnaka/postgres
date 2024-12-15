@@ -38,7 +38,7 @@ typedef struct DSMRegistryCtxStruct
 	dshash_table_handle dshh;
 } DSMRegistryCtxStruct;
 
-static DSMRegistryCtxStruct *DSMRegistryCtx;
+static dynamic_singleton DSMRegistryCtxStruct *DSMRegistryCtx;
 
 typedef struct DSMRegistryEntry
 {
@@ -56,8 +56,8 @@ static const dshash_parameters dsh_params = {
 	LWTRANCHE_DSM_REGISTRY_HASH
 };
 
-static dsa_area *dsm_registry_dsa;
-static dshash_table *dsm_registry_table;
+static session_local dsa_area *dsm_registry_dsa;
+static session_local dshash_table *dsm_registry_table;
 
 Size
 DSMRegistryShmemSize(void)

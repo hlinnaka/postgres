@@ -22,8 +22,8 @@
 #include "utils/timestamp.h"
 
 /* Shared PRNG state used by all the random functions */
-static pg_prng_state prng_state;
-static bool prng_seed_set = false;
+static session_local pg_prng_state prng_state;
+static session_local bool prng_seed_set = false;
 
 /*
  * initialize_prng() -

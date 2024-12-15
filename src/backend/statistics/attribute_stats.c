@@ -57,7 +57,7 @@ enum attribute_stats_argnum
 	NUM_ATTRIBUTE_STATS_ARGS
 };
 
-static struct StatsArgInfo attarginfo[] =
+static static_singleton struct StatsArgInfo attarginfo[] =
 {
 	[ATTRELSCHEMA_ARG] = {"schemaname", TEXTOID},
 	[ATTRELNAME_ARG] = {"relname", TEXTOID},

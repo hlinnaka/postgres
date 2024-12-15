@@ -102,10 +102,10 @@ typedef struct SlotSyncCtxStruct
 	slock_t		mutex;
 } SlotSyncCtxStruct;
 
-static SlotSyncCtxStruct *SlotSyncCtx = NULL;
+static session_local SlotSyncCtxStruct *SlotSyncCtx = NULL;
 
 /* GUC variable */
-bool		sync_replication_slots = false;
+sighup_guc bool		sync_replication_slots = false;
 
 /*
  * The sleep time (ms) between slot-sync cycles varies dynamically
@@ -115,7 +115,7 @@ bool		sync_replication_slots = false;
 #define MIN_SLOTSYNC_WORKER_NAPTIME_MS  200
 #define MAX_SLOTSYNC_WORKER_NAPTIME_MS  30000	/* 30s */
 
-static long sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
+static session_local long sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
 
 /* The restart interval for slot sync work used by postmaster */
 #define SLOTSYNC_RESTART_INTERVAL_SEC 10
@@ -125,7 +125,7 @@ static long sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
  * in SlotSyncCtxStruct, this flag is true only if the current process is
  * performing slot synchronization.
  */
-static bool syncing_slots = false;
+static session_local bool syncing_slots = false;
 
 /*
  * Structure to hold information fetched from the primary server about a logical

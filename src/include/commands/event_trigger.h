@@ -29,7 +29,7 @@ typedef struct EventTriggerData
 	CommandTag	tag;
 } EventTriggerData;
 
-extern PGDLLIMPORT bool event_triggers;
+extern suset_guc PGDLLIMPORT bool event_triggers;
 
 /*
  * Reasons for relation rewrites.

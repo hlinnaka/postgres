@@ -271,6 +271,7 @@ static const td_entry td_parser_table[JSON_NUM_NONTERMINALS][JSON_NUM_TERMINALS]
 /* the GOAL production. Not stored in the table, but will be the initial contents of the prediction stack */
 static const char JSON_PROD_GOAL[] = {JSON_TOKEN_END, JSON_NT_JSON, 0};
 
+
 static inline JsonParseErrorType json_lex_string(JsonLexContext *lex);
 static inline JsonParseErrorType json_lex_number(JsonLexContext *lex, const char *s,
 												 bool *num_err, size_t *total_len);
@@ -291,8 +292,8 @@ const JsonSemAction nullSemAction =
 };
 
 /* sentinels used for out-of-memory conditions */
-static JsonLexContext failed_oom;
-static JsonIncrementalState failed_inc_oom;
+static JsonLexContext static_singleton failed_oom;
+static JsonIncrementalState static_singleton failed_inc_oom;
 
 /* Parser support routines */
 

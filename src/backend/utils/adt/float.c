@@ -58,11 +58,11 @@ static dynamic_singleton float8 cot_45 = 0;
  * The additional extern declarations are to silence
  * -Wmissing-variable-declarations.
  */
-extern float8 degree_c_thirty;
-extern float8 degree_c_forty_five;
-extern float8 degree_c_sixty;
-extern float8 degree_c_one_half;
-extern float8 degree_c_one;
+extern static_singleton float8 degree_c_thirty;
+extern static_singleton float8 degree_c_forty_five;
+extern static_singleton float8 degree_c_sixty;
+extern static_singleton float8 degree_c_one_half;
+extern static_singleton float8 degree_c_one;
 static_singleton float8		degree_c_thirty = 30.0;
 static_singleton float8		degree_c_forty_five = 45.0;
 static_singleton float8		degree_c_sixty = 60.0;
