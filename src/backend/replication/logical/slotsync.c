@@ -102,7 +102,7 @@ typedef struct SlotSyncCtxStruct
 	slock_t		mutex;
 } SlotSyncCtxStruct;
 
-static session_local SlotSyncCtxStruct *SlotSyncCtx = NULL;
+static dynamic_singleton SlotSyncCtxStruct *SlotSyncCtx = NULL;
 
 /* GUC variable */
 sighup_guc bool		sync_replication_slots = false;

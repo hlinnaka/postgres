@@ -39,7 +39,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	Relation	adrel;
 	HeapTuple	tuple;
 	Datum		values[Natts_pg_attrdef];
-	static bool nulls[Natts_pg_attrdef] = {false, false, false, false};
+	bool		nulls[Natts_pg_attrdef] = {false, false, false, false};
 	Relation	attrrel;
 	HeapTuple	atttup;
 	Form_pg_attribute attStruct;

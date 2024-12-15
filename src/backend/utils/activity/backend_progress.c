@@ -97,7 +97,7 @@ pgstat_progress_parallel_incr_param(int index, int64 incr)
 	 */
 	if (IsParallelWorker())
 	{
-		static StringInfoData progress_message;
+		static session_local StringInfoData progress_message;
 
 		initStringInfo(&progress_message);
 

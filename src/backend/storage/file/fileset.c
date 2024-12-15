@@ -51,7 +51,7 @@ static Oid	ChooseTablespace(const FileSet *fileset, const char *name);
 void
 FileSetInit(FileSet *fileset)
 {
-	static uint32 counter = 0;
+	static session_local uint32 counter = 0;
 
 	fileset->creator_pid = MyProcPid;
 	fileset->number = counter;

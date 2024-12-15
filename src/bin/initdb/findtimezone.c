@@ -330,7 +330,7 @@ perfect_timezone_match(const char *tzname, struct tztry *tt)
 static const char *
 identify_system_timezone(void)
 {
-	static char resultbuf[TZ_STRLEN_MAX + 1];
+	static session_local char resultbuf[TZ_STRLEN_MAX + 1];
 	time_t		tnow;
 	time_t		t;
 	struct tztry tt;

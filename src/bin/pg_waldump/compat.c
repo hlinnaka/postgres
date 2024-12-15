@@ -48,7 +48,7 @@ timestamptz_to_time_t(TimestampTz t)
 const char *
 timestamptz_to_str(TimestampTz t)
 {
-	static char buf[MAXDATELEN + 1];
+	static session_local char buf[MAXDATELEN + 1];
 	char		ts[MAXDATELEN + 1];
 	char		zone[MAXDATELEN + 1];
 	time_t		result = (time_t) timestamptz_to_time_t(t);

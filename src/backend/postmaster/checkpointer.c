@@ -785,7 +785,7 @@ ImmediateCheckpointRequested(void)
 void
 CheckpointWriteDelay(int flags, double progress)
 {
-	static int	absorb_counter = WRITES_PER_ABSORB;
+	static session_local int	absorb_counter = WRITES_PER_ABSORB;
 
 	/* Do nothing if checkpoint is being executed by non-checkpointer process */
 	if (!AmCheckpointerProcess())
@@ -1406,7 +1406,7 @@ UpdateSharedMemoryConfig(void)
 bool
 FirstCallSinceLastCheckpoint(void)
 {
-	static int	ckpt_done = 0;
+	static session_local int	ckpt_done = 0;
 	int			new_done;
 	bool		FirstCall = false;
 
