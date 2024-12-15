@@ -4469,7 +4469,7 @@ BuildHardcodedDescriptor(int natts, const FormData_pg_attribute *attrs)
 static TupleDesc
 GetPgClassDescriptor(void)
 {
-	static TupleDesc pgclassdesc = NULL;
+	static session_local TupleDesc pgclassdesc = NULL;
 
 	/* Already done? */
 	if (pgclassdesc == NULL)
@@ -4482,7 +4482,7 @@ GetPgClassDescriptor(void)
 static TupleDesc
 GetPgIndexDescriptor(void)
 {
-	static TupleDesc pgindexdesc = NULL;
+	static session_local TupleDesc pgindexdesc = NULL;
 
 	/* Already done? */
 	if (pgindexdesc == NULL)

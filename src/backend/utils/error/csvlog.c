@@ -67,10 +67,10 @@ write_csvlog(ErrorData *edata)
 	bool		print_stmt = false;
 
 	/* static counter for line numbers */
-	static long log_line_number = 0;
+	static session_local long log_line_number = 0;
 
 	/* has counter been reset in current process? */
-	static int	log_my_pid = 0;
+	static session_local int	log_my_pid = 0;
 
 	/*
 	 * This is one of the few places where we'd rather not inherit a static

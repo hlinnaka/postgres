@@ -117,7 +117,7 @@ write_jsonlog(ErrorData *edata)
 	static session_local long log_line_number = 0;
 
 	/* Has the counter been reset in the current process? */
-	static int	log_my_pid = 0;
+	static session_local int	log_my_pid = 0;
 
 	/*
 	 * This is one of the few places where we'd rather not inherit a static

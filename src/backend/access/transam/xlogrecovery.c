@@ -3543,7 +3543,7 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 							TimeLineID replayTLI, XLogRecPtr replayLSN,
 							bool nonblocking)
 {
-	static TimestampTz last_fail_time = 0;
+	static session_local TimestampTz last_fail_time = 0;
 	TimestampTz now;
 	bool		streaming_reply_sent = false;
 
@@ -4045,7 +4045,7 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 static int
 emode_for_corrupt_record(int emode, XLogRecPtr RecPtr)
 {
-	static XLogRecPtr lastComplaint = InvalidXLogRecPtr;
+	static session_local XLogRecPtr lastComplaint = InvalidXLogRecPtr;
 
 	if (readSource == XLOG_FROM_PG_WAL && emode == LOG)
 	{

@@ -1181,7 +1181,7 @@ assign_io_combine_limit(int newval, void *extra)
 const char *
 show_data_directory_mode(void)
 {
-	static char buf[12];
+	static session_local char buf[12];
 
 	snprintf(buf, sizeof(buf), "%04o", data_directory_mode);
 	return buf;
@@ -1193,7 +1193,7 @@ show_data_directory_mode(void)
 const char *
 show_log_file_mode(void)
 {
-	static char buf[12];
+	static session_local char buf[12];
 
 	snprintf(buf, sizeof(buf), "%04o", Log_file_mode);
 	return buf;
@@ -1205,7 +1205,7 @@ show_log_file_mode(void)
 const char *
 show_unix_socket_permissions(void)
 {
-	static char buf[12];
+	static session_local char buf[12];
 
 	snprintf(buf, sizeof(buf), "%04o", Unix_socket_permissions);
 	return buf;

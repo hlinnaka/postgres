@@ -1211,7 +1211,7 @@ logicalrep_read_stream_abort(StringInfo in,
 const char *
 logicalrep_message_type(LogicalRepMsgType action)
 {
-	static char err_unknown[20];
+	static session_local char err_unknown[20];
 
 	switch (action)
 	{

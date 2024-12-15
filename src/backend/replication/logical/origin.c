@@ -749,7 +749,7 @@ StartupReplicationOrigin(void)
 
 	/* don't want to overwrite already existing state */
 #ifdef USE_ASSERT_CHECKING
-	static bool already_started = false;
+	static session_local bool already_started = false;
 
 	Assert(!already_started);
 	already_started = true;
@@ -1155,7 +1155,7 @@ ReplicationOriginExitCleanup(int code, Datum arg)
 void
 replorigin_session_setup(ReplOriginId node, int acquired_by)
 {
-	static bool registered_cleanup;
+	static session_local bool registered_cleanup;
 	int			i;
 	int			free_slot = -1;
 

@@ -118,7 +118,7 @@ typedef struct SlotSyncCtxStruct
 	slock_t		mutex;
 } SlotSyncCtxStruct;
 
-static session_local SlotSyncCtxStruct *SlotSyncCtx = NULL;
+static dynamic_singleton SlotSyncCtxStruct *SlotSyncCtx = NULL;
 
 static void SlotSyncShmemRequest(void *arg);
 static void SlotSyncShmemInit(void *arg);
