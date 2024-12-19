@@ -538,7 +538,8 @@ heap_prepare_pagescan(TableScanDesc sscan)
 	 * full page write. Until we can prove that beyond doubt, let's check each
 	 * tuple for visibility the hard way.
 	 */
-	all_visible = PageIsAllVisible(page) && !snapshot->takenDuringRecovery;
+	all_visible = PageIsAllVisible(page) &&
+		(snapshot->snapshot_type != SNAPSHOT_MVCC || !snapshot->mvcc.takenDuringRecovery);
 	check_serializable =
 		CheckForSerializableConflictOutNeeded(scan->rs_base.rs_rd, snapshot);
 

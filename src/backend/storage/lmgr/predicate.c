@@ -449,10 +449,10 @@ static void SerialSetActiveSerXmin(TransactionId xid);
 
 static uint32 predicatelock_hash(const void *key, Size keysize);
 static void SummarizeOldestCommittedSxact(void);
-static Snapshot GetSafeSnapshot(Snapshot origSnapshot);
-static Snapshot GetSerializableTransactionSnapshotInt(Snapshot snapshot,
-													  VirtualTransactionId *sourcevxid,
-													  int sourcepid);
+static MVCCSnapshot GetSafeSnapshot(MVCCSnapshot origSnapshot);
+static MVCCSnapshot GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
+														  VirtualTransactionId *sourcevxid,
+														  int sourcepid);
 static bool PredicateLockExists(const PREDICATELOCKTARGETTAG *targettag);
 static bool GetParentPredicateLockTag(const PREDICATELOCKTARGETTAG *tag,
 									  PREDICATELOCKTARGETTAG *parent);
@@ -1544,10 +1544,10 @@ SummarizeOldestCommittedSxact(void)
  *		for), the passed-in Snapshot pointer should reference a static data
  *		area that can safely be passed to GetSnapshotData.
  */
-static Snapshot
-GetSafeSnapshot(Snapshot origSnapshot)
+static MVCCSnapshot
+GetSafeSnapshot(MVCCSnapshot origSnapshot)
 {
-	Snapshot	snapshot;
+	MVCCSnapshot snapshot;
 
 	Assert(XactReadOnly && XactDeferrable);
 
@@ -1668,8 +1668,8 @@ GetSafeSnapshotBlockingPids(int blocked_pid, int *output, int output_size)
  * always this same pointer; no new snapshot data structure is allocated
  * within this function.
  */
-Snapshot
-GetSerializableTransactionSnapshot(Snapshot snapshot)
+MVCCSnapshot
+GetSerializableTransactionSnapshot(MVCCSnapshot snapshot)
 {
 	Assert(IsolationIsSerializable());
 
@@ -1709,7 +1709,7 @@ GetSerializableTransactionSnapshot(Snapshot snapshot)
  * read-only.
  */
 void
-SetSerializableTransactionSnapshot(Snapshot snapshot,
+SetSerializableTransactionSnapshot(MVCCSnapshot snapshot,
 								   VirtualTransactionId *sourcevxid,
 								   int sourcepid)
 {
@@ -1750,8 +1750,8 @@ SetSerializableTransactionSnapshot(Snapshot snapshot,
  * source xact is still running after we acquire SerializableXactHashLock.
  * We do that by calling ProcArrayInstallImportedXmin.
  */
-static Snapshot
-GetSerializableTransactionSnapshotInt(Snapshot snapshot,
+static MVCCSnapshot
+GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
 									  VirtualTransactionId *sourcevxid,
 									  int sourcepid)
 {
@@ -3961,12 +3961,12 @@ ReleaseOneSerializableXact(SERIALIZABLEXACT *sxact, bool partial,
 static bool
 XidIsConcurrent(TransactionId xid)
 {
-	Snapshot	snap;
+	MVCCSnapshot snap;
 
 	Assert(TransactionIdIsValid(xid));
 	Assert(!TransactionIdEquals(xid, GetTopTransactionIdIfAny()));
 
-	snap = GetTransactionSnapshot();
+	snap = (MVCCSnapshot) GetTransactionSnapshot();
 
 	if (TransactionIdPrecedes(xid, snap->xmin))
 		return false;
@@ -4214,7 +4214,7 @@ CheckTargetForConflictsIn(PREDICATELOCKTARGETTAG *targettag)
 		}
 		else if (!SxactIsDoomed(sxact)
 				 && (!SxactIsCommitted(sxact)
-					 || TransactionIdPrecedes(GetTransactionSnapshot()->xmin,
+					 || TransactionIdPrecedes(TransactionXmin,
 											  sxact->finishedBefore))
 				 && !RWConflictExists(sxact, MySerializableXact))
 		{
@@ -4227,7 +4227,7 @@ CheckTargetForConflictsIn(PREDICATELOCKTARGETTAG *targettag)
 			 */
 			if (!SxactIsDoomed(sxact)
 				&& (!SxactIsCommitted(sxact)
-					|| TransactionIdPrecedes(GetTransactionSnapshot()->xmin,
+					|| TransactionIdPrecedes(TransactionXmin,
 											 sxact->finishedBefore))
 				&& !RWConflictExists(sxact, MySerializableXact))
 			{

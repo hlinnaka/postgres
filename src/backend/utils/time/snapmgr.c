@@ -137,18 +137,18 @@
  * These SnapshotData structs are static to simplify memory allocation
  * (see the hack in GetSnapshotData to avoid repeated malloc/free).
  */
-static SnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};
-static SnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};
-static SnapshotData CatalogSnapshotData = {SNAPSHOT_MVCC};
+static MVCCSnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};
+static MVCCSnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};
+static MVCCSnapshotData CatalogSnapshotData = {SNAPSHOT_MVCC};
 SnapshotData SnapshotSelfData = {SNAPSHOT_SELF};
 SnapshotData SnapshotAnyData = {SNAPSHOT_ANY};
 SnapshotData SnapshotToastData = {SNAPSHOT_TOAST};
 
 /* Pointers to valid snapshots */
-static Snapshot CurrentSnapshot = NULL;
-static Snapshot SecondarySnapshot = NULL;
-static Snapshot CatalogSnapshot = NULL;
-static Snapshot HistoricSnapshot = NULL;
+static MVCCSnapshot CurrentSnapshot = NULL;
+static MVCCSnapshot SecondarySnapshot = NULL;
+static MVCCSnapshot CatalogSnapshot = NULL;
+static HistoricMVCCSnapshot HistoricSnapshot = NULL;
 
 /*
  * These are updated by GetSnapshotData.  We initialize them this way
@@ -171,7 +171,7 @@ static HTAB *tuplecid_data = NULL;
  */
 typedef struct ActiveSnapshotElt
 {
-	Snapshot	as_snap;
+	MVCCSnapshot as_snap;
 	int			as_level;
 	struct ActiveSnapshotElt *as_next;
 } ActiveSnapshotElt;
@@ -196,7 +196,7 @@ bool		FirstSnapshotSet = false;
  * FirstSnapshotSet in combination with IsolationUsesXactSnapshot(), because
  * GUC may be reset before us, changing the value of IsolationUsesXactSnapshot.
  */
-static Snapshot FirstXactSnapshot = NULL;
+static MVCCSnapshot FirstXactSnapshot = NULL;
 
 /* Define pathname of exported-snapshot files */
 #define SNAPSHOT_EXPORT_DIR "pg_snapshots"
@@ -205,16 +205,16 @@ static Snapshot FirstXactSnapshot = NULL;
 typedef struct ExportedSnapshot
 {
 	char	   *snapfile;
-	Snapshot	snapshot;
+	MVCCSnapshot snapshot;
 } ExportedSnapshot;
 
 /* Current xact's exported snapshots (a list of ExportedSnapshot structs) */
 static List *exportedSnapshots = NIL;
 
 /* Prototypes for local functions */
-static Snapshot CopySnapshot(Snapshot snapshot);
+static MVCCSnapshot CopyMVCCSnapshot(MVCCSnapshot snapshot);
 static void UnregisterSnapshotNoOwner(Snapshot snapshot);
-static void FreeSnapshot(Snapshot snapshot);
+static void FreeMVCCSnapshot(MVCCSnapshot snapshot);
 static void SnapshotResetXmin(void);
 
 /* ResourceOwner callbacks to track snapshot references */
@@ -308,8 +308,9 @@ GetTransactionSnapshot(void)
 				CurrentSnapshot = GetSerializableTransactionSnapshot(&CurrentSnapshotData);
 			else
 				CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
+
 			/* Make a saved copy */
-			CurrentSnapshot = CopySnapshot(CurrentSnapshot);
+			CurrentSnapshot = CopyMVCCSnapshot(CurrentSnapshot);
 			FirstXactSnapshot = CurrentSnapshot;
 			/* Mark it as "registered" in FirstXactSnapshot */
 			FirstXactSnapshot->regd_count++;
@@ -319,18 +320,18 @@ GetTransactionSnapshot(void)
 			CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
 
 		FirstSnapshotSet = true;
-		return CurrentSnapshot;
+		return (Snapshot) CurrentSnapshot;
 	}
 
 	if (IsolationUsesXactSnapshot())
-		return CurrentSnapshot;
+		return (Snapshot) CurrentSnapshot;
 
 	/* Don't allow catalog snapshot to be older than xact snapshot. */
 	InvalidateCatalogSnapshot();
 
 	CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
 
-	return CurrentSnapshot;
+	return (Snapshot) CurrentSnapshot;
 }
 
 /*
@@ -361,7 +362,7 @@ GetLatestSnapshot(void)
 
 	SecondarySnapshot = GetSnapshotData(&SecondarySnapshotData);
 
-	return SecondarySnapshot;
+	return (Snapshot) SecondarySnapshot;
 }
 
 /*
@@ -380,7 +381,7 @@ GetCatalogSnapshot(Oid relid)
 	 * finishing decoding.
 	 */
 	if (HistoricSnapshotActive())
-		return HistoricSnapshot;
+		return (Snapshot) HistoricSnapshot;
 
 	return GetNonHistoricCatalogSnapshot(relid);
 }
@@ -426,7 +427,7 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 		pairingheap_add(&RegisteredSnapshots, &CatalogSnapshot->ph_node);
 	}
 
-	return CatalogSnapshot;
+	return (Snapshot) CatalogSnapshot;
 }
 
 /*
@@ -495,7 +496,7 @@ SnapshotSetCommandId(CommandId curcid)
  * in GetTransactionSnapshot.
  */
 static void
-SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
+SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid,
 					   int sourcepid, PGPROC *sourceproc)
 {
 	/* Caller should have checked this already */
@@ -574,7 +575,7 @@ SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
 			SetSerializableTransactionSnapshot(CurrentSnapshot, sourcevxid,
 											   sourcepid);
 		/* Make a saved copy */
-		CurrentSnapshot = CopySnapshot(CurrentSnapshot);
+		CurrentSnapshot = CopyMVCCSnapshot(CurrentSnapshot);
 		FirstXactSnapshot = CurrentSnapshot;
 		/* Mark it as "registered" in FirstXactSnapshot */
 		FirstXactSnapshot->regd_count++;
@@ -585,29 +586,27 @@ SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
 }
 
 /*
- * CopySnapshot
+ * CopyMVCCSnapshot
  *		Copy the given snapshot.
  *
  * The copy is palloc'd in TopTransactionContext and has initial refcounts set
  * to 0.  The returned snapshot has the copied flag set.
  */
-static Snapshot
-CopySnapshot(Snapshot snapshot)
+static MVCCSnapshot
+CopyMVCCSnapshot(MVCCSnapshot snapshot)
 {
-	Snapshot	newsnap;
+	MVCCSnapshot newsnap;
 	Size		subxipoff;
 	Size		size;
 
-	Assert(snapshot != InvalidSnapshot);
-
 	/* We allocate any XID arrays needed in the same palloc block. */
-	size = subxipoff = sizeof(SnapshotData) +
+	size = subxipoff = sizeof(MVCCSnapshotData) +
 		snapshot->xcnt * sizeof(TransactionId);
 	if (snapshot->subxcnt > 0)
 		size += snapshot->subxcnt * sizeof(TransactionId);
 
-	newsnap = (Snapshot) MemoryContextAlloc(TopTransactionContext, size);
-	memcpy(newsnap, snapshot, sizeof(SnapshotData));
+	newsnap = (MVCCSnapshot) MemoryContextAlloc(TopTransactionContext, size);
+	memcpy(newsnap, snapshot, sizeof(MVCCSnapshotData));
 
 	newsnap->regd_count = 0;
 	newsnap->active_count = 0;
@@ -644,11 +643,11 @@ CopySnapshot(Snapshot snapshot)
 }
 
 /*
- * FreeSnapshot
+ * FreeMVCCSnapshot
  *		Free the memory associated with a snapshot.
  */
 static void
-FreeSnapshot(Snapshot snapshot)
+FreeMVCCSnapshot(MVCCSnapshot snapshot)
 {
 	Assert(snapshot->regd_count == 0);
 	Assert(snapshot->active_count == 0);
@@ -664,6 +663,8 @@ FreeSnapshot(Snapshot snapshot)
  * If the passed snapshot is a statically-allocated one, or it is possibly
  * subject to a future command counter update, create a new long-lived copy
  * with active refcount=1.  Otherwise, only increment the refcount.
+ *
+ * Only regular MVCC snaphots can be used as the active snapshot.
  */
 void
 PushActiveSnapshot(Snapshot snapshot)
@@ -682,9 +683,12 @@ PushActiveSnapshot(Snapshot snapshot)
 void
 PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 {
+	MVCCSnapshot origsnap;
 	ActiveSnapshotElt *newactive;
 
-	Assert(snapshot != InvalidSnapshot);
+	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
+	origsnap = &snapshot->mvcc;
+
 	Assert(ActiveSnapshot == NULL || snap_level >= ActiveSnapshot->as_level);
 
 	newactive = MemoryContextAlloc(TopTransactionContext, sizeof(ActiveSnapshotElt));
@@ -693,11 +697,11 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 	 * Checking SecondarySnapshot is probably useless here, but it seems
 	 * better to be sure.
 	 */
-	if (snapshot == CurrentSnapshot || snapshot == SecondarySnapshot ||
-		!snapshot->copied)
-		newactive->as_snap = CopySnapshot(snapshot);
+	if (origsnap == CurrentSnapshot || origsnap == SecondarySnapshot ||
+		!origsnap->copied)
+		newactive->as_snap = CopyMVCCSnapshot(origsnap);
 	else
-		newactive->as_snap = snapshot;
+		newactive->as_snap = origsnap;
 
 	newactive->as_next = ActiveSnapshot;
 	newactive->as_level = snap_level;
@@ -718,7 +722,8 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 void
 PushCopiedSnapshot(Snapshot snapshot)
 {
-	PushActiveSnapshot(CopySnapshot(snapshot));
+	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
+	PushActiveSnapshot((Snapshot) CopyMVCCSnapshot(&snapshot->mvcc));
 }
 
 /*
@@ -771,7 +776,7 @@ PopActiveSnapshot(void)
 
 	if (ActiveSnapshot->as_snap->active_count == 0 &&
 		ActiveSnapshot->as_snap->regd_count == 0)
-		FreeSnapshot(ActiveSnapshot->as_snap);
+		FreeMVCCSnapshot(ActiveSnapshot->as_snap);
 
 	pfree(ActiveSnapshot);
 	ActiveSnapshot = newstack;
@@ -788,7 +793,7 @@ GetActiveSnapshot(void)
 {
 	Assert(ActiveSnapshot != NULL);
 
-	return ActiveSnapshot->as_snap;
+	return (Snapshot) ActiveSnapshot->as_snap;
 }
 
 /*
@@ -805,7 +810,8 @@ ActiveSnapshotSet(void)
  * RegisterSnapshot
  *		Register a snapshot as being in use by the current resource owner
  *
- * If InvalidSnapshot is passed, it is not registered.
+ * Only regular MVCC snaphots and "historic" MVCC snapshots can be registered.
+ * InvalidSnapshot is also accepted, as a no-op.
  */
 Snapshot
 RegisterSnapshot(Snapshot snapshot)
@@ -821,25 +827,39 @@ RegisterSnapshot(Snapshot snapshot)
  *		As above, but use the specified resource owner
  */
 Snapshot
-RegisterSnapshotOnOwner(Snapshot snapshot, ResourceOwner owner)
+RegisterSnapshotOnOwner(Snapshot orig_snapshot, ResourceOwner owner)
 {
-	Snapshot	snap;
+	MVCCSnapshot snapshot;
 
-	if (snapshot == InvalidSnapshot)
+	if (orig_snapshot == InvalidSnapshot)
 		return InvalidSnapshot;
 
+	if (orig_snapshot->snapshot_type == SNAPSHOT_HISTORIC_MVCC)
+	{
+		HistoricMVCCSnapshot historicsnap = &orig_snapshot->historic_mvcc;
+
+		ResourceOwnerEnlarge(owner);
+		historicsnap->regd_count++;
+		ResourceOwnerRememberSnapshot(owner, (Snapshot) historicsnap);
+
+		return (Snapshot) historicsnap;
+	}
+
+	Assert(orig_snapshot->snapshot_type == SNAPSHOT_MVCC);
+	snapshot = &orig_snapshot->mvcc;
+
 	/* Static snapshot?  Create a persistent copy */
-	snap = snapshot->copied ? snapshot : CopySnapshot(snapshot);
+	snapshot = snapshot->copied ? snapshot : CopyMVCCSnapshot(snapshot);
 
 	/* and tell resowner.c about it */
 	ResourceOwnerEnlarge(owner);
-	snap->regd_count++;
-	ResourceOwnerRememberSnapshot(owner, snap);
+	snapshot->regd_count++;
+	ResourceOwnerRememberSnapshot(owner, (Snapshot) snapshot);
 
-	if (snap->regd_count == 1)
-		pairingheap_add(&RegisteredSnapshots, &snap->ph_node);
+	if (snapshot->regd_count == 1)
+		pairingheap_add(&RegisteredSnapshots, &snapshot->ph_node);
 
-	return snap;
+	return (Snapshot) snapshot;
 }
 
 /*
@@ -875,18 +895,41 @@ UnregisterSnapshotFromOwner(Snapshot snapshot, ResourceOwner owner)
 static void
 UnregisterSnapshotNoOwner(Snapshot snapshot)
 {
-	Assert(snapshot->regd_count > 0);
-	Assert(!pairingheap_is_empty(&RegisteredSnapshots));
-
-	snapshot->regd_count--;
-	if (snapshot->regd_count == 0)
-		pairingheap_remove(&RegisteredSnapshots, &snapshot->ph_node);
-
-	if (snapshot->regd_count == 0 && snapshot->active_count == 0)
+	if (snapshot->snapshot_type == SNAPSHOT_MVCC)
 	{
-		FreeSnapshot(snapshot);
-		SnapshotResetXmin();
+		MVCCSnapshot mvccsnap = &snapshot->mvcc;
+
+		Assert(mvccsnap->regd_count > 0);
+		Assert(!pairingheap_is_empty(&RegisteredSnapshots));
+
+		mvccsnap->regd_count--;
+		if (mvccsnap->regd_count == 0)
+			pairingheap_remove(&RegisteredSnapshots, &mvccsnap->ph_node);
+
+		if (mvccsnap->regd_count == 0 && mvccsnap->active_count == 0)
+		{
+			FreeMVCCSnapshot(mvccsnap);
+			SnapshotResetXmin();
+		}
 	}
+	else if (snapshot->snapshot_type == SNAPSHOT_HISTORIC_MVCC)
+	{
+		HistoricMVCCSnapshot historicsnap = &snapshot->historic_mvcc;
+
+		/*
+		 * Historic snapshots don't rely on the resource owner machinery for
+		 * cleanup, the snapbuild.c machinery ensures that whenever a historic
+		 * snapshot is in use, it has a non-zero refcount.  Registration is
+		 * only supported so that the callers don't need to treat regular MVCC
+		 * catalog snapshots and historic snapshots differently.
+		 */
+		Assert(historicsnap->refcount > 0);
+
+		Assert(historicsnap->regd_count > 0);
+		historicsnap->regd_count--;
+	}
+	else
+		elog(ERROR, "registered snapshot has unexpected type");
 }
 
 /*
@@ -896,8 +939,8 @@ UnregisterSnapshotNoOwner(Snapshot snapshot)
 static int
 xmin_cmp(const pairingheap_node *a, const pairingheap_node *b, void *arg)
 {
-	const SnapshotData *asnap = pairingheap_const_container(SnapshotData, ph_node, a);
-	const SnapshotData *bsnap = pairingheap_const_container(SnapshotData, ph_node, b);
+	const MVCCSnapshotData *asnap = pairingheap_const_container(MVCCSnapshotData, ph_node, a);
+	const MVCCSnapshotData *bsnap = pairingheap_const_container(MVCCSnapshotData, ph_node, b);
 
 	if (TransactionIdPrecedes(asnap->xmin, bsnap->xmin))
 		return 1;
@@ -923,7 +966,7 @@ xmin_cmp(const pairingheap_node *a, const pairingheap_node *b, void *arg)
 static void
 SnapshotResetXmin(void)
 {
-	Snapshot	minSnapshot;
+	MVCCSnapshot minSnapshot;
 
 	if (ActiveSnapshot != NULL)
 		return;
@@ -934,7 +977,7 @@ SnapshotResetXmin(void)
 		return;
 	}
 
-	minSnapshot = pairingheap_container(SnapshotData, ph_node,
+	minSnapshot = pairingheap_container(MVCCSnapshotData, ph_node,
 										pairingheap_first(&RegisteredSnapshots));
 
 	if (TransactionIdPrecedes(MyProc->xmin, minSnapshot->xmin))
@@ -984,7 +1027,7 @@ AtSubAbort_Snapshot(int level)
 
 		if (ActiveSnapshot->as_snap->active_count == 0 &&
 			ActiveSnapshot->as_snap->regd_count == 0)
-			FreeSnapshot(ActiveSnapshot->as_snap);
+			FreeMVCCSnapshot(ActiveSnapshot->as_snap);
 
 		/* and free the stack element */
 		pfree(ActiveSnapshot);
@@ -1006,7 +1049,7 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	 * In transaction-snapshot mode we must release our privately-managed
 	 * reference to the transaction snapshot.  We must remove it from
 	 * RegisteredSnapshots to keep the check below happy.  But we don't bother
-	 * to do FreeSnapshot, for two reasons: the memory will go away with
+	 * to do FreeMVCCSnapshot, for two reasons: the memory will go away with
 	 * TopTransactionContext anyway, and if someone has left the snapshot
 	 * stacked as active, we don't want the code below to be chasing through a
 	 * dangling pointer.
@@ -1099,7 +1142,7 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
  *		snapshot.
  */
 char *
-ExportSnapshot(Snapshot snapshot)
+ExportSnapshot(MVCCSnapshot snapshot)
 {
 	TransactionId topXid;
 	TransactionId *children;
@@ -1163,7 +1206,7 @@ ExportSnapshot(Snapshot snapshot)
 	 * ensure that the snapshot's xmin is honored for the rest of the
 	 * transaction.
 	 */
-	snapshot = CopySnapshot(snapshot);
+	snapshot = CopyMVCCSnapshot(snapshot);
 
 	oldcxt = MemoryContextSwitchTo(TopTransactionContext);
 	esnap = (ExportedSnapshot *) palloc(sizeof(ExportedSnapshot));
@@ -1280,7 +1323,7 @@ pg_export_snapshot(PG_FUNCTION_ARGS)
 {
 	char	   *snapshotName;
 
-	snapshotName = ExportSnapshot(GetActiveSnapshot());
+	snapshotName = ExportSnapshot((MVCCSnapshot) GetActiveSnapshot());
 	PG_RETURN_TEXT_P(cstring_to_text(snapshotName));
 }
 
@@ -1384,7 +1427,7 @@ ImportSnapshot(const char *idstr)
 	Oid			src_dbid;
 	int			src_isolevel;
 	bool		src_readonly;
-	SnapshotData snapshot;
+	MVCCSnapshotData snapshot;
 
 	/*
 	 * Must be at top level of a fresh transaction.  Note in particular that
@@ -1653,7 +1696,7 @@ HaveRegisteredOrActiveSnapshot(void)
  * Needed for logical decoding.
  */
 void
-SetupHistoricSnapshot(Snapshot historic_snapshot, HTAB *tuplecids)
+SetupHistoricSnapshot(HistoricMVCCSnapshot historic_snapshot, HTAB *tuplecids)
 {
 	Assert(historic_snapshot != NULL);
 
@@ -1696,11 +1739,10 @@ HistoricSnapshotGetTupleCids(void)
  * SerializedSnapshotData.
  */
 Size
-EstimateSnapshotSpace(Snapshot snapshot)
+EstimateSnapshotSpace(MVCCSnapshot snapshot)
 {
 	Size		size;
 
-	Assert(snapshot != InvalidSnapshot);
 	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
 
 	/* We allocate any XID arrays needed in the same palloc block. */
@@ -1720,7 +1762,7 @@ EstimateSnapshotSpace(Snapshot snapshot)
  *		memory location at start_address.
  */
 void
-SerializeSnapshot(Snapshot snapshot, char *start_address)
+SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 {
 	SerializedSnapshotData serialized_snapshot;
 
@@ -1776,12 +1818,12 @@ SerializeSnapshot(Snapshot snapshot, char *start_address)
  * The copy is palloc'd in TopTransactionContext and has initial refcounts set
  * to 0.  The returned snapshot has the copied flag set.
  */
-Snapshot
+MVCCSnapshot
 RestoreSnapshot(char *start_address)
 {
 	SerializedSnapshotData serialized_snapshot;
 	Size		size;
-	Snapshot	snapshot;
+	MVCCSnapshot snapshot;
 	TransactionId *serialized_xids;
 
 	memcpy(&serialized_snapshot, start_address,
@@ -1790,12 +1832,12 @@ RestoreSnapshot(char *start_address)
 		(start_address + sizeof(SerializedSnapshotData));
 
 	/* We allocate any XID arrays needed in the same palloc block. */
-	size = sizeof(SnapshotData)
+	size = sizeof(MVCCSnapshotData)
 		+ serialized_snapshot.xcnt * sizeof(TransactionId)
 		+ serialized_snapshot.subxcnt * sizeof(TransactionId);
 
 	/* Copy all required fields */
-	snapshot = (Snapshot) MemoryContextAlloc(TopTransactionContext, size);
+	snapshot = (MVCCSnapshot) MemoryContextAlloc(TopTransactionContext, size);
 	snapshot->snapshot_type = SNAPSHOT_MVCC;
 	snapshot->xmin = serialized_snapshot.xmin;
 	snapshot->xmax = serialized_snapshot.xmax;
@@ -1840,7 +1882,7 @@ RestoreSnapshot(char *start_address)
  * the declaration for PGPROC.
  */
 void
-RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc)
+RestoreTransactionSnapshot(MVCCSnapshot snapshot, void *source_pgproc)
 {
 	SetTransactionSnapshot(snapshot, NULL, InvalidPid, source_pgproc);
 }
@@ -1856,7 +1898,7 @@ RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc)
  * XID could not be ours anyway.
  */
 bool
-XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot)
+XidInMVCCSnapshot(TransactionId xid, MVCCSnapshot snapshot)
 {
 	/*
 	 * Make a quick range check to eliminate most XIDs without looking at the

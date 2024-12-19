@@ -386,7 +386,7 @@ tuple_lock_retry:
 
 		if (!ItemPointerEquals(&tmfd->ctid, &tuple->t_self))
 		{
-			SnapshotData SnapshotDirty;
+			DirtySnapshotData SnapshotDirty;
 			TransactionId priorXmax;
 
 			/* it was updated, so look at the updated version */
@@ -411,7 +411,7 @@ tuple_lock_retry:
 							 errmsg("tuple to be locked was already moved to another partition due to concurrent update")));
 
 				tuple->t_self = *tid;
-				if (heap_fetch(relation, &SnapshotDirty, tuple, &buffer, true))
+				if (heap_fetch(relation, (Snapshot) &SnapshotDirty, tuple, &buffer, true))
 				{
 					/*
 					 * If xmin isn't what we're expecting, the slot must have
@@ -2457,7 +2457,7 @@ heapam_scan_sample_next_tuple(TableScanDesc scan, SampleScanState *scanstate,
 
 	page = (Page) BufferGetPage(hscan->rs_cbuf);
 	all_visible = PageIsAllVisible(page) &&
-		!scan->rs_snapshot->takenDuringRecovery;
+		(scan->rs_snapshot->snapshot_type != SNAPSHOT_MVCC || !scan->rs_snapshot->mvcc.takenDuringRecovery);
 	maxoffset = PageGetMaxOffsetNumber(page);
 
 	for (;;)

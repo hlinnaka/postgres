@@ -155,11 +155,11 @@ static bool ExportInProgress = false;
 static void SnapBuildPurgeOlderTxn(SnapBuild *builder);
 
 /* snapshot building/manipulation/distribution functions */
-static Snapshot SnapBuildBuildSnapshot(SnapBuild *builder);
+static HistoricMVCCSnapshot SnapBuildBuildSnapshot(SnapBuild *builder);
 
-static void SnapBuildFreeSnapshot(Snapshot snap);
+static void SnapBuildFreeSnapshot(HistoricMVCCSnapshot snap);
 
-static void SnapBuildSnapIncRefcount(Snapshot snap);
+static void SnapBuildSnapIncRefcount(HistoricMVCCSnapshot snap);
 
 static void SnapBuildDistributeNewCatalogSnapshot(SnapBuild *builder, XLogRecPtr lsn);
 
@@ -249,23 +249,21 @@ FreeSnapshotBuilder(SnapBuild *builder)
  * Free an unreferenced snapshot that has previously been built by us.
  */
 static void
-SnapBuildFreeSnapshot(Snapshot snap)
+SnapBuildFreeSnapshot(HistoricMVCCSnapshot snap)
 {
 	/* make sure we don't get passed an external snapshot */
 	Assert(snap->snapshot_type == SNAPSHOT_HISTORIC_MVCC);
 
 	/* make sure nobody modified our snapshot */
 	Assert(snap->curcid == FirstCommandId);
-	Assert(!snap->suboverflowed);
-	Assert(!snap->takenDuringRecovery);
 	Assert(snap->regd_count == 0);
 
 	/* slightly more likely, so it's checked even without c-asserts */
 	if (snap->copied)
 		elog(ERROR, "cannot free a copied snapshot");
 
-	if (snap->active_count)
-		elog(ERROR, "cannot free an active snapshot");
+	if (snap->refcount)
+		elog(ERROR, "cannot free a snapshot that's in use");
 
 	pfree(snap);
 }
@@ -313,9 +311,9 @@ SnapBuildXactNeedsSkip(SnapBuild *builder, XLogRecPtr ptr)
  * adding a Snapshot as builder->snapshot.
  */
 static void
-SnapBuildSnapIncRefcount(Snapshot snap)
+SnapBuildSnapIncRefcount(HistoricMVCCSnapshot snap)
 {
-	snap->active_count++;
+	snap->refcount++;
 }
 
 /*
@@ -325,26 +323,23 @@ SnapBuildSnapIncRefcount(Snapshot snap)
  * IncRef'ed Snapshot can adjust its refcount easily.
  */
 void
-SnapBuildSnapDecRefcount(Snapshot snap)
+SnapBuildSnapDecRefcount(HistoricMVCCSnapshot snap)
 {
 	/* make sure we don't get passed an external snapshot */
 	Assert(snap->snapshot_type == SNAPSHOT_HISTORIC_MVCC);
 
 	/* make sure nobody modified our snapshot */
 	Assert(snap->curcid == FirstCommandId);
-	Assert(!snap->suboverflowed);
-	Assert(!snap->takenDuringRecovery);
 
+	Assert(snap->refcount > 0);
 	Assert(snap->regd_count == 0);
-
-	Assert(snap->active_count > 0);
 
 	/* slightly more likely, so it's checked even without casserts */
 	if (snap->copied)
 		elog(ERROR, "cannot free a copied snapshot");
 
-	snap->active_count--;
-	if (snap->active_count == 0)
+	snap->refcount--;
+	if (snap->refcount == 0)
 		SnapBuildFreeSnapshot(snap);
 }
 
@@ -356,15 +351,15 @@ SnapBuildSnapDecRefcount(Snapshot snap)
  * these snapshots; they have to copy them and fill in appropriate ->curcid
  * and ->subxip/subxcnt values.
  */
-static Snapshot
+static HistoricMVCCSnapshot
 SnapBuildBuildSnapshot(SnapBuild *builder)
 {
-	Snapshot	snapshot;
+	HistoricMVCCSnapshot snapshot;
 	Size		ssize;
 
 	Assert(builder->state >= SNAPBUILD_FULL_SNAPSHOT);
 
-	ssize = sizeof(SnapshotData)
+	ssize = sizeof(HistoricMVCCSnapshotData)
 		+ sizeof(TransactionId) * builder->committed.xcnt
 		+ sizeof(TransactionId) * 1 /* toplevel xid */ ;
 
@@ -400,31 +395,28 @@ SnapBuildBuildSnapshot(SnapBuild *builder)
 	snapshot->xmax = builder->xmax;
 
 	/* store all transactions to be treated as committed by this snapshot */
-	snapshot->xip =
-		(TransactionId *) ((char *) snapshot + sizeof(SnapshotData));
+	snapshot->committed_xids =
+		(TransactionId *) ((char *) snapshot + sizeof(HistoricMVCCSnapshotData));
 	snapshot->xcnt = builder->committed.xcnt;
-	memcpy(snapshot->xip,
+	memcpy(snapshot->committed_xids,
 		   builder->committed.xip,
 		   builder->committed.xcnt * sizeof(TransactionId));
 
 	/* sort so we can bsearch() */
-	qsort(snapshot->xip, snapshot->xcnt, sizeof(TransactionId), xidComparator);
+	qsort(snapshot->committed_xids, snapshot->xcnt, sizeof(TransactionId), xidComparator);
 
 	/*
-	 * Initially, subxip is empty, i.e. it's a snapshot to be used by
+	 * Initially, curxip is empty, i.e. it's a snapshot to be used by
 	 * transactions that don't modify the catalog. Will be filled by
 	 * ReorderBufferCopySnap() if necessary.
 	 */
-	snapshot->subxcnt = 0;
-	snapshot->subxip = NULL;
+	snapshot->curxcnt = 0;
+	snapshot->curxip = NULL;
 
-	snapshot->suboverflowed = false;
-	snapshot->takenDuringRecovery = false;
 	snapshot->copied = false;
 	snapshot->curcid = FirstCommandId;
-	snapshot->active_count = 0;
+	snapshot->refcount = 0;
 	snapshot->regd_count = 0;
-	snapshot->snapXactCompletionCount = 0;
 
 	return snapshot;
 }
@@ -436,13 +428,13 @@ SnapBuildBuildSnapshot(SnapBuild *builder)
  * The snapshot will be usable directly in current transaction or exported
  * for loading in different transaction.
  */
-Snapshot
+MVCCSnapshot
 SnapBuildInitialSnapshot(SnapBuild *builder)
 {
-	Snapshot	snap;
+	HistoricMVCCSnapshot historicsnap;
+	MVCCSnapshot mvccsnap;
 	TransactionId xid;
 	TransactionId safeXid;
-	TransactionId *newxip;
 	int			newxcnt = 0;
 
 	Assert(XactIsoLevel == XACT_REPEATABLE_READ);
@@ -464,10 +456,10 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	if (TransactionIdIsValid(MyProc->xmin))
 		elog(ERROR, "cannot build an initial slot snapshot when MyProc->xmin already is valid");
 
-	snap = SnapBuildBuildSnapshot(builder);
+	historicsnap = SnapBuildBuildSnapshot(builder);
 
 	/*
-	 * We know that snap->xmin is alive, enforced by the logical xmin
+	 * We know that historicsnap->xmin is alive, enforced by the logical xmin
 	 * mechanism. Due to that we can do this without locks, we're only
 	 * changing our own value.
 	 *
@@ -479,15 +471,18 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	safeXid = GetOldestSafeDecodingTransactionId(false);
 	LWLockRelease(ProcArrayLock);
 
-	if (TransactionIdFollows(safeXid, snap->xmin))
+	if (TransactionIdFollows(safeXid, historicsnap->xmin))
 		elog(ERROR, "cannot build an initial slot snapshot as oldest safe xid %u follows snapshot's xmin %u",
-			 safeXid, snap->xmin);
+			 safeXid, historicsnap->xmin);
 
-	MyProc->xmin = snap->xmin;
+	MyProc->xmin = historicsnap->xmin;
 
 	/* allocate in transaction context */
-	newxip = (TransactionId *)
-		palloc(sizeof(TransactionId) * GetMaxSnapshotXidCount());
+	mvccsnap = palloc(sizeof(MVCCSnapshotData) + sizeof(TransactionId) * GetMaxSnapshotXidCount());
+	mvccsnap->snapshot_type = SNAPSHOT_MVCC;
+	mvccsnap->xmin = historicsnap->xmin;
+	mvccsnap->xmax = historicsnap->xmax;
+	mvccsnap->xip = (TransactionId *) ((char *) mvccsnap + sizeof(MVCCSnapshotData));
 
 	/*
 	 * snapbuild.c builds transactions in an "inverted" manner, which means it
@@ -495,15 +490,15 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	 * classical snapshot by marking all non-committed transactions as
 	 * in-progress. This can be expensive.
 	 */
-	for (xid = snap->xmin; NormalTransactionIdPrecedes(xid, snap->xmax);)
+	for (xid = historicsnap->xmin; NormalTransactionIdPrecedes(xid, historicsnap->xmax);)
 	{
 		void	   *test;
 
 		/*
-		 * Check whether transaction committed using the decoding snapshot
-		 * meaning of ->xip.
+		 * Check whether transaction committed using the decoding snapshot's
+		 * committed_xids array.
 		 */
-		test = bsearch(&xid, snap->xip, snap->xcnt,
+		test = bsearch(&xid, historicsnap->committed_xids, historicsnap->xcnt,
 					   sizeof(TransactionId), xidComparator);
 
 		if (test == NULL)
@@ -513,18 +508,27 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("initial slot snapshot too large")));
 
-			newxip[newxcnt++] = xid;
+			mvccsnap->xip[newxcnt++] = xid;
 		}
 
 		TransactionIdAdvance(xid);
 	}
+	mvccsnap->xcnt = newxcnt;
 
-	/* adjust remaining snapshot fields as needed */
-	snap->snapshot_type = SNAPSHOT_MVCC;
-	snap->xcnt = newxcnt;
-	snap->xip = newxip;
+	/* Initialize remaining MVCCSnapshot fields */
+	mvccsnap->subxip = NULL;
+	mvccsnap->subxcnt = 0;
+	mvccsnap->suboverflowed = false;
+	mvccsnap->takenDuringRecovery = false;
+	mvccsnap->copied = true;
+	mvccsnap->curcid = FirstCommandId;
+	mvccsnap->active_count = 0;
+	mvccsnap->regd_count = 0;
+	mvccsnap->snapXactCompletionCount = 0;
 
-	return snap;
+	pfree(historicsnap);
+
+	return mvccsnap;
 }
 
 /*
@@ -538,7 +542,7 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 const char *
 SnapBuildExportSnapshot(SnapBuild *builder)
 {
-	Snapshot	snap;
+	MVCCSnapshot snap;
 	char	   *snapname;
 
 	if (IsTransactionOrTransactionBlock())
@@ -575,7 +579,7 @@ SnapBuildExportSnapshot(SnapBuild *builder)
 /*
  * Ensure there is a snapshot and if not build one for current transaction.
  */
-Snapshot
+HistoricMVCCSnapshot
 SnapBuildGetOrBuildSnapshot(SnapBuild *builder)
 {
 	Assert(builder->state == SNAPBUILD_CONSISTENT);

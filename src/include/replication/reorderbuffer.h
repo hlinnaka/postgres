@@ -127,7 +127,7 @@ typedef struct ReorderBufferChange
 		}			msg;
 
 		/* New snapshot, set when action == *_INTERNAL_SNAPSHOT */
-		Snapshot	snapshot;
+		HistoricMVCCSnapshot snapshot;
 
 		/*
 		 * New command id for existing snapshot in a catalog changing tx. Set
@@ -359,7 +359,7 @@ typedef struct ReorderBufferTXN
 	 * transaction modifies the catalog, or another catalog-modifying
 	 * transaction commits.
 	 */
-	Snapshot	base_snapshot;
+	HistoricMVCCSnapshot base_snapshot;
 	XLogRecPtr	base_snapshot_lsn;
 	dlist_node	base_snapshot_node; /* link in txns_by_base_snapshot_lsn */
 
@@ -367,7 +367,7 @@ typedef struct ReorderBufferTXN
 	 * Snapshot/CID from the previous streaming run. Only valid for already
 	 * streamed transactions (NULL/InvalidCommandId otherwise).
 	 */
-	Snapshot	snapshot_now;
+	HistoricMVCCSnapshot snapshot_now;
 	CommandId	command_id;
 
 	/*
@@ -703,7 +703,7 @@ extern void ReorderBufferQueueChange(ReorderBuffer *rb, TransactionId xid,
 									 XLogRecPtr lsn, ReorderBufferChange *change,
 									 bool toast_insert);
 extern void ReorderBufferQueueMessage(ReorderBuffer *rb, TransactionId xid,
-									  Snapshot snap, XLogRecPtr lsn,
+									  HistoricMVCCSnapshot snap, XLogRecPtr lsn,
 									  bool transactional, const char *prefix,
 									  Size message_size, const char *message);
 extern void ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
@@ -727,9 +727,9 @@ extern void ReorderBufferForget(ReorderBuffer *rb, TransactionId xid, XLogRecPtr
 extern void ReorderBufferInvalidate(ReorderBuffer *rb, TransactionId xid, XLogRecPtr lsn);
 
 extern void ReorderBufferSetBaseSnapshot(ReorderBuffer *rb, TransactionId xid,
-										 XLogRecPtr lsn, Snapshot snap);
+										 XLogRecPtr lsn, HistoricMVCCSnapshot snap);
 extern void ReorderBufferAddSnapshot(ReorderBuffer *rb, TransactionId xid,
-									 XLogRecPtr lsn, Snapshot snap);
+									 XLogRecPtr lsn, HistoricMVCCSnapshot snap);
 extern void ReorderBufferAddNewCommandId(ReorderBuffer *rb, TransactionId xid,
 										 XLogRecPtr lsn, CommandId cid);
 extern void ReorderBufferAddNewTupleCids(ReorderBuffer *rb, TransactionId xid,

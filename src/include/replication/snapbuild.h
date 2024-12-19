@@ -70,15 +70,15 @@ extern SnapBuild *AllocateSnapshotBuilder(struct ReorderBuffer *reorder,
 										  XLogRecPtr two_phase_at);
 extern void FreeSnapshotBuilder(SnapBuild *builder);
 
-extern void SnapBuildSnapDecRefcount(Snapshot snap);
+extern void SnapBuildSnapDecRefcount(HistoricMVCCSnapshot snap);
 
-extern Snapshot SnapBuildInitialSnapshot(SnapBuild *builder);
+extern MVCCSnapshot SnapBuildInitialSnapshot(SnapBuild *builder);
 extern const char *SnapBuildExportSnapshot(SnapBuild *builder);
 extern void SnapBuildClearExportedSnapshot(void);
 extern void SnapBuildResetExportedSnapshotState(void);
 
 extern SnapBuildState SnapBuildCurrentState(SnapBuild *builder);
-extern Snapshot SnapBuildGetOrBuildSnapshot(SnapBuild *builder);
+extern HistoricMVCCSnapshot SnapBuildGetOrBuildSnapshot(SnapBuild *builder);
 
 extern bool SnapBuildXactNeedsSkip(SnapBuild *builder, XLogRecPtr ptr);
 extern XLogRecPtr SnapBuildGetTwoPhaseAt(SnapBuild *builder);

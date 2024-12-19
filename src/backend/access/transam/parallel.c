@@ -275,10 +275,10 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		shm_toc_estimate_chunk(&pcxt->estimator, combocidlen);
 		if (IsolationUsesXactSnapshot())
 		{
-			tsnaplen = EstimateSnapshotSpace(transaction_snapshot);
+			tsnaplen = EstimateSnapshotSpace((MVCCSnapshot) transaction_snapshot);
 			shm_toc_estimate_chunk(&pcxt->estimator, tsnaplen);
 		}
-		asnaplen = EstimateSnapshotSpace(active_snapshot);
+		asnaplen = EstimateSnapshotSpace((MVCCSnapshot) active_snapshot);
 		shm_toc_estimate_chunk(&pcxt->estimator, asnaplen);
 		tstatelen = EstimateTransactionStateSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, tstatelen);
@@ -400,14 +400,14 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		if (IsolationUsesXactSnapshot())
 		{
 			tsnapspace = shm_toc_allocate(pcxt->toc, tsnaplen);
-			SerializeSnapshot(transaction_snapshot, tsnapspace);
+			SerializeSnapshot((MVCCSnapshot) transaction_snapshot, tsnapspace);
 			shm_toc_insert(pcxt->toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT,
 						   tsnapspace);
 		}
 
 		/* Serialize the active snapshot. */
 		asnapspace = shm_toc_allocate(pcxt->toc, asnaplen);
-		SerializeSnapshot(active_snapshot, asnapspace);
+		SerializeSnapshot((MVCCSnapshot) active_snapshot, asnapspace);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_ACTIVE_SNAPSHOT, asnapspace);
 
 		/* Provide the handle for per-session segment. */
@@ -1493,9 +1493,9 @@ ParallelWorkerMain(Datum main_arg)
 	 */
 	asnapspace = shm_toc_lookup(toc, PARALLEL_KEY_ACTIVE_SNAPSHOT, false);
 	tsnapspace = shm_toc_lookup(toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT, true);
-	asnapshot = RestoreSnapshot(asnapspace);
-	tsnapshot = tsnapspace ? RestoreSnapshot(tsnapspace) : asnapshot;
-	RestoreTransactionSnapshot(tsnapshot,
+	asnapshot = (Snapshot) RestoreSnapshot(asnapspace);
+	tsnapshot = tsnapspace ? (Snapshot) RestoreSnapshot(tsnapspace) : asnapshot;
+	RestoreTransactionSnapshot((MVCCSnapshot) tsnapshot,
 							   fps->parallel_leader_pgproc);
 	PushActiveSnapshot(asnapshot);
 

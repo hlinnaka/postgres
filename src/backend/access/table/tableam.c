@@ -133,7 +133,7 @@ table_parallelscan_estimate(Relation rel, Snapshot snapshot)
 	Size		sz = 0;
 
 	if (IsMVCCSnapshot(snapshot))
-		sz = add_size(sz, EstimateSnapshotSpace(snapshot));
+		sz = add_size(sz, EstimateSnapshotSpace((MVCCSnapshot) snapshot));
 	else
 		Assert(snapshot == SnapshotAny);
 
@@ -152,7 +152,7 @@ table_parallelscan_initialize(Relation rel, ParallelTableScanDesc pscan,
 
 	if (IsMVCCSnapshot(snapshot))
 	{
-		SerializeSnapshot(snapshot, (char *) pscan + pscan->phs_snapshot_off);
+		SerializeSnapshot((MVCCSnapshot) snapshot, (char *) pscan + pscan->phs_snapshot_off);
 		pscan->phs_snapshot_any = false;
 	}
 	else
@@ -174,8 +174,8 @@ table_beginscan_parallel(Relation relation, ParallelTableScanDesc pscan)
 	if (!pscan->phs_snapshot_any)
 	{
 		/* Snapshot was serialized -- restore it */
-		snapshot = RestoreSnapshot((char *) pscan + pscan->phs_snapshot_off);
-		RegisterSnapshot(snapshot);
+		snapshot = (Snapshot) RestoreSnapshot((char *) pscan + pscan->phs_snapshot_off);
+		snapshot = RegisterSnapshot(snapshot);
 		flags |= SO_TEMP_SNAPSHOT;
 	}
 	else

@@ -740,7 +740,7 @@ HeapTupleSatisfiesUpdate(HeapTuple htup, CommandId curcid,
  * token is also returned in snapshot->speculativeToken.
  */
 static bool
-HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
+HeapTupleSatisfiesDirty(HeapTuple htup, DirtySnapshotData *snapshot,
 						Buffer buffer)
 {
 	HeapTupleHeader tuple = htup->t_data;
@@ -957,7 +957,7 @@ HeapTupleSatisfiesDirty(HeapTuple htup, Snapshot snapshot,
  * and more contention on ProcArrayLock.
  */
 static bool
-HeapTupleSatisfiesMVCC(HeapTuple htup, Snapshot snapshot,
+HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 					   Buffer buffer)
 {
 	HeapTupleHeader tuple = htup->t_data;
@@ -1435,7 +1435,7 @@ HeapTupleSatisfiesVacuumHorizon(HeapTuple htup, Buffer buffer, TransactionId *de
  *	snapshot->vistest must have been set up with the horizon to use.
  */
 static bool
-HeapTupleSatisfiesNonVacuumable(HeapTuple htup, Snapshot snapshot,
+HeapTupleSatisfiesNonVacuumable(HeapTuple htup, NonVacuumableSnapshotData *snapshot,
 								Buffer buffer)
 {
 	TransactionId dead_after = InvalidTransactionId;
@@ -1593,7 +1593,7 @@ TransactionIdInArray(TransactionId xid, TransactionId *xip, Size num)
  * complicated than when dealing "only" with the present.
  */
 static bool
-HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
+HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, HistoricMVCCSnapshot snapshot,
 							   Buffer buffer)
 {
 	HeapTupleHeader tuple = htup->t_data;
@@ -1610,7 +1610,7 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 		return false;
 	}
 	/* check if it's one of our txids, toplevel is also in there */
-	else if (TransactionIdInArray(xmin, snapshot->subxip, snapshot->subxcnt))
+	else if (TransactionIdInArray(xmin, snapshot->curxip, snapshot->curxcnt))
 	{
 		bool		resolved;
 		CommandId	cmin = HeapTupleHeaderGetRawCommandId(tuple);
@@ -1669,7 +1669,7 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 		return false;
 	}
 	/* check if it's a committed transaction in [xmin, xmax) */
-	else if (TransactionIdInArray(xmin, snapshot->xip, snapshot->xcnt))
+	else if (TransactionIdInArray(xmin, snapshot->committed_xids, snapshot->xcnt))
 	{
 		/* fall through */
 	}
@@ -1702,7 +1702,7 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 	}
 
 	/* check if it's one of our txids, toplevel is also in there */
-	if (TransactionIdInArray(xmax, snapshot->subxip, snapshot->subxcnt))
+	if (TransactionIdInArray(xmax, snapshot->curxip, snapshot->curxcnt))
 	{
 		bool		resolved;
 		CommandId	cmin;
@@ -1755,7 +1755,7 @@ HeapTupleSatisfiesHistoricMVCC(HeapTuple htup, Snapshot snapshot,
 	else if (TransactionIdFollowsOrEquals(xmax, snapshot->xmax))
 		return true;
 	/* xmax is between [xmin, xmax), check known committed array */
-	else if (TransactionIdInArray(xmax, snapshot->xip, snapshot->xcnt))
+	else if (TransactionIdInArray(xmax, snapshot->committed_xids, snapshot->xcnt))
 		return false;
 	/* xmax is between [xmin, xmax), but known not to have committed yet */
 	else
@@ -1778,7 +1778,7 @@ HeapTupleSatisfiesVisibility(HeapTuple htup, Snapshot snapshot, Buffer buffer)
 	switch (snapshot->snapshot_type)
 	{
 		case SNAPSHOT_MVCC:
-			return HeapTupleSatisfiesMVCC(htup, snapshot, buffer);
+			return HeapTupleSatisfiesMVCC(htup, &snapshot->mvcc, buffer);
 		case SNAPSHOT_SELF:
 			return HeapTupleSatisfiesSelf(htup, snapshot, buffer);
 		case SNAPSHOT_ANY:
@@ -1786,11 +1786,11 @@ HeapTupleSatisfiesVisibility(HeapTuple htup, Snapshot snapshot, Buffer buffer)
 		case SNAPSHOT_TOAST:
 			return HeapTupleSatisfiesToast(htup, snapshot, buffer);
 		case SNAPSHOT_DIRTY:
-			return HeapTupleSatisfiesDirty(htup, snapshot, buffer);
+			return HeapTupleSatisfiesDirty(htup, &snapshot->dirty, buffer);
 		case SNAPSHOT_HISTORIC_MVCC:
-			return HeapTupleSatisfiesHistoricMVCC(htup, snapshot, buffer);
+			return HeapTupleSatisfiesHistoricMVCC(htup, &snapshot->historic_mvcc, buffer);
 		case SNAPSHOT_NON_VACUUMABLE:
-			return HeapTupleSatisfiesNonVacuumable(htup, snapshot, buffer);
+			return HeapTupleSatisfiesNonVacuumable(htup, &snapshot->nonvacuumable, buffer);
 	}
 
 	return false;				/* keep compiler quiet */

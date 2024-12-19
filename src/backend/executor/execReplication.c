@@ -184,7 +184,7 @@ RelationFindReplTupleByIndex(Relation rel, Oid idxoid,
 	ScanKeyData skey[INDEX_MAX_KEYS];
 	int			skey_attoff;
 	IndexScanDesc scan;
-	SnapshotData snap;
+	DirtySnapshotData snap;
 	TransactionId xwait;
 	Relation	idxrel;
 	bool		found;
@@ -202,7 +202,7 @@ RelationFindReplTupleByIndex(Relation rel, Oid idxoid,
 	skey_attoff = build_replindex_scan_key(skey, rel, idxrel, searchslot);
 
 	/* Start an index scan. */
-	scan = index_beginscan(rel, idxrel, &snap, NULL, skey_attoff, 0);
+	scan = index_beginscan(rel, idxrel, (Snapshot) &snap, NULL, skey_attoff, 0);
 
 retry:
 	found = false;
@@ -357,7 +357,7 @@ RelationFindReplTupleSeq(Relation rel, LockTupleMode lockmode,
 {
 	TupleTableSlot *scanslot;
 	TableScanDesc scan;
-	SnapshotData snap;
+	DirtySnapshotData snap;
 	TypeCacheEntry **eq;
 	TransactionId xwait;
 	bool		found;
@@ -369,7 +369,7 @@ RelationFindReplTupleSeq(Relation rel, LockTupleMode lockmode,
 
 	/* Start a heap scan. */
 	InitDirtySnapshot(snap);
-	scan = table_beginscan(rel, &snap, 0, NULL);
+	scan = table_beginscan(rel, (Snapshot) &snap, 0, NULL);
 	scanslot = table_slot_create(rel, NULL);
 
 retry:

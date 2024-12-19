@@ -717,7 +717,7 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 	int			indnkeyatts = IndexRelationGetNumberOfKeyAttributes(index);
 	IndexScanDesc index_scan;
 	ScanKeyData scankeys[INDEX_MAX_KEYS];
-	SnapshotData DirtySnapshot;
+	DirtySnapshotData DirtySnapshot;
 	int			i;
 	bool		conflict;
 	bool		found_self;
@@ -816,7 +816,7 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
 retry:
 	conflict = false;
 	found_self = false;
-	index_scan = index_beginscan(heap, index, &DirtySnapshot, NULL, indnkeyatts, 0);
+	index_scan = index_beginscan(heap, index, (Snapshot) &DirtySnapshot, NULL, indnkeyatts, 0);
 	index_rescan(index_scan, scankeys, indnkeyatts, NULL, 0);
 
 	while (index_getnext_slot(index_scan, ForwardScanDirection, existing_slot))

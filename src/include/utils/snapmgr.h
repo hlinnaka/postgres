@@ -49,7 +49,7 @@ extern PGDLLIMPORT SnapshotData SnapshotToastData;
  */
 #define InitNonVacuumableSnapshot(snapshotdata, vistestp)  \
 	((snapshotdata).snapshot_type = SNAPSHOT_NON_VACUUMABLE, \
-	 (snapshotdata).vistest = (vistestp))
+	 (snapshotdata).nonvacuumable.vistest = (vistestp))
 
 /* This macro encodes the knowledge of which snapshots are MVCC-safe */
 #define IsMVCCSnapshot(snapshot)  \
@@ -89,7 +89,7 @@ extern void WaitForOlderSnapshots(TransactionId limitXmin, bool progress);
 extern bool ThereAreNoPriorRegisteredSnapshots(void);
 extern bool HaveRegisteredOrActiveSnapshot(void);
 
-extern char *ExportSnapshot(Snapshot snapshot);
+extern char *ExportSnapshot(MVCCSnapshot snapshot);
 
 /*
  * These live in procarray.c because they're intimately linked to the
@@ -105,18 +105,18 @@ extern bool GlobalVisCheckRemovableFullXid(Relation rel, FullTransactionId fxid)
 /*
  * Utility functions for implementing visibility routines in table AMs.
  */
-extern bool XidInMVCCSnapshot(TransactionId xid, Snapshot snapshot);
+extern bool XidInMVCCSnapshot(TransactionId xid, MVCCSnapshot snapshot);
 
 /* Support for catalog timetravel for logical decoding */
 struct HTAB;
 extern struct HTAB *HistoricSnapshotGetTupleCids(void);
-extern void SetupHistoricSnapshot(Snapshot historic_snapshot, struct HTAB *tuplecids);
+extern void SetupHistoricSnapshot(HistoricMVCCSnapshot historic_snapshot, struct HTAB *tuplecids);
 extern void TeardownHistoricSnapshot(bool is_error);
 extern bool HistoricSnapshotActive(void);
 
-extern Size EstimateSnapshotSpace(Snapshot snapshot);
-extern void SerializeSnapshot(Snapshot snapshot, char *start_address);
-extern Snapshot RestoreSnapshot(char *start_address);
-extern void RestoreTransactionSnapshot(Snapshot snapshot, void *source_pgproc);
+extern Size EstimateSnapshotSpace(MVCCSnapshot snapshot);
+extern void SerializeSnapshot(MVCCSnapshot snapshot, char *start_address);
+extern MVCCSnapshot RestoreSnapshot(char *start_address);
+extern void RestoreTransactionSnapshot(MVCCSnapshot snapshot, void *source_pgproc);
 
 #endif							/* SNAPMGR_H */

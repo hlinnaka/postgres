@@ -431,7 +431,7 @@ extern bool HeapTupleIsSurelyDead(HeapTuple htup,
  */
 struct HTAB;
 extern bool ResolveCminCmaxDuringDecoding(struct HTAB *tuplecid_data,
-										  Snapshot snapshot,
+										  HistoricMVCCSnapshot snapshot,
 										  HeapTuple htup,
 										  Buffer buffer,
 										  CommandId *cmin, CommandId *cmax);
