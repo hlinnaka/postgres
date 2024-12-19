@@ -74,7 +74,7 @@ struct SnapBuild
 	/*
 	 * Snapshot that's valid to see the catalog state seen at this moment.
 	 */
-	Snapshot	snapshot;
+	HistoricMVCCSnapshot snapshot;
 
 	/*
 	 * LSN of the last location we are sure a snapshot has been serialized to.

@@ -633,6 +633,7 @@ DictThesaurus
 DimensionInfo
 DirectoryMethodData
 DirectoryMethodFile
+DirtySnapshotData
 DisableTimeoutParams
 DiscardMode
 DiscardStmt
@@ -1183,6 +1184,7 @@ HeapTupleFreeze
 HeapTupleHeader
 HeapTupleHeaderData
 HeapTupleTableSlot
+HistoricMVCCSnapshotData
 HistControl
 HotStandbyState
 I32
@@ -1633,6 +1635,7 @@ MINIDUMPWRITEDUMP
 MINIDUMP_TYPE
 MJEvalResult
 MTTargetRelLookup
+MVCCSnapshotData
 MVDependencies
 MVDependency
 MVNDistinct
@@ -1732,6 +1735,7 @@ NextValueExpr
 Node
 NodeTag
 NonEmptyRange
+NonVacuumableSnapshotData
 Notification
 NotificationList
 NotifyStmt

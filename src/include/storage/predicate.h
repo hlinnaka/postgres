@@ -47,8 +47,8 @@ extern void CheckPointPredicate(void);
 extern bool PageIsPredicateLocked(Relation relation, BlockNumber blkno);
 
 /* predicate lock maintenance */
-extern Snapshot GetSerializableTransactionSnapshot(Snapshot snapshot);
-extern void SetSerializableTransactionSnapshot(Snapshot snapshot,
+extern MVCCSnapshot GetSerializableTransactionSnapshot(MVCCSnapshot snapshot);
+extern void SetSerializableTransactionSnapshot(MVCCSnapshot snapshot,
 											   VirtualTransactionId *sourcevxid,
 											   int sourcepid);
 extern void RegisterPredicateLockingXid(TransactionId xid);

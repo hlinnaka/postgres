@@ -586,7 +586,7 @@ logicalmsg_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 	TransactionId xid = XLogRecGetXid(r);
 	uint8		info = XLogRecGetInfo(r) & ~XLR_INFO_MASK;
 	RepOriginId origin_id = XLogRecGetOrigin(r);
-	Snapshot	snapshot = NULL;
+	HistoricMVCCSnapshot snapshot = NULL;
 	xl_logical_message *message;
 
 	if (info != XLOG_LOGICAL_MESSAGE)

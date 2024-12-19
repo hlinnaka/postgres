@@ -413,7 +413,7 @@ _bt_check_unique(Relation rel, BTInsertState insertstate, Relation heapRel,
 	IndexTuple	curitup = NULL;
 	ItemId		curitemid = NULL;
 	BTScanInsert itup_key = insertstate->itup_key;
-	SnapshotData SnapshotDirty;
+	DirtySnapshotData SnapshotDirty;
 	OffsetNumber offset;
 	OffsetNumber maxoff;
 	Page		page;
@@ -558,7 +558,7 @@ _bt_check_unique(Relation rel, BTInsertState insertstate, Relation heapRel,
 				 * index entry for the entire chain.
 				 */
 				else if (table_index_fetch_tuple_check(heapRel, &htid,
-													   &SnapshotDirty,
+													   (Snapshot) &SnapshotDirty,
 													   &all_dead))
 				{
 					TransactionId xwait;

@@ -372,10 +372,10 @@ pg_current_snapshot(PG_FUNCTION_ARGS)
 	pg_snapshot *snap;
 	uint32		nxip,
 				i;
-	Snapshot	cur;
+	MVCCSnapshot cur;
 	FullTransactionId next_fxid = ReadNextFullTransactionId();
 
-	cur = GetActiveSnapshot();
+	cur = (MVCCSnapshot) GetActiveSnapshot();
 	if (cur == NULL)
 		elog(ERROR, "no active snapshot set");
 

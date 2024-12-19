@@ -2022,6 +2022,8 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 	bool		reachedEndOfPage;
 	AsyncQueueEntry *qe;
 
+	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
+
 	do
 	{
 		QueuePosition thisentry = *current;
@@ -2041,7 +2043,7 @@ asyncQueueProcessPageEntries(volatile QueuePosition *current,
 		/* Ignore messages destined for other databases */
 		if (qe->dboid == MyDatabaseId)
 		{
-			if (XidInMVCCSnapshot(qe->xid, snapshot))
+			if (XidInMVCCSnapshot(qe->xid, (MVCCSnapshot) snapshot))
 			{
 				/*
 				 * The source transaction is still in progress, so we can't

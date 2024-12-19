@@ -458,7 +458,7 @@ bt_check_every_level(Relation rel, Relation heaprel, bool heapkeyspace,
 			 */
 			if (IsolationUsesXactSnapshot() && rel->rd_index->indcheckxmin &&
 				!TransactionIdPrecedes(HeapTupleHeaderGetXmin(rel->rd_indextuple->t_data),
-									   snapshot->xmin))
+									   snapshot->mvcc.xmin))
 				ereport(ERROR,
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("index \"%s\" cannot be verified using transaction snapshot",

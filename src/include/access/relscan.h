@@ -34,7 +34,7 @@ typedef struct TableScanDescData
 {
 	/* scan parameters */
 	Relation	rs_rd;			/* heap relation descriptor */
-	struct SnapshotData *rs_snapshot;	/* snapshot to see */
+	union SnapshotData *rs_snapshot;	/* snapshot to see */
 	int			rs_nkeys;		/* number of scan keys */
 	struct ScanKeyData *rs_key; /* array of scan key descriptors */
 
@@ -135,7 +135,7 @@ typedef struct IndexScanDescData
 	/* scan parameters */
 	Relation	heapRelation;	/* heap relation descriptor, or NULL */
 	Relation	indexRelation;	/* index relation descriptor */
-	struct SnapshotData *xs_snapshot;	/* snapshot to see */
+	union SnapshotData *xs_snapshot;	/* snapshot to see */
 	int			numberOfKeys;	/* number of index qualifier conditions */
 	int			numberOfOrderBys;	/* number of ordering operators */
 	struct ScanKeyData *keyData;	/* array of index qualifier descriptors */
@@ -210,7 +210,7 @@ typedef struct SysScanDescData
 	Relation	irel;			/* NULL if doing heap scan */
 	struct TableScanDescData *scan; /* only valid in storage-scan case */
 	struct IndexScanDescData *iscan;	/* only valid in index-scan case */
-	struct SnapshotData *snapshot;	/* snapshot to unregister at end of scan */
+	union SnapshotData *snapshot;	/* snapshot to unregister at end of scan */
 	struct TupleTableSlot *slot;
 }			SysScanDescData;
 

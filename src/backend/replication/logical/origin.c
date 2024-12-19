@@ -260,7 +260,7 @@ replorigin_create(const char *roname)
 	HeapTuple	tuple = NULL;
 	Relation	rel;
 	Datum		roname_d;
-	SnapshotData SnapshotDirty;
+	DirtySnapshotData SnapshotDirty;
 	SysScanDesc scan;
 	ScanKeyData key;
 
@@ -302,7 +302,7 @@ replorigin_create(const char *roname)
 
 		scan = systable_beginscan(rel, ReplicationOriginIdentIndex,
 								  true /* indexOK */ ,
-								  &SnapshotDirty,
+								  (Snapshot) &SnapshotDirty,
 								  1, &key);
 
 		collides = HeapTupleIsValid(systable_getnext(scan));

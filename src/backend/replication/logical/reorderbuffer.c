@@ -268,9 +268,9 @@ static void ReorderBufferSerializedPath(char *path, ReplicationSlot *slot,
 										TransactionId xid, XLogSegNo segno);
 static int	ReorderBufferTXNSizeCompare(const pairingheap_node *a, const pairingheap_node *b, void *arg);
 
-static void ReorderBufferFreeSnap(ReorderBuffer *rb, Snapshot snap);
-static Snapshot ReorderBufferCopySnap(ReorderBuffer *rb, Snapshot orig_snap,
-									  ReorderBufferTXN *txn, CommandId cid);
+static void ReorderBufferFreeSnap(ReorderBuffer *rb, HistoricMVCCSnapshot snap);
+static HistoricMVCCSnapshot ReorderBufferCopySnap(ReorderBuffer *rb, HistoricMVCCSnapshot orig_snap,
+												  ReorderBufferTXN *txn, CommandId cid);
 
 /*
  * ---------------------------------------
@@ -852,7 +852,7 @@ ReorderBufferQueueChange(ReorderBuffer *rb, TransactionId xid, XLogRecPtr lsn,
  */
 void
 ReorderBufferQueueMessage(ReorderBuffer *rb, TransactionId xid,
-						  Snapshot snap, XLogRecPtr lsn,
+						  HistoricMVCCSnapshot snap, XLogRecPtr lsn,
 						  bool transactional, const char *prefix,
 						  Size message_size, const char *message)
 {
@@ -886,7 +886,7 @@ ReorderBufferQueueMessage(ReorderBuffer *rb, TransactionId xid,
 	else
 	{
 		ReorderBufferTXN *txn = NULL;
-		volatile Snapshot snapshot_now = snap;
+		volatile	HistoricMVCCSnapshot snapshot_now = snap;
 
 		/* Non-transactional changes require a valid snapshot. */
 		Assert(snapshot_now);
@@ -1886,55 +1886,55 @@ ReorderBufferBuildTupleCidHash(ReorderBuffer *rb, ReorderBufferTXN *txn)
  * that catalog modifying transactions can look into intermediate catalog
  * states.
  */
-static Snapshot
-ReorderBufferCopySnap(ReorderBuffer *rb, Snapshot orig_snap,
+static HistoricMVCCSnapshot
+ReorderBufferCopySnap(ReorderBuffer *rb, HistoricMVCCSnapshot orig_snap,
 					  ReorderBufferTXN *txn, CommandId cid)
 {
-	Snapshot	snap;
+	HistoricMVCCSnapshot snap;
 	dlist_iter	iter;
 	int			i = 0;
 	Size		size;
 
-	size = sizeof(SnapshotData) +
+	size = sizeof(HistoricMVCCSnapshotData) +
 		sizeof(TransactionId) * orig_snap->xcnt +
 		sizeof(TransactionId) * (txn->nsubtxns + 1);
 
 	snap = MemoryContextAllocZero(rb->context, size);
-	memcpy(snap, orig_snap, sizeof(SnapshotData));
+	memcpy(snap, orig_snap, sizeof(HistoricMVCCSnapshotData));
 
 	snap->copied = true;
-	snap->active_count = 1;		/* mark as active so nobody frees it */
+	snap->refcount = 1;			/* mark as active so nobody frees it */
 	snap->regd_count = 0;
-	snap->xip = (TransactionId *) (snap + 1);
+	snap->committed_xids = (TransactionId *) (snap + 1);
 
-	memcpy(snap->xip, orig_snap->xip, sizeof(TransactionId) * snap->xcnt);
+	memcpy(snap->committed_xids, orig_snap->committed_xids, sizeof(TransactionId) * snap->xcnt);
 
 	/*
-	 * snap->subxip contains all txids that belong to our transaction which we
+	 * snap->curxip contains all txids that belong to our transaction which we
 	 * need to check via cmin/cmax. That's why we store the toplevel
 	 * transaction in there as well.
 	 */
-	snap->subxip = snap->xip + snap->xcnt;
-	snap->subxip[i++] = txn->xid;
+	snap->curxip = snap->committed_xids + snap->xcnt;
+	snap->curxip[i++] = txn->xid;
 
 	/*
 	 * txn->nsubtxns isn't decreased when subtransactions abort, so count
 	 * manually. Since it's an upper boundary it is safe to use it for the
 	 * allocation above.
 	 */
-	snap->subxcnt = 1;
+	snap->curxcnt = 1;
 
 	dlist_foreach(iter, &txn->subtxns)
 	{
 		ReorderBufferTXN *sub_txn;
 
 		sub_txn = dlist_container(ReorderBufferTXN, node, iter.cur);
-		snap->subxip[i++] = sub_txn->xid;
-		snap->subxcnt++;
+		snap->curxip[i++] = sub_txn->xid;
+		snap->curxcnt++;
 	}
 
 	/* sort so we can bsearch() later */
-	qsort(snap->subxip, snap->subxcnt, sizeof(TransactionId), xidComparator);
+	qsort(snap->curxip, snap->curxcnt, sizeof(TransactionId), xidComparator);
 
 	/* store the specified current CommandId */
 	snap->curcid = cid;
@@ -1946,7 +1946,7 @@ ReorderBufferCopySnap(ReorderBuffer *rb, Snapshot orig_snap,
  * Free a previously ReorderBufferCopySnap'ed snapshot
  */
 static void
-ReorderBufferFreeSnap(ReorderBuffer *rb, Snapshot snap)
+ReorderBufferFreeSnap(ReorderBuffer *rb, HistoricMVCCSnapshot snap)
 {
 	if (snap->copied)
 		pfree(snap);
@@ -2099,7 +2099,7 @@ ReorderBufferApplyMessage(ReorderBuffer *rb, ReorderBufferTXN *txn,
  */
 static inline void
 ReorderBufferSaveTXNSnapshot(ReorderBuffer *rb, ReorderBufferTXN *txn,
-							 Snapshot snapshot_now, CommandId command_id)
+							 HistoricMVCCSnapshot snapshot_now, CommandId command_id)
 {
 	txn->command_id = command_id;
 
@@ -2144,7 +2144,7 @@ ReorderBufferMaybeMarkTXNStreamed(ReorderBuffer *rb, ReorderBufferTXN *txn)
  */
 static void
 ReorderBufferResetTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
-					  Snapshot snapshot_now,
+					  HistoricMVCCSnapshot snapshot_now,
 					  CommandId command_id,
 					  XLogRecPtr last_lsn,
 					  ReorderBufferChange *specinsert)
@@ -2191,7 +2191,7 @@ ReorderBufferResetTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 static void
 ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 						XLogRecPtr commit_lsn,
-						volatile Snapshot snapshot_now,
+						volatile HistoricMVCCSnapshot snapshot_now,
 						volatile CommandId command_id,
 						bool streaming)
 {
@@ -2779,7 +2779,7 @@ ReorderBufferReplay(ReorderBufferTXN *txn,
 					TimestampTz commit_time,
 					RepOriginId origin_id, XLogRecPtr origin_lsn)
 {
-	Snapshot	snapshot_now;
+	HistoricMVCCSnapshot snapshot_now;
 	CommandId	command_id = FirstCommandId;
 
 	txn->final_lsn = commit_lsn;
@@ -3251,7 +3251,7 @@ ReorderBufferProcessXid(ReorderBuffer *rb, TransactionId xid, XLogRecPtr lsn)
  */
 void
 ReorderBufferAddSnapshot(ReorderBuffer *rb, TransactionId xid,
-						 XLogRecPtr lsn, Snapshot snap)
+						 XLogRecPtr lsn, HistoricMVCCSnapshot snap)
 {
 	ReorderBufferChange *change = ReorderBufferAllocChange(rb);
 
@@ -3269,7 +3269,7 @@ ReorderBufferAddSnapshot(ReorderBuffer *rb, TransactionId xid,
  */
 void
 ReorderBufferSetBaseSnapshot(ReorderBuffer *rb, TransactionId xid,
-							 XLogRecPtr lsn, Snapshot snap)
+							 XLogRecPtr lsn, HistoricMVCCSnapshot snap)
 {
 	ReorderBufferTXN *txn;
 	bool		is_new;
@@ -4043,14 +4043,14 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 			}
 		case REORDER_BUFFER_CHANGE_INTERNAL_SNAPSHOT:
 			{
-				Snapshot	snap;
+				HistoricMVCCSnapshot snap;
 				char	   *data;
 
 				snap = change->data.snapshot;
 
-				sz += sizeof(SnapshotData) +
+				sz += sizeof(HistoricMVCCSnapshotData) +
 					sizeof(TransactionId) * snap->xcnt +
-					sizeof(TransactionId) * snap->subxcnt;
+					sizeof(TransactionId) * snap->curxcnt;
 
 				/* make sure we have enough space */
 				ReorderBufferSerializeReserve(rb, sz);
@@ -4058,21 +4058,21 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 				/* might have been reallocated above */
 				ondisk = (ReorderBufferDiskChange *) rb->outbuf;
 
-				memcpy(data, snap, sizeof(SnapshotData));
-				data += sizeof(SnapshotData);
+				memcpy(data, snap, sizeof(HistoricMVCCSnapshotData));
+				data += sizeof(HistoricMVCCSnapshotData);
 
 				if (snap->xcnt)
 				{
-					memcpy(data, snap->xip,
+					memcpy(data, snap->committed_xids,
 						   sizeof(TransactionId) * snap->xcnt);
 					data += sizeof(TransactionId) * snap->xcnt;
 				}
 
-				if (snap->subxcnt)
+				if (snap->curxcnt)
 				{
-					memcpy(data, snap->subxip,
-						   sizeof(TransactionId) * snap->subxcnt);
-					data += sizeof(TransactionId) * snap->subxcnt;
+					memcpy(data, snap->curxip,
+						   sizeof(TransactionId) * snap->curxcnt);
+					data += sizeof(TransactionId) * snap->curxcnt;
 				}
 				break;
 			}
@@ -4177,7 +4177,7 @@ ReorderBufferCanStartStreaming(ReorderBuffer *rb)
 static void
 ReorderBufferStreamTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 {
-	Snapshot	snapshot_now;
+	HistoricMVCCSnapshot snapshot_now;
 	CommandId	command_id;
 	Size		stream_bytes;
 	bool		txn_is_streamed;
@@ -4196,10 +4196,10 @@ ReorderBufferStreamTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 	 * After that we need to reuse the snapshot from the previous run.
 	 *
 	 * Unlike DecodeCommit which adds xids of all the subtransactions in
-	 * snapshot's xip array via SnapBuildCommitTxn, we can't do that here but
-	 * we do add them to subxip array instead via ReorderBufferCopySnap. This
-	 * allows the catalog changes made in subtransactions decoded till now to
-	 * be visible.
+	 * snapshot's committed_xids array via SnapBuildCommitTxn, we can't do
+	 * that here but we do add them to curxip array instead via
+	 * ReorderBufferCopySnap. This allows the catalog changes made in
+	 * subtransactions decoded till now to be visible.
 	 */
 	if (txn->snapshot_now == NULL)
 	{
@@ -4345,13 +4345,13 @@ ReorderBufferChangeSize(ReorderBufferChange *change)
 			}
 		case REORDER_BUFFER_CHANGE_INTERNAL_SNAPSHOT:
 			{
-				Snapshot	snap;
+				HistoricMVCCSnapshot snap;
 
 				snap = change->data.snapshot;
 
-				sz += sizeof(SnapshotData) +
+				sz += sizeof(HistoricMVCCSnapshotData) +
 					sizeof(TransactionId) * snap->xcnt +
-					sizeof(TransactionId) * snap->subxcnt;
+					sizeof(TransactionId) * snap->curxcnt;
 
 				break;
 			}
@@ -4629,24 +4629,24 @@ ReorderBufferRestoreChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 			}
 		case REORDER_BUFFER_CHANGE_INTERNAL_SNAPSHOT:
 			{
-				Snapshot	oldsnap;
-				Snapshot	newsnap;
+				HistoricMVCCSnapshot oldsnap;
+				HistoricMVCCSnapshot newsnap;
 				Size		size;
 
-				oldsnap = (Snapshot) data;
+				oldsnap = (HistoricMVCCSnapshot) data;
 
-				size = sizeof(SnapshotData) +
+				size = sizeof(HistoricMVCCSnapshotData) +
 					sizeof(TransactionId) * oldsnap->xcnt +
-					sizeof(TransactionId) * (oldsnap->subxcnt + 0);
+					sizeof(TransactionId) * (oldsnap->curxcnt + 0);
 
 				change->data.snapshot = MemoryContextAllocZero(rb->context, size);
 
 				newsnap = change->data.snapshot;
 
 				memcpy(newsnap, data, size);
-				newsnap->xip = (TransactionId *)
-					(((char *) newsnap) + sizeof(SnapshotData));
-				newsnap->subxip = newsnap->xip + newsnap->xcnt;
+				newsnap->committed_xids = (TransactionId *)
+					(((char *) newsnap) + sizeof(HistoricMVCCSnapshotData));
+				newsnap->curxip = newsnap->committed_xids + newsnap->xcnt;
 				newsnap->copied = true;
 				break;
 			}
@@ -5316,7 +5316,7 @@ file_sort_by_lsn(const ListCell *a_p, const ListCell *b_p)
  * transaction for relid.
  */
 static void
-UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, Snapshot snapshot)
+UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, HistoricMVCCSnapshot snapshot)
 {
 	DIR		   *mapping_dir;
 	struct dirent *mapping_de;
@@ -5364,7 +5364,7 @@ UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, Snapshot snapshot)
 			continue;
 
 		/* not for our transaction */
-		if (!TransactionIdInArray(f_mapped_xid, snapshot->subxip, snapshot->subxcnt))
+		if (!TransactionIdInArray(f_mapped_xid, snapshot->curxip, snapshot->curxcnt))
 			continue;
 
 		/* ok, relevant, queue for apply */
@@ -5383,7 +5383,7 @@ UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, Snapshot snapshot)
 		RewriteMappingFile *f = (RewriteMappingFile *) lfirst(file);
 
 		elog(DEBUG1, "applying mapping: \"%s\" in %u", f->fname,
-			 snapshot->subxip[0]);
+			 snapshot->curxip[0]);
 		ApplyLogicalMappingFile(tuplecid_data, relid, f->fname);
 		pfree(f);
 	}
@@ -5395,7 +5395,7 @@ UpdateLogicalMappings(HTAB *tuplecid_data, Oid relid, Snapshot snapshot)
  */
 bool
 ResolveCminCmaxDuringDecoding(HTAB *tuplecid_data,
-							  Snapshot snapshot,
+							  HistoricMVCCSnapshot snapshot,
 							  HeapTuple htup, Buffer buffer,
 							  CommandId *cmin, CommandId *cmax)
 {

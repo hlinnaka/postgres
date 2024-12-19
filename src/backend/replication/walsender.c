@@ -1307,7 +1307,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 		}
 		else if (snapshot_action == CRS_USE_SNAPSHOT)
 		{
-			Snapshot	snap;
+			MVCCSnapshot snap;
 
 			snap = SnapBuildInitialSnapshot(ctx->snapshot_builder);
 			RestoreTransactionSnapshot(snap, MyProc);
