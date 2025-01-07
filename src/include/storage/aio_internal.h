@@ -38,12 +38,13 @@ typedef enum PgAioHandleState
 	AHS_HANDED_OUT,
 
 	/* pgaio_io_start_*() has been called, but IO hasn't been submitted yet */
+	/* XXX: there are no pgaio_io_start_*() functions */
 	AHS_DEFINED,
 
-	/* subjects prepare() callback has been called */
+	/* subject's prepare() callback has been called */
 	AHS_PREPARED,
 
-	/* IO is being executed */
+	/* IO has been submitted and is being executed */
 	AHS_IN_FLIGHT,
 
 	/* IO finished, but result has not yet been processed */

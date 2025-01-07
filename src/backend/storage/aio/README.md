@@ -15,7 +15,7 @@ In this example, a buffer will be read into shared buffers.
 PgAioReturn ioret;
 
 /*
- * Acquire AIO Handle, ioret will get result upon completion.
+ * Acquire an AIO Handle, ioret will get the result upon completion.
  */
 PgAioHandle *ioh = pgaio_io_get(CurrentResourceOwner, &ioret);
 
@@ -46,15 +46,15 @@ pgaio_io_add_shared_cb(ioh, ASC_SHARED_BUFFER_READ);
 pgaio_io_set_io_data_32(ioh, (uint32 *) buffer, 1);
 
 /*
- * Hand AIO handle to lower-level function. When operating on the level of
+ * Pass the AIO handle to lower-level function. When operating on the level of
  * buffers, we don't know how exactly the IO is performed, that is the
  * responsibility of the storage manager implementation.
  *
  * E.g. md.c needs to translate block numbers into offsets in segments.
  *
- * Once the IO handle has been handed of, it may not further be used, as the
- * IO may immediately get executed below smgrstartreadv() and the handle reused
- * for another IO.
+ * Once the IO handle has been handed off to smgrstartreadv(), it may not
+ * further be used, as the IO may immediately get executed in smgrstartreadv()
+ * and the handle reused for another IO.
  */
 smgrstartreadv(ioh, operation->smgr, forknum, blkno,
                BufferGetBlock(buffer), 1);
@@ -167,7 +167,7 @@ The main reason *not* to use Direct IO are:
   explicit prefetching.
 - In situations where shared_buffers cannot be set appropriately large,
   e.g. because there are many different postgres instances hosted on shared
-  hardware, performance will often be worse then when using buffered IO.
+  hardware, performance will often be worse than when using buffered IO.
 
 
 ### Deadlock and Starvation Dangers due to AIO

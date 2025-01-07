@@ -31,7 +31,7 @@ static void pgaio_io_before_prep(PgAioHandle *ioh);
 /* --------------------------------------------------------------------------------
  * "Preparation" routines for individual IO types
  *
- * These are called by place the place actually initiating an IO, to associate
+ * These are called by XXX place the place actually initiating an IO, to associate
  * the IO specific data with an AIO handle.
  *
  * Each of the preparation routines first needs to call

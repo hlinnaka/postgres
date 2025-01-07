@@ -123,10 +123,10 @@ static PgAioHandle *inj_cur_handle;
  *
  * If a handle was acquired but then does not turn out to be needed,
  * e.g. because pgaio_io_get() is called before starting an IO in a critical
- * section, the handle needs to be be released with pgaio_io_release().
+ * section, the handle needs to be released with pgaio_io_release().
  *
  *
- * To react to the completion of the IO as soon as it is know to have
+ * To react to the completion of the IO as soon as it is known to have
  * completed, callbacks can be registered with pgaio_io_add_shared_cb().
  *
  * To actually execute IO using the returned handle, the pgaio_io_prep_*()
