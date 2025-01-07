@@ -6,6 +6,22 @@ In many cases code that can benefit from AIO does not directly have to
 interact with the AIO interface, but can use AIO via higher-level
 abstractions. See [Helpers](#helpers).
 
+1. Acquire an AIO handle (pgaio_io_get())
+
+2. Get a reference to it. (pgaio_io_get_ref())
+
+3. Fill in the completion callbacks on the handle
+
+4. Hand off the IO handle to a lower level function
+
+5. Submit the IO (pgaio_submit_staged()).
+
+6. Wait on the ref
+
+7. Check result
+
+
+
 In this example, a buffer will be read into shared buffers.
 
 ```C
