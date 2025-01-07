@@ -46,11 +46,12 @@ pgaio_io_prep_readv(PgAioHandle *ioh,
 {
 	pgaio_io_before_prep(ioh);
 
+	ioh->op = PGAIO_OP_READV;
 	ioh->op_data.read.fd = fd;
 	ioh->op_data.read.offset = offset;
 	ioh->op_data.read.iov_length = iovcnt;
 
-	pgaio_io_prepare(ioh, PGAIO_OP_READV);
+	pgaio_io_start_staging(ioh);
 }
 
 void
@@ -59,11 +60,12 @@ pgaio_io_prep_writev(PgAioHandle *ioh,
 {
 	pgaio_io_before_prep(ioh);
 
+	ioh->op = PGAIO_OP_WRITEV;
 	ioh->op_data.write.fd = fd;
 	ioh->op_data.write.offset = offset;
 	ioh->op_data.write.iov_length = iovcnt;
 
-	pgaio_io_prepare(ioh, PGAIO_OP_WRITEV);
+	pgaio_io_start_staging(ioh);
 }
 
 

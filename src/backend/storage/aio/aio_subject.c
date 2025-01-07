@@ -120,33 +120,6 @@ pgaio_io_get_subject_name(PgAioHandle *ioh)
 }
 
 /*
- * Internal function which invokes ->prepare for all the registered callbacks.
- */
-void
-pgaio_io_prepare_subject(PgAioHandle *ioh)
-{
-	Assert(ioh->subject > ASI_INVALID && ioh->subject < ASI_COUNT);
-	Assert(ioh->op >= 0 && ioh->op < PGAIO_OP_COUNT);
-
-	for (int i = ioh->num_shared_callbacks; i > 0; i--)
-	{
-		PgAioHandleSharedCallbackID cbid = ioh->shared_callbacks[i - 1];
-		const PgAioHandleSharedCallbacksEntry *ce = &aio_shared_cbs[cbid];
-
-		if (!ce->cb->prepare)
-			continue;
-
-		elog(DEBUG3, "io:%d, op %s, subject %s, calling cb #%d %d/%s->prepare",
-			 pgaio_io_get_id(ioh),
-			 pgaio_io_get_op_name(ioh),
-			 pgaio_io_get_subject_name(ioh),
-			 i,
-			 cbid, ce->name);
-		ce->cb->prepare(ioh);
-	}
-}
-
-/*
  * Internal function which invokes ->complete for all the registered
  * callbacks.
  */

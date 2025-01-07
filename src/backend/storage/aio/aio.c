@@ -110,7 +110,7 @@ static PgAioHandle *inj_cur_handle;
  * Acquire an AioHandle, waiting for IO completion if necessary.
  *
  * Each backend can only have one AIO handle that that has been "handed out"
- * to code, but not yet submitted or released. This restriction is necessary
+ * to code, but not yet staged or released. This restriction is necessary
  * to ensure that it is possible for code to wait for an unused handle by
  * waiting for in-flight IO to complete. There is a limited number of handles
  * in each backend, if multiple handles could be handed out without being
@@ -250,6 +250,43 @@ pgaio_io_release(PgAioHandle *ioh)
 }
 
 /*
+ * Finish building an IO request.  Once a request has been staged, there's no
+ * going back; the IO subsystem will attempt to perform the IO. If the IO
+ * succeeds the completion callbacks will be called; on error, the error
+ * callbacks.
+ *
+ * This may add the IO to the current batch, or execute the request
+ * synchronously.
+ */
+void
+pgaio_io_stage(PgAioHandle *ioh)
+{
+	bool		needs_synchronous;
+
+	/* allow a new IO to be staged */
+	my_aio->handed_out_io = NULL;
+
+	pgaio_io_update_state(ioh, AHS_PREPARED);
+
+	needs_synchronous = pgaio_io_needs_synchronous_execution(ioh);
+
+	elog(DEBUG3, "io:%d: staged %s, executed synchronously: %d",
+		 pgaio_io_get_id(ioh), pgaio_io_get_op_name(ioh),
+		 needs_synchronous);
+
+	if (!needs_synchronous)
+	{
+		my_aio->staged_ios[my_aio->num_staged_ios++] = ioh;
+		Assert(my_aio->num_staged_ios <= PGAIO_SUBMIT_BATCH_SIZE);
+	}
+	else
+	{
+		pgaio_io_prepare_submit(ioh);
+		pgaio_io_perform_synchronously(ioh);
+	}
+}
+
+/*
  * Release IO handle during resource owner cleanup.
  */
 void
@@ -279,7 +316,7 @@ pgaio_io_release_resowner(dlist_node *ioh_node, bool on_error)
 
 			pgaio_io_reclaim(ioh);
 			break;
-		case AHS_DEFINED:
+		case AHS_PREPARING:
 		case AHS_PREPARED:
 			/* XXX: Should we warn about this when is_commit? */
 			pgaio_submit_staged();
@@ -383,7 +420,7 @@ void
 pgaio_io_get_ref(PgAioHandle *ioh, PgAioHandleRef *ior)
 {
 	Assert(ioh->state == AHS_HANDED_OUT ||
-		   ioh->state == AHS_DEFINED ||
+		   ioh->state == AHS_PREPARING ||
 		   ioh->state == AHS_PREPARED);
 	Assert(ioh->generation != 0);
 
@@ -437,7 +474,7 @@ pgaio_io_ref_wait(PgAioHandleRef *ior)
 
 	if (am_owner)
 	{
-		if (state == AHS_DEFINED || state == AHS_PREPARED)
+		if (state == AHS_PREPARING || state == AHS_PREPARED)
 		{
 			/* XXX: Arguably this should be prevented by callers? */
 			pgaio_submit_staged();
@@ -489,8 +526,8 @@ pgaio_io_ref_wait(PgAioHandleRef *ior)
 				/* fallthrough */
 
 				/* waiting for owner to submit */
+			case AHS_PREPARING:
 			case AHS_PREPARED:
-			case AHS_DEFINED:
 				/* waiting for reaper to complete */
 				/* fallthrough */
 			case AHS_REAPED:
@@ -501,8 +538,7 @@ pgaio_io_ref_wait(PgAioHandleRef *ior)
 
 				while (!pgaio_io_was_recycled(ioh, ref_generation, &state))
 				{
-					if (state != AHS_REAPED && state != AHS_DEFINED &&
-						state != AHS_IN_FLIGHT)
+					if (state != AHS_REAPED && state != AHS_IN_FLIGHT)
 						break;
 					ConditionVariableSleep(&ioh->cv, WAIT_EVENT_AIO_COMPLETION);
 				}
@@ -570,8 +606,8 @@ pgaio_io_get_state_name(PgAioHandle *ioh)
 			return "idle";
 		case AHS_HANDED_OUT:
 			return "handed_out";
-		case AHS_DEFINED:
-			return "DEFINED";
+		case AHS_PREPARING:
+			return "PREPARING";
 		case AHS_PREPARED:
 			return "PREPARED";
 		case AHS_IN_FLIGHT:
@@ -588,43 +624,18 @@ pgaio_io_get_state_name(PgAioHandle *ioh)
 
 /*
  * Internal, should only be called from pgaio_io_prep_*().
+ *
+ * Switches the IO to PREPARING state.
  */
 void
-pgaio_io_prepare(PgAioHandle *ioh, PgAioOp op)
+pgaio_io_start_staging(PgAioHandle *ioh)
 {
-	bool		needs_synchronous;
-
 	Assert(ioh->state == AHS_HANDED_OUT);
 	Assert(pgaio_io_has_subject(ioh));
 
-	ioh->op = op;
 	ioh->result = 0;
 
-	pgaio_io_update_state(ioh, AHS_DEFINED);
-
-	/* allow a new IO to be staged */
-	my_aio->handed_out_io = NULL;
-
-	pgaio_io_prepare_subject(ioh);
-
-	pgaio_io_update_state(ioh, AHS_PREPARED);
-
-	needs_synchronous = pgaio_io_needs_synchronous_execution(ioh);
-
-	elog(DEBUG3, "io:%d: prepared %s, executed synchronously: %d",
-		 pgaio_io_get_id(ioh), pgaio_io_get_op_name(ioh),
-		 needs_synchronous);
-
-	if (!needs_synchronous)
-	{
-		my_aio->staged_ios[my_aio->num_staged_ios++] = ioh;
-		Assert(my_aio->num_staged_ios <= PGAIO_SUBMIT_BATCH_SIZE);
-	}
-	else
-	{
-		pgaio_io_prepare_submit(ioh);
-		pgaio_io_perform_synchronously(ioh);
-	}
+	pgaio_io_update_state(ioh, AHS_PREPARING);
 }
 
 /*
@@ -858,8 +869,8 @@ pgaio_io_wait_for_free(void)
 		{
 			/* should not be in in-flight list */
 			case AHS_IDLE:
-			case AHS_DEFINED:
 			case AHS_HANDED_OUT:
+			case AHS_PREPARING:
 			case AHS_PREPARED:
 			case AHS_COMPLETED_LOCAL:
 				elog(ERROR, "shouldn't get here with io:%d in state %d",
@@ -1004,7 +1015,7 @@ pgaio_bounce_buffer_wait_for_free(void)
 			case AHS_IDLE:
 			case AHS_HANDED_OUT:
 				continue;
-			case AHS_DEFINED:	/* should have been submitted above */
+			case AHS_PREPARING:	/* should have been submitted above */
 			case AHS_PREPARED:
 				elog(ERROR, "shouldn't get here with io:%d in state %d",
 					 pgaio_io_get_id(ioh), ioh->state);

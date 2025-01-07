@@ -67,16 +67,23 @@ pgaio_io_set_io_data_32(ioh, (uint32 *) buffer, 1);
  * responsibility of the storage manager implementation.
  *
  * E.g. md.c needs to translate block numbers into offsets in segments.
- *
- * Once the IO handle has been handed off to smgrstartreadv(), it may not
- * further be used, as the IO may immediately get executed in smgrstartreadv()
- * and the handle reused for another IO.
  */
 smgrstartreadv(ioh, operation->smgr, forknum, blkno,
                BufferGetBlock(buffer), 1);
 
 /*
- * As mentioned above, the IO might be initiated within smgrstartreadv(). That
+ * After smgrstartreadv() has returned, we are committed to performing the IO.
+ * We may do more preparation or add more callbacks to the IO, but must
+ * *not* error out before calling pgaio_io_stage(). We don't have any such
+ * preparation to do here, so just call pgaio_io_stage() to indicate that we
+ * have completed building the IO request. It usually queues up the request
+ * for batching, but may submit it immediately if the batch is full or if
+ * the request needed to be processed synchronously.
+ */
+pgaio_io_stage(ioh);
+
+/*
+ * The IO might already have been initiated by pgaio_io_stage(). That
  * is however not guaranteed, to allow IO submission to be batched.
  *
  * Note that one needs to be careful while there may be unsubmitted IOs, as
@@ -84,10 +91,6 @@ smgrstartreadv(ioh, operation->smgr, forknum, blkno,
  * backend were to wait for the other backend, we'd have a deadlock. To avoid
  * that, pending IOs need to be explicitly submitted before this backend
  * might be blocked by a backend waiting for IO.
- *
- * Note that the IO might have immediately been submitted (e.g. due to reaching
- * a limit on the number of unsubmitted IOs) and even completed during the
- * smgrstartreadv() above.
  *
  * Once submitted, the IO is in-flight and can complete at any time.
  */

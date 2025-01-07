@@ -425,6 +425,7 @@ extern void ScheduleBufferTagForWriteback(WritebackContext *wb_context,
 
 /* solely to make it easier to write tests */
 extern bool StartBufferIO(BufferDesc *buf, bool forInput, bool nowait);
+extern void shared_buffer_readv_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers);
 
 
 /* freelist.c */

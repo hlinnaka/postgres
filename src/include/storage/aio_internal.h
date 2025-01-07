@@ -37,11 +37,10 @@ typedef enum PgAioHandleState
 	/* returned by pgaio_io_get() */
 	AHS_HANDED_OUT,
 
-	/* pgaio_io_start_*() has been called, but IO hasn't been submitted yet */
-	/* XXX: there are no pgaio_io_start_*() functions */
-	AHS_DEFINED,
+	/* pgaio_io_start_staging() has been called, but IO hasn't been fully staged yet */
+	AHS_PREPARING,
 
-	/* subject's prepare() callback has been called */
+	/* pgaio_io_stage() has been called, but the IO hasn't been submitted yet */
 	AHS_PREPARED,
 
 	/* IO has been submitted and is being executed */
@@ -250,7 +249,6 @@ typedef struct IoMethodOps
 
 extern bool pgaio_io_was_recycled(PgAioHandle *ioh, uint64 ref_generation, PgAioHandleState *state);
 
-extern void pgaio_io_prepare_subject(PgAioHandle *ioh);
 extern void pgaio_io_process_completion_subject(PgAioHandle *ioh);
 extern void pgaio_io_process_completion(PgAioHandle *ioh, int result);
 extern void pgaio_io_prepare_submit(PgAioHandle *ioh);

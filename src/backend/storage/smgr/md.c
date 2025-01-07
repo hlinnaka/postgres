@@ -985,9 +985,9 @@ mdstartreadv(PgAioHandle *ioh,
 							  forknum,
 							  blocknum,
 							  nblocks);
-	pgaio_io_add_shared_cb(ioh, ASC_MD_READV);
-
 	FileStartReadV(ioh, v->mdfd_vfd, iovcnt, seekpos, WAIT_EVENT_DATA_FILE_READ);
+
+	pgaio_io_add_shared_cb(ioh, ASC_MD_READV);
 }
 
 /*
@@ -1136,9 +1136,8 @@ mdstartwritev(PgAioHandle *ioh,
 							  forknum,
 							  blocknum,
 							  nblocks);
-	pgaio_io_add_shared_cb(ioh, ASC_MD_WRITEV);
-
 	FileStartWriteV(ioh, v->mdfd_vfd, iovcnt, seekpos, WAIT_EVENT_DATA_FILE_WRITE);
+	pgaio_io_add_shared_cb(ioh, ASC_MD_WRITEV);
 }
 
 

@@ -212,12 +212,10 @@ typedef struct PgAioSubjectInfo
 
 
 typedef PgAioResult (*PgAioHandleSharedCallbackComplete) (PgAioHandle *ioh, PgAioResult prior_result);
-typedef void (*PgAioHandleSharedCallbackPrepare) (PgAioHandle *ioh);
 typedef void (*PgAioHandleSharedCallbackError) (PgAioResult result, const PgAioSubjectData *subject_data, int elevel);
 
 typedef struct PgAioHandleSharedCallbacks
 {
-	PgAioHandleSharedCallbackPrepare prepare;
 	PgAioHandleSharedCallbackComplete complete;
 	PgAioHandleSharedCallbackError error;
 } PgAioHandleSharedCallbacks;
@@ -247,6 +245,8 @@ struct ResourceOwnerData;
 extern PgAioHandle *pgaio_io_get(struct ResourceOwnerData *resowner, PgAioReturn *ret);
 extern PgAioHandle *pgaio_io_get_nb(struct ResourceOwnerData *resowner, PgAioReturn *ret);
 
+extern void pgaio_io_stage(PgAioHandle *ioh);
+
 extern void pgaio_io_release(PgAioHandle *ioh);
 extern void pgaio_io_release_resowner(dlist_node *ioh_node, bool on_error);
 
@@ -261,7 +261,7 @@ extern void pgaio_io_set_io_data_32(PgAioHandle *ioh, uint32 *data, uint8 len);
 extern void pgaio_io_set_io_data_64(PgAioHandle *ioh, uint64 *data, uint8 len);
 extern uint64 *pgaio_io_get_io_data(PgAioHandle *ioh, uint8 *len);
 
-extern void pgaio_io_prepare(PgAioHandle *ioh, PgAioOp op);
+extern void pgaio_io_start_staging(PgAioHandle *ioh);
 
 extern int	pgaio_io_get_id(PgAioHandle *ioh);
 struct iovec;

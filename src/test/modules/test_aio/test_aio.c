@@ -264,6 +264,8 @@ read_corrupt_rel_block(PG_FUNCTION_ARGS)
 	smgrstartreadv(ioh, smgr, MAIN_FORKNUM, block,
 				   (void *) &page, 1);
 
+	shared_buffer_readv_prepare(ioh, &buf, 1);
+	pgaio_io_stage(ioh);
 	ReleaseBuffer(buf);
 
 	pgaio_io_ref_wait(&ior);

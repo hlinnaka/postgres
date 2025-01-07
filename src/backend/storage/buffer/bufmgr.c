@@ -179,6 +179,9 @@ int			backend_flush_after = DEFAULT_BACKEND_FLUSH_AFTER;
 /* local state for LockBufferForCleanup */
 static BufferDesc *PinCountWaitBuf = NULL;
 
+static void local_buffer_readv_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers);
+static void shared_buffer_writev_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers);
+
 /*
  * Backend-Private refcount management:
  *
@@ -1725,7 +1728,6 @@ AsyncReadBuffers(ReadBuffersOperation *operation,
 
 		pgaio_io_set_io_data_32(ioh, (uint32 *) io_buffers, io_buffers_len);
 
-
 		if (persistence == RELPERSISTENCE_TEMP)
 			pgaio_io_add_shared_cb(ioh, ASC_LOCAL_BUFFER_READ);
 		else
@@ -1736,6 +1738,11 @@ AsyncReadBuffers(ReadBuffersOperation *operation,
 		did_start_io_overall = did_start_io_this = true;
 		smgrstartreadv(ioh, operation->smgr, forknum, io_first_block,
 					   io_pages, io_buffers_len);
+		if (persistence == RELPERSISTENCE_TEMP)
+			local_buffer_readv_prepare(ioh, io_buffers, io_buffers_len);
+		else
+			shared_buffer_readv_prepare(ioh, io_buffers, io_buffers_len);
+		pgaio_io_stage(ioh);
 		ioh = NULL;
 		operation->nios++;
 
@@ -4170,9 +4177,10 @@ WriteBuffers(BuffersToWrite *to_write,
 					to_write->data_ptrs,
 					to_write->nbuffers,
 					false);
+	shared_buffer_writev_prepare(to_write->ioh, to_write->buffers, to_write->nbuffers);
+	pgaio_io_stage(to_write->ioh);
 	pgstat_count_io_op_n(IOOBJECT_RELATION, IOCONTEXT_NORMAL,
 						 IOOP_WRITE, to_write->nbuffers);
-
 
 	for (int nbuf = 0; nbuf < to_write->nbuffers; nbuf++)
 	{
@@ -6952,20 +6960,16 @@ ReadBufferCompleteWriteShared(Buffer buffer, bool release_lock, bool failed)
  * and writes.
  */
 static void
-shared_buffer_prepare_common(PgAioHandle *ioh, bool is_write)
+shared_buffer_prepare_common(PgAioHandle *ioh, bool is_write, Buffer *buffers, int nbuffers)
 {
-	uint64	   *io_data;
-	uint8		io_data_len;
 	PgAioHandleRef io_ref;
 	BufferTag	first PG_USED_FOR_ASSERTS_ONLY = {0};
 
-	io_data = pgaio_io_get_io_data(ioh, &io_data_len);
-
 	pgaio_io_get_ref(ioh, &io_ref);
 
-	for (int i = 0; i < io_data_len; i++)
+	for (int i = 0; i < nbuffers; i++)
 	{
-		Buffer		buf = (Buffer) io_data[i];
+		Buffer		buf = buffers[i];
 		BufferDesc *bufHdr;
 		uint32		buf_state;
 
@@ -7022,16 +7026,16 @@ shared_buffer_prepare_common(PgAioHandle *ioh, bool is_write)
 	}
 }
 
-static void
-shared_buffer_readv_prepare(PgAioHandle *ioh)
+void
+shared_buffer_readv_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers)
 {
-	shared_buffer_prepare_common(ioh, false);
+	shared_buffer_prepare_common(ioh, false, buffers, nbuffers);
 }
 
 static void
-shared_buffer_writev_prepare(PgAioHandle *ioh)
+shared_buffer_writev_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers)
 {
-	shared_buffer_prepare_common(ioh, true);
+	shared_buffer_prepare_common(ioh, true, buffers, nbuffers);
 }
 
 static PgAioResult
@@ -7135,19 +7139,15 @@ shared_buffer_writev_complete(PgAioHandle *ioh, PgAioResult prior_result)
  * and writes.
  */
 static void
-local_buffer_readv_prepare(PgAioHandle *ioh)
+local_buffer_readv_prepare(PgAioHandle *ioh, Buffer *buffers, int nbuffers)
 {
-	uint64	   *io_data;
-	uint8		io_data_len;
 	PgAioHandleRef io_ref;
-
-	io_data = pgaio_io_get_io_data(ioh, &io_data_len);
 
 	pgaio_io_get_ref(ioh, &io_ref);
 
-	for (int i = 0; i < io_data_len; i++)
+	for (int i = 0; i < nbuffers; i++)
 	{
-		Buffer		buf = (Buffer) io_data[i];
+		Buffer		buf = buffers[i];
 		BufferDesc *bufHdr;
 		uint32		buf_state;
 
@@ -7199,27 +7199,17 @@ local_buffer_readv_complete(PgAioHandle *ioh, PgAioResult prior_result)
 	return result;
 }
 
-static void
-local_buffer_writev_prepare(PgAioHandle *ioh)
-{
-	elog(ERROR, "not yet");
-}
-
-
 const struct PgAioHandleSharedCallbacks aio_shared_buffer_readv_cb = {
-	.prepare = shared_buffer_readv_prepare,
 	.complete = shared_buffer_readv_complete,
 	.error = buffer_readv_error,
 };
 const struct PgAioHandleSharedCallbacks aio_shared_buffer_writev_cb = {
-	.prepare = shared_buffer_writev_prepare,
 	.complete = shared_buffer_writev_complete,
 };
 const struct PgAioHandleSharedCallbacks aio_local_buffer_readv_cb = {
-	.prepare = local_buffer_readv_prepare,
 	.complete = local_buffer_readv_complete,
 	.error = buffer_readv_error,
 };
 const struct PgAioHandleSharedCallbacks aio_local_buffer_writev_cb = {
-	.prepare = local_buffer_writev_prepare,
+
 };
