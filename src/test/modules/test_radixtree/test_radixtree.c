@@ -110,7 +110,11 @@ static rt_node_class_test_elem rt_node_class_tests[] =
 static uint64
 rt_num_entries(rt_radix_tree *tree)
 {
+#ifdef TEST_SHARED_RT
 	return tree->ctl->num_keys;
+#else
+	return tree->ctl.num_keys;
+#endif
 }
 
 PG_MODULE_MAGIC;

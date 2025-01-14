@@ -616,7 +616,7 @@ BumpBlockFree(BumpContext *set, BumpBlock *block)
 void
 BumpFree(void *pointer)
 {
-	elog(ERROR, "%s is not supported by the bump memory allocator", "pfree");
+	elog(PANIC, "%s is not supported by the bump memory allocator", "pfree");
 }
 
 /*
