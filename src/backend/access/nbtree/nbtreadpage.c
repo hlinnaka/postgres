@@ -2050,7 +2050,7 @@ _bt_tuple_before_array_skeys(IndexScanDesc scan, ScanDirection dir,
  * matching the next set of required array keys) has already scanned an
  * excessive number of tuples whose key space is "between arrays".
  *
- * When we perform look ahead successfully, we'll sets pstate.skip, which
+ * When we perform look ahead successfully, we'll set pstate.skip, which
  * instructs _bt_readpage to skip ahead to that tuple next (could be past the
  * end of the scan's leaf page).  Pages where the optimization is effective
  * will generally still need to skip several times.  Each call here performs
