@@ -154,8 +154,9 @@ struct WaitEventSet
 /* A common WaitEventSet used to implement WaitLatch() */
 static WaitEventSet *LatchWaitSet;
 
-/* The position of the latch in LatchWaitSet. */
+/* The positions of the latch and PM death events in LatchWaitSet */
 #define LatchWaitSetLatchPos 0
+#define LatchWaitSetPostmasterDeathPos 1
 
 #ifndef WIN32
 /* Are we currently in WaitLatch? The signal handler would like to know. */
@@ -353,11 +354,18 @@ InitializeLatchWaitSet(void)
 	LatchWaitSet = CreateWaitEventSet(NULL, 2);
 	latch_pos = AddWaitEventToSet(LatchWaitSet, WL_LATCH_SET, PGINVALID_SOCKET,
 								  MyLatch, NULL);
-	if (IsUnderPostmaster)
-		AddWaitEventToSet(LatchWaitSet, WL_EXIT_ON_PM_DEATH,
-						  PGINVALID_SOCKET, NULL, NULL);
-
 	Assert(latch_pos == LatchWaitSetLatchPos);
+
+	/*
+	 * WaitLatch will modify this to WL_EXIT_ON_PM_DEATH or
+	 * WL_POSTMASTER_DEATH on each call.
+	 */
+	if (IsUnderPostmaster)
+	{
+		latch_pos = AddWaitEventToSet(LatchWaitSet, WL_EXIT_ON_PM_DEATH,
+									  PGINVALID_SOCKET, NULL, NULL);
+		Assert(latch_pos == LatchWaitSetPostmasterDeathPos);
+	}
 }
 
 /*
@@ -505,8 +513,14 @@ WaitLatch(Latch *latch, int wakeEvents, long timeout,
 	if (!(wakeEvents & WL_LATCH_SET))
 		latch = NULL;
 	ModifyWaitEvent(LatchWaitSet, LatchWaitSetLatchPos, WL_LATCH_SET, latch);
-	LatchWaitSet->exit_on_postmaster_death =
-		((wakeEvents & WL_EXIT_ON_PM_DEATH) != 0);
+
+	/*
+	 * Update the event set for whether WL_EXIT_ON_PM_DEATH or
+	 * WL_POSTMASTER_DEATH was requested.  This is also cheap.
+	 */
+	ModifyWaitEvent(LatchWaitSet, LatchWaitSetPostmasterDeathPos,
+					(wakeEvents & (WL_EXIT_ON_PM_DEATH | WL_POSTMASTER_DEATH)),
+					0);
 
 	if (WaitEventSetWait(LatchWaitSet,
 						 (wakeEvents & WL_TIMEOUT) ? timeout : -1,
@@ -1037,15 +1051,19 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 		(!(event->events & WL_LATCH_SET) || set->latch == latch))
 		return;
 
+	/* Allow switching between WL_POSTMASTER_DEATH and WL_EXIT_ON_PM_DEATH */
+	if (event->events & WL_POSTMASTER_DEATH)
+	{
+		if (events != WL_POSTMASTER_DEATH && events != WL_EXIT_ON_PM_DEATH)
+			elog(ERROR, "cannot modify postmaster death event");
+		set->exit_on_postmaster_death = ((events & WL_EXIT_ON_PM_DEATH) != 0);
+		return;
+	}
+
 	if (event->events & WL_LATCH_SET &&
 		events != event->events)
 	{
 		elog(ERROR, "cannot modify latch event");
-	}
-
-	if (event->events & WL_POSTMASTER_DEATH)
-	{
-		elog(ERROR, "cannot modify postmaster death event");
 	}
 
 	/* FIXME: validate event mask */
