@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
- * interrupt.h
- *	  Interrupt handling routines.
+ * interrupt_handlers.h
+ *	  Common signal and interrupt handling routines.
  *
  * Responses to interrupts are fairly varied and many types of backends
  * have their own implementations, but we provide a few generic things
@@ -11,13 +11,13 @@
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  src/include/postmaster/interrupt.h
+ *	  src/include/postmaster/interrupt_handlers.h
  *
  *-------------------------------------------------------------------------
  */
 
-#ifndef INTERRUPT_H
-#define INTERRUPT_H
+#ifndef INTERRUPT_HANDLERS_H
+#define INTERRUPT_HANDLERS_H
 
 #include <signal.h>
 

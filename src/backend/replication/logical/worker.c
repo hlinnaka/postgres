@@ -165,7 +165,7 @@
 #include "parser/parse_relation.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/walwriter.h"
 #include "replication/conflict.h"
 #include "replication/logicallauncher.h"

@@ -19,7 +19,7 @@ OBJS = \
 	bgwriter.o \
 	checkpointer.o \
 	fork_process.o \
-	interrupt.o \
+	interrupt_handlers.o \
 	launch_backend.o \
 	pgarch.o \
 	pmchild.o \

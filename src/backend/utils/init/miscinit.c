@@ -38,7 +38,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/postmaster.h"
 #include "replication/slotsync.h"
 #include "storage/fd.h"

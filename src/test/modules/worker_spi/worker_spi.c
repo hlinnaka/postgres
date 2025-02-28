@@ -25,7 +25,7 @@
 /* These are always necessary for a bgworker */
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "storage/latch.h"
 
 /* these headers are used by this particular worker's code */

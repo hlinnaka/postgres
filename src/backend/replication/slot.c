@@ -46,7 +46,7 @@
 #include "common/string.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "replication/slotsync.h"
 #include "replication/slot.h"
 #include "replication/walsender_private.h"

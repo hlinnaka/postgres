@@ -160,7 +160,7 @@
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
 #include "replication/origin.h"

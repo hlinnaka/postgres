@@ -49,7 +49,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/walwriter.h"
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
