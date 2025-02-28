@@ -17,7 +17,6 @@
 #include "access/clog.h"
 #include "access/xlogdefs.h"
 #include "lib/ilist.h"
-#include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
 #include "storage/proclist_types.h"
@@ -173,9 +172,6 @@ struct PGPROC
 	PGSemaphore sem;			/* ONE semaphore to sleep on */
 	ProcWaitStatus waitStatus;
 
-	Latch		procLatch;		/* generic latch for process */
-
-
 	TransactionId xid;			/* id of top-level transaction currently being
 								 * executed by this proc, if running and XID
 								 * is assigned; else InvalidTransactionId.
@@ -311,6 +307,13 @@ struct PGPROC
 	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
 	dlist_head	lockGroupMembers;	/* list of members, if I'm a leader */
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
+
+	pg_atomic_uint32 pendingInterrupts;
+
+#ifdef WIN32
+	/* Event handle to wake up the process when sending an interrupt */
+	HANDLE		interruptWakeupEvent;
+#endif
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
@@ -413,6 +416,8 @@ typedef struct PROC_HDR
 	 */
 	ProcNumber	walwriterProc;
 	ProcNumber	checkpointerProc;
+	ProcNumber	walreceiverProc;
+	ProcNumber	startupProc;
 
 	/* Current shared estimate of appropriate spins_per_delay value */
 	int			spins_per_delay;
@@ -489,9 +494,6 @@ extern void ProcWakeup(PGPROC *proc, ProcWaitStatus waitStatus);
 extern void ProcLockWakeup(LockMethod lockMethodTable, LOCK *lock);
 extern void CheckDeadLockAlert(void);
 extern void LockErrorCleanup(void);
-
-extern void ProcWaitForSignal(uint32 wait_event_info);
-extern void ProcSendSignal(ProcNumber procNumber);
 
 extern PGPROC *AuxiliaryPidGetProc(int pid);
 

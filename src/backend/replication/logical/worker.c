@@ -3742,26 +3742,26 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 			break;
 
 		/*
-		 * Wait for more data or latch.  If we have unflushed transactions,
-		 * wake up after WalWriterDelay to see if they've been flushed yet (in
-		 * which case we should send a feedback message).  Otherwise, there's
-		 * no particular urgency about waking up unless we get data or a
-		 * signal.
+		 * Wait for more data or interrupt.  If we have unflushed
+		 * transactions, wake up after WalWriterDelay to see if they've been
+		 * flushed yet (in which case we should send a feedback message).
+		 * Otherwise, there's no particular urgency about waking up unless we
+		 * get data or a signal.
 		 */
 		if (!dlist_is_empty(&lsn_mapping))
 			wait_time = WalWriterDelay;
 		else
 			wait_time = NAPTIME_PER_CYCLE;
 
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_SOCKET_READABLE | WL_LATCH_SET |
-							   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							   fd, wait_time,
-							   WAIT_EVENT_LOGICAL_APPLY_MAIN);
+		rc = WaitInterruptOrSocket(INTERRUPT_GENERAL,
+								   WL_SOCKET_READABLE | WL_INTERRUPT |
+								   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								   fd, wait_time,
+								   WAIT_EVENT_LOGICAL_APPLY_MAIN);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
 		}
 

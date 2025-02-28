@@ -17,7 +17,7 @@
 #include "backup/basebackup_sink.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "storage/latch.h"
+#include "postmaster/interrupt.h"
 #include "utils/timestamp.h"
 
 typedef struct bbsink_throttle
@@ -146,7 +146,7 @@ throttle(bbsink_throttle *sink, size_t increment)
 		(sink->throttling_counter / sink->throttling_sample);
 
 	/*
-	 * Since the latch could be set repeatedly because of concurrently WAL
+	 * Since the interrupt could be set repeatedly because of concurrently WAL
 	 * activity, sleep in a loop to ensure enough time has passed.
 	 */
 	for (;;)
@@ -163,21 +163,21 @@ throttle(bbsink_throttle *sink, size_t increment)
 		if (sleep <= 0)
 			break;
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
-		/* We're eating a potentially set latch, so check for interrupts */
+		/* We're eating a wakeup, so check for interrupts */
 		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * (TAR_SEND_SIZE / throttling_sample * elapsed_min_unit) should be
 		 * the maximum time to sleep. Thus the cast to long is safe.
 		 */
-		wait_result = WaitLatch(MyLatch,
-								WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-								(long) (sleep / 1000),
-								WAIT_EVENT_BASE_BACKUP_THROTTLE);
+		wait_result = WaitInterrupt(INTERRUPT_GENERAL,
+									WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+									(long) (sleep / 1000),
+									WAIT_EVENT_BASE_BACKUP_THROTTLE);
 
-		if (wait_result & WL_LATCH_SET)
+		if (wait_result & WL_INTERRUPT)
 			CHECK_FOR_INTERRUPTS();
 
 		/* Done waiting? */

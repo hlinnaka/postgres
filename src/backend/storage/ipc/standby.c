@@ -24,6 +24,7 @@
 #include "access/xlogutils.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "postmaster/interrupt.h"
 #include "replication/slot.h"
 #include "storage/bufmgr.h"
 #include "storage/proc.h"
@@ -594,7 +595,7 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
  * ResolveRecoveryConflictWithLock is called from ProcSleep()
  * to resolve conflicts with other backends holding relation locks.
  *
- * The WaitLatch sleep normally done in ProcSleep()
+ * The WaitInterrupt sleep normally done in ProcSleep()
  * (when not InHotStandby) is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or set a timeout to wake us at
@@ -696,7 +697,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	}
 
 	/* Wait to be signaled by the release of the Relation Lock */
-	ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+	WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  PG_WAIT_LOCK | locktag.locktag_type);
+	ClearInterrupt(INTERRUPT_GENERAL);
+	CHECK_FOR_INTERRUPTS();
 
 	/*
 	 * Exit if ltime is reached. Then all the backends holding conflicting
@@ -745,7 +749,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * until the relation locks are released or ltime is reached.
 		 */
 		got_standby_deadlock_timeout = false;
-		ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+		WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+					  PG_WAIT_LOCK | locktag.locktag_type);
+		ClearInterrupt(INTERRUPT_GENERAL);
+		CHECK_FOR_INTERRUPTS();
 	}
 
 cleanup:
@@ -837,9 +844,14 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * We assume that only UnpinBuffer() and the timeout requests established
 	 * above can wake us up here. WakeupRecovery() called by walreceiver or
 	 * SIGHUP signal handler, etc cannot do that because it uses the different
-	 * latch from that ProcWaitForSignal() waits on.
+	 * interrupt flag. FIXME: seems like a shaky assumption. WakeupRecovery()
+	 * indeed uses a different interrupt flag (different latch earlier), but
+	 * the signal handler??
 	 */
-	ProcWaitForSignal(WAIT_EVENT_BUFFER_PIN);
+	WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  WAIT_EVENT_BUFFER_PIN);
+	ClearInterrupt(INTERRUPT_GENERAL);
+	CHECK_FOR_INTERRUPTS();
 
 	if (got_standby_delay_timeout)
 		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);

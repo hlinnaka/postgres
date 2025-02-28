@@ -38,7 +38,6 @@
 #include "storage/dsm_registry.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/procsignal.h"
 #include "storage/smgr.h"
@@ -216,10 +215,10 @@ autoprewarm_main(Datum main_arg)
 		if (autoprewarm_interval <= 0)
 		{
 			/* We're only dumping at shutdown, so just wait forever. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-							 -1L,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(INTERRUPT_GENERAL,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+								 -1L,
+								 PG_WAIT_EXTENSION);
 		}
 		else
 		{
@@ -243,14 +242,14 @@ autoprewarm_main(Datum main_arg)
 			}
 
 			/* Sleep until the next dump time. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 delay_in_ms,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(INTERRUPT_GENERAL,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 delay_in_ms,
+								 PG_WAIT_EXTENSION);
 		}
 
 		/* Reset the latch, loop. */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	/*

@@ -78,6 +78,7 @@
 #include "common/int.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "postmaster/interrupt.h"
 #include "replication/syncrep.h"
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
@@ -222,22 +223,22 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 	/*
 	 * Wait for specified LSN to be confirmed.
 	 *
-	 * Each proc has its own wait latch, so we perform a normal latch
+	 * Each proc has its own wait interrupt vector, so we perform a normal
 	 * check/wait loop here.
 	 */
 	for (;;)
 	{
 		int			rc;
 
-		/* Must reset the latch before testing state. */
-		ResetLatch(MyLatch);
+		/* Must clear the interrupt flag before testing state. */
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		/*
-		 * Acquiring the lock is not needed, the latch ensures proper
-		 * barriers. If it looks like we're done, we must really be done,
-		 * because once walsender changes the state to SYNC_REP_WAIT_COMPLETE,
-		 * it will never update it again, so we can't be seeing a stale value
-		 * in that case.
+		 * Acquiring the lock is not needed, the interrupt ensures proper
+		 * barriers (FIXME: is that so?). If it looks like we're done, we must
+		 * really be done, because once walsender changes the state to
+		 * SYNC_REP_WAIT_COMPLETE, it will never update it again, so we can't
+		 * be seeing a stale value in that case.
 		 */
 		if (MyProc->syncRepState == SYNC_REP_WAIT_COMPLETE)
 			break;
@@ -282,11 +283,13 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		}
 
 		/*
-		 * Wait on latch.  Any condition that should wake us up will set the
-		 * latch, so no need for timeout.
+		 * Wait on interrupt.  Any condition that should wake us up will set
+		 * the interrupt, so no need for timeout.
 		 */
-		rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1,
-					   WAIT_EVENT_SYNC_REP);
+		rc = WaitInterrupt(INTERRUPT_GENERAL,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH,
+						   -1,
+						   WAIT_EVENT_SYNC_REP);
 
 		/*
 		 * If the postmaster dies, we'll probably never get an acknowledgment,
@@ -902,7 +905,7 @@ SyncRepWakeQueue(bool all, int mode)
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */
-		SetLatch(&(proc->procLatch));
+		SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
 
 		numprocs++;
 	}

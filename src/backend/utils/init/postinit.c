@@ -39,6 +39,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
+#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "replication/slot.h"
 #include "replication/slotsync.h"
@@ -1383,7 +1384,7 @@ TransactionTimeoutHandler(void)
 {
 	TransactionTimeoutPending = true;
 	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 static void
@@ -1391,7 +1392,7 @@ IdleInTransactionSessionTimeoutHandler(void)
 {
 	IdleInTransactionSessionTimeoutPending = true;
 	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 static void
@@ -1399,7 +1400,7 @@ IdleSessionTimeoutHandler(void)
 {
 	IdleSessionTimeoutPending = true;
 	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 static void
@@ -1407,7 +1408,7 @@ IdleStatsUpdateTimeoutHandler(void)
 {
 	IdleStatsUpdateTimeoutPending = true;
 	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 static void
@@ -1415,7 +1416,7 @@ ClientCheckTimeoutHandler(void)
 {
 	CheckClientConnectionPending = true;
 	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*

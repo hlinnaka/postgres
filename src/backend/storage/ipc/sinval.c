@@ -16,7 +16,7 @@
 
 #include "access/xact.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
+#include "postmaster/interrupt.h"
 #include "storage/sinvaladt.h"
 #include "utils/inval.h"
 
@@ -31,8 +31,8 @@ uint64		SharedInvalidMessageCounter;
  * through a cache reset exercise.  This is done by sending
  * PROCSIG_CATCHUP_INTERRUPT to any backend that gets too far behind.
  *
- * The signal handler will set an interrupt pending flag and will set the
- * processes latch. Whenever starting to read from the client, or when
+ * The signal handler will set an interrupt pending flag and raise the
+ * INTERRUPT_GENERAL. Whenever starting to read from the client, or when
  * interrupted while doing so, ProcessClientReadInterrupt() will call
  * ProcessCatchupEvent().
  */
@@ -148,7 +148,7 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
  *
  * We used to directly call ProcessCatchupEvent directly when idle. These days
  * we just set a flag to do it later and notify the process of that fact by
- * setting the process's latch.
+ * raising INTERRUPT_GENERAL.
  */
 void
 HandleCatchupInterrupt(void)
@@ -161,7 +161,7 @@ HandleCatchupInterrupt(void)
 	catchupInterruptPending = true;
 
 	/* make sure the event is processed in due course */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*

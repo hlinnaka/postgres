@@ -5,7 +5,7 @@
  *		patterns: establishing a database connection; starting and committing
  *		transactions; using GUC variables, and heeding SIGHUP to reread
  *		the configuration file; reporting to pg_stat_activity; using the
- *		process latch to sleep and exit in case of postmaster death.
+ *		WaitInterrupt to sleep and exit in case of postmaster death.
  *
  * This code connects to a database, creates a schema and table, and summarizes
  * the numbers contained therein.  To see it working, insert an initial value
@@ -26,7 +26,6 @@
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/interrupt.h"
-#include "storage/latch.h"
 
 /* these headers are used by this particular worker's code */
 #include "access/xact.h"
@@ -213,15 +212,15 @@ worker_spi_main(Datum main_arg)
 
 		/*
 		 * Background workers mustn't call usleep() or any direct equivalent:
-		 * instead, they may wait on their process latch, which sleeps as
-		 * necessary, but is awakened if postmaster dies.  That way the
-		 * background process goes away immediately in an emergency.
+		 * instead, they may use WaitInterrupt, which sleeps as necessary, but
+		 * is awakened if postmaster dies.  That way the background process
+		 * goes away immediately in an emergency.
 		 */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 worker_spi_naptime * 1000L,
-						 worker_spi_wait_event_main);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 worker_spi_naptime * 1000L,
+							 worker_spi_wait_event_main);
+		ClearInterrupt(INTERRUPT_GENERAL);
 
 		CHECK_FOR_INTERRUPTS();
 

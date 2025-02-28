@@ -18,11 +18,11 @@
 #include "pgstat.h"
 #include "port/atomics.h"
 #include "postmaster/bgworker_internals.h"
+#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -1226,9 +1226,9 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 		if (status != BGWH_NOT_YET_STARTED)
 			break;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
-					   WAIT_EVENT_BGWORKER_STARTUP);
+		rc = WaitInterrupt(INTERRUPT_GENERAL,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
+						   WAIT_EVENT_BGWORKER_STARTUP);
 
 		if (rc & WL_POSTMASTER_DEATH)
 		{
@@ -1236,7 +1236,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 			break;
 		}
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return status;
@@ -1269,9 +1269,9 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		if (status == BGWH_STOPPED)
 			break;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
-					   WAIT_EVENT_BGWORKER_SHUTDOWN);
+		rc = WaitInterrupt(INTERRUPT_GENERAL,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
+						   WAIT_EVENT_BGWORKER_SHUTDOWN);
 
 		if (rc & WL_POSTMASTER_DEATH)
 		{
@@ -1279,7 +1279,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 			break;
 		}
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return status;

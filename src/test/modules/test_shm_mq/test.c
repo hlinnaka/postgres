@@ -16,6 +16,7 @@
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "postmaster/interrupt.h"
 #include "varatt.h"
 
 #include "test_shm_mq.h"
@@ -234,13 +235,13 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 
 			/*
 			 * If we made no progress, wait for one of the other processes to
-			 * which we are connected to set our latch, indicating that they
-			 * have read or written data and therefore there may now be work
-			 * for us to do.
+			 * which we are connected to send us an interrupt, indicating that
+			 * they have read or written data and therefore there may now be
+			 * work for us to do.
 			 */
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 we_message_queue);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 we_message_queue);
+			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
 		}
 	}

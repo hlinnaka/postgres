@@ -1738,10 +1738,10 @@ TimestampDifference(TimestampTz start_time, TimestampTz stop_time,
  * TimestampDifferenceMilliseconds -- convert the difference between two
  * 		timestamps into integer milliseconds
  *
- * This is typically used to calculate a wait timeout for WaitLatch()
+ * This is typically used to calculate a wait timeout for WaitInterrupt()
  * or a related function.  The choice of "long" as the result type
  * is to harmonize with that; furthermore, we clamp the result to at most
- * INT_MAX milliseconds, because that's all that WaitLatch() allows.
+ * INT_MAX milliseconds, because that's all that WaitInterrupt() allows.
  *
  * We expect start_time <= stop_time.  If not, we return zero,
  * since then we're already past the previously determined stop_time.
