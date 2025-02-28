@@ -1,13 +1,13 @@
 /*-------------------------------------------------------------------------
  *
- * interrupt.c
- *	  Interrupt handling routines.
+ * interrupt_handlers.c
+ *	  Common signal and interrupt handling routines.
  *
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  src/backend/postmaster/interrupt.c
+ *	  src/backend/postmaster/interrupt_handlers.c
  *
  *-------------------------------------------------------------------------
  */
@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 #include "miscadmin.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/procsignal.h"

@@ -35,7 +35,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/walsummarizer.h"
 #include "replication/walreceiver.h"
 #include "storage/aio_subsys.h"

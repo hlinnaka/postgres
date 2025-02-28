@@ -55,7 +55,7 @@
 #include "commands/dbcommands.h"
 #include "libpq/pqsignal.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "replication/logical.h"
 #include "replication/slotsync.h"
 #include "replication/snapbuild.h"

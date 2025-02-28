@@ -53,7 +53,7 @@
 #include "pg_getopt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/postmaster.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"

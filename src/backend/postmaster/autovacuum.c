@@ -86,7 +86,7 @@
 #include "nodes/makefuncs.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "postmaster/postmaster.h"
 #include "storage/aio_subsys.h"
 #include "storage/bufmgr.h"

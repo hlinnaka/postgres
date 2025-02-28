@@ -33,7 +33,7 @@
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "storage/aio.h"
 #include "storage/aio_internal.h"
 #include "storage/aio_subsys.h"

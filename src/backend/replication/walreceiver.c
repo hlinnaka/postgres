@@ -64,7 +64,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/ipc.h"

@@ -68,7 +68,7 @@
 #include "miscadmin.h"
 #include "nodes/replnodes.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
+#include "postmaster/interrupt_handlers.h"
 #include "replication/decode.h"
 #include "replication/logical.h"
 #include "replication/slotsync.h"
