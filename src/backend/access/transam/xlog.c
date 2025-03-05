@@ -2664,7 +2664,7 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 		ProcNumber	walwriterProc = procglobal->walwriterProc;
 
 		if (walwriterProc != INVALID_PROC_NUMBER)
-			SendInterrupt(INTERRUPT_GENERAL, ProcGlobal->walwriterProc);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, ProcGlobal->walwriterProc);
 	}
 }
 
@@ -9382,11 +9382,11 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 				reported_waiting = true;
 			}
 
-			(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
 								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								 1000L,
 								 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 			if (++waits >= seconds_before_warning)
 			{

@@ -1393,7 +1393,7 @@ ProcSleep(LOCALLOCK *locallock)
 					 * because the startup process here has already waited
 					 * longer than deadlock_timeout.
 					 */
-					LogRecoveryConflict(PROCSIG_RECOVERY_CONFLICT_LOCK,
+					LogRecoveryConflict(INTERRUPT_RECOVERY_CONFLICT_LOCK,
 										standbyWaitStart, now,
 										cnt > 0 ? vxids : NULL, true);
 					logged_recovery_conflict = true;
@@ -1402,9 +1402,10 @@ ProcSleep(LOCALLOCK *locallock)
 		}
 		else
 		{
-			(void) WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			/* check for deadlocks first, as that's probably log-worthy */
 			if (got_deadlock_timeout)
 			{
@@ -1658,7 +1659,7 @@ ProcSleep(LOCALLOCK *locallock)
 	/*
 	 * Disable the timers, if they are still running.  As in LockErrorCleanup,
 	 * we must preserve the LOCK_TIMEOUT indicator flag: if a lock timeout has
-	 * already caused QueryCancelPending to become set, we want the cancel to
+	 * already raised INTERRUPT_QUERY_CANCEL, we want the cancel to
 	 * be reported as a lock timeout, not a user cancel.
 	 */
 	if (!InHotStandby)
@@ -1682,7 +1683,7 @@ ProcSleep(LOCALLOCK *locallock)
 	 * startup process waited longer than deadlock_timeout for it.
 	 */
 	if (InHotStandby && logged_recovery_conflict)
-		LogRecoveryConflict(PROCSIG_RECOVERY_CONFLICT_LOCK,
+		LogRecoveryConflict(INTERRUPT_RECOVERY_CONFLICT_LOCK,
 							standbyWaitStart, GetCurrentTimestamp(),
 							NULL, false);
 
@@ -1725,7 +1726,7 @@ ProcWakeup(PGPROC *proc, ProcWaitStatus waitStatus)
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 
 	/* And awaken it */
-	SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 }
 
 /*
@@ -1881,12 +1882,8 @@ CheckDeadLockAlert(void)
 	 * did. Back then got_deadlock_timeout wasn't yet set... It's unlikely
 	 * that this ever would be a problem, but raising an interrupt again is
 	 * cheap.
-	 *
-	 * Note that, when this function runs inside procsignal_sigusr1_handler(),
-	 * the handler function raises the interrupt again after the interrupt is
-	 * raised here.
 	 */
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 	errno = save_errno;
 }
 

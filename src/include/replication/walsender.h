@@ -46,7 +46,7 @@ extern void WalSndShmemInit(void);
 extern void WalSndWakeup(bool physical, bool logical);
 extern void WalSndInitStopping(void);
 extern void WalSndWaitStopping(void);
-extern void HandleWalSndInitStopping(void);
+extern void ProcessWalSndInitStopping(void);
 extern void WalSndRqstFileReload(void);
 
 /*

@@ -122,7 +122,7 @@ test_shm_mq_main(Datum main_arg)
 	SpinLockAcquire(&hdr->mutex);
 	++hdr->workers_ready;
 	SpinLockRelease(&hdr->mutex);
-	SendInterrupt(INTERRUPT_GENERAL, hdr->leader_proc_number);
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, hdr->leader_proc_number);
 
 	/* Do the work. */
 	copy_messages(inqh, outqh);

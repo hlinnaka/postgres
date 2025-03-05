@@ -238,7 +238,7 @@ StrategyGetBuffer(BufferAccessStrategy strategy, uint32 *buf_state, bool *from_r
 		 * can potentially send the interrupt to the wrong process (or no
 		 * process), but it's harmless.
 		 */
-		SendInterrupt(INTERRUPT_GENERAL, bgwprocno);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, bgwprocno);
 	}
 
 	/*

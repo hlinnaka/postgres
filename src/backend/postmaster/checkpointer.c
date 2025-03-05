@@ -81,10 +81,11 @@
  * The algorithm for backends is:
  *	1. Record current values of ckpt_failed and ckpt_started, and
  *	   set request flags, while holding ckpt_lck.
- *	2. Send signal to request checkpoint.
+ *	2. Send INTERRUPT_WAIT_WAKEUP to wake up the checkpointer.
  *	3. Sleep until ckpt_started changes.  Now you know a checkpoint has
  *	   begun since you started this algorithm (although *not* that it was
- *	   specifically initiated by your signal), and that it is using your flags.
+ *	   specifically initiated by your interrupt), and that it is using your
+ *	   flags.
  *	4. Record new value of ckpt_started.
  *	5. Sleep until ckpt_done >= saved value of ckpt_started.  (Use modulo
  *	   arithmetic here in case counters wrap around.)  Now you know a
@@ -146,7 +147,6 @@ double		CheckPointCompletionTarget = 0.9;
  * Private state
  */
 static bool ckpt_active = false;
-static volatile sig_atomic_t ShutdownXLOGPending = false;
 
 /* these values are valid when ckpt_active is true: */
 static pg_time_t ckpt_start_time;
@@ -202,7 +202,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
 
 	/*
@@ -353,15 +353,15 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 		bool		chkpt_or_rstpt_timed = false;
 
 		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
-		 * Process any requests or signals received recently.
+		 * Process any requests or interrupts received recently.
 		 */
 		AbsorbSyncRequests();
 
 		ProcessCheckpointerInterrupts();
-		if (ShutdownXLOGPending || ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_SHUTDOWN_XLOG) || InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 			break;
 
 		/*
@@ -538,7 +538,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 			 * interrupt might have been reset (e.g. in CheckpointWriteDelay).
 			 */
 			ProcessCheckpointerInterrupts();
-			if (ShutdownXLOGPending || ShutdownRequestPending)
+			if (InterruptPending(INTERRUPT_SHUTDOWN_XLOG) || InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 				break;
 		}
 
@@ -557,7 +557,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 			continue;
 
 		/*
-		 * Sleep until we are signaled or it's time for another checkpoint or
+		 * Sleep until we are woken up or it's time for another checkpoint or
 		 * xlog file switch.
 		 */
 		now = (pg_time_t) time(NULL);
@@ -573,7 +573,12 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 			cur_timeout = Min(cur_timeout, XLogArchiveTimeout - elapsed_secs);
 		}
 
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+							 INTERRUPT_SHUTDOWN_XLOG |
+							 INTERRUPT_SHUTDOWN_AUX |
+							 INTERRUPT_BARRIER |
+							 INTERRUPT_LOG_MEMORY_CONTEXT |
+							 INTERRUPT_CONFIG_RELOAD,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 cur_timeout * 1000L /* convert to ms */ ,
 							 WAIT_EVENT_CHECKPOINTER_MAIN);
@@ -585,7 +590,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	 */
 	ExitOnAnyError = true;
 
-	if (ShutdownXLOGPending)
+	if (InterruptPending(INTERRUPT_SHUTDOWN_XLOG))
 	{
 		/*
 		 * Close down the database.
@@ -603,7 +608,7 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 		 * Tell postmaster that we're done.
 		 */
 		SendPostmasterSignal(PMSIGNAL_XLOG_IS_SHUTDOWN);
-		ShutdownXLOGPending = false;
+		ClearInterrupt(INTERRUPT_SHUTDOWN_XLOG);
 	}
 
 	/*
@@ -613,15 +618,15 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 	 */
 	for (;;)
 	{
-		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		ProcessCheckpointerInterrupts();
 
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 			break;
 
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_BARRIER |
+							 INTERRUPT_LOG_MEMORY_CONTEXT |
+							 INTERRUPT_SHUTDOWN_AUX |
+							 INTERRUPT_CONFIG_RELOAD,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 							 0,
 							 WAIT_EVENT_CHECKPOINTER_SHUTDOWN);
@@ -637,12 +642,11 @@ CheckpointerMain(const void *startup_data, size_t startup_data_len)
 static void
 ProcessCheckpointerInterrupts(void)
 {
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
-	if (ConfigReloadPending)
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 	{
-		ConfigReloadPending = false;
 		ProcessConfigFile(PGC_SIGHUP);
 
 		/*
@@ -660,7 +664,7 @@ ProcessCheckpointerInterrupts(void)
 	}
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 }
 
@@ -778,14 +782,13 @@ CheckpointWriteDelay(int flags, double progress)
 	 * in which case we just try to catch up as quickly as possible.
 	 */
 	if (!(flags & CHECKPOINT_IMMEDIATE) &&
-		!ShutdownXLOGPending &&
-		!ShutdownRequestPending &&
+		!InterruptPending(INTERRUPT_SHUTDOWN_XLOG) &&
+		!InterruptPending(INTERRUPT_SHUTDOWN_AUX) &&
 		!ImmediateCheckpointRequested() &&
 		IsCheckpointOnSchedule(progress))
 	{
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			/* update shmem copies of config variables */
 			UpdateSharedMemoryConfig();
@@ -805,11 +808,12 @@ CheckpointWriteDelay(int flags, double progress)
 		 * Checkpointer and bgwriter are no longer related so take the Big
 		 * Sleep.
 		 */
-		WaitInterrupt(1 << INTERRUPT_GENERAL,
+		WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+					  INTERRUPT_CONFIG_RELOAD,
 					  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
 					  100,
 					  WAIT_EVENT_CHECKPOINT_WRITE_DELAY);
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 	else if (--absorb_counter <= 0)
 	{
@@ -823,7 +827,7 @@ CheckpointWriteDelay(int flags, double progress)
 	}
 
 	/* Check for barrier events. */
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 }
 
@@ -917,8 +921,7 @@ IsCheckpointOnSchedule(double progress)
 static void
 ReqShutdownXLOG(SIGNAL_ARGS)
 {
-	ShutdownXLOGPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_SHUTDOWN_XLOG);
 }
 
 
@@ -1061,7 +1064,7 @@ RequestCheckpoint(int flags)
 		}
 		else
 		{
-			SendInterrupt(INTERRUPT_GENERAL, checkpointerProc);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, checkpointerProc);
 			/* notified successfully */
 			break;
 		}
@@ -1188,7 +1191,7 @@ ForwardSyncRequest(const FileTag *ftag, SyncRequestType type)
 		ProcNumber	checkpointerProc = procglobal->checkpointerProc;
 
 		if (checkpointerProc != INVALID_PROC_NUMBER)
-			SendInterrupt(INTERRUPT_GENERAL, ProcGlobal->checkpointerProc);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, ProcGlobal->checkpointerProc);
 	}
 
 	return true;

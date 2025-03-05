@@ -237,7 +237,8 @@ libpqrcv_connect(const char *conninfo, bool replication, bool logical,
 		else
 			io_flag = WL_SOCKET_WRITEABLE;
 
-		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+		rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+								   INTERRUPT_SHUTDOWN_AUX,
 								   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT | io_flag,
 								   PQsocket(conn->streamConn),
 								   0,
@@ -245,10 +246,7 @@ libpqrcv_connect(const char *conninfo, bool replication, bool logical,
 
 		/* Interrupted? */
 		if (rc & WL_INTERRUPT)
-		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			ProcessWalRcvInterrupts();
-		}
 
 		/* If socket is ready, advance the libpq state machine */
 		if (rc & io_flag)
@@ -848,7 +846,8 @@ libpqrcv_PQgetResult(PGconn *streamConn)
 		 * since we'll get interrupted by signals and can handle any
 		 * interrupts here.
 		 */
-		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+		rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+								   INTERRUPT_SHUTDOWN_AUX,
 								   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
 								   WL_INTERRUPT,
 								   PQsocket(streamConn),
@@ -857,10 +856,7 @@ libpqrcv_PQgetResult(PGconn *streamConn)
 
 		/* Interrupted? */
 		if (rc & WL_INTERRUPT)
-		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			ProcessWalRcvInterrupts();
-		}
 
 		/* Consume whatever data is available from the socket */
 		if (PQconsumeInput(streamConn) == 0)

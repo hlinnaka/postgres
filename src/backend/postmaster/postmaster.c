@@ -1621,7 +1621,8 @@ ConfigurePostmasterWaitSet(bool accept_connections)
 	pm_wait_set = CreateWaitEventSet(NULL,
 									 accept_connections ? (1 + NumListenSockets) : 1);
 	AddWaitEventToSet(pm_wait_set, WL_INTERRUPT, PGINVALID_SOCKET,
-					  1 << INTERRUPT_GENERAL, NULL);
+					  INTERRUPT_CONFIG_RELOAD | INTERRUPT_WAIT_WAKEUP,
+					  NULL);
 
 	if (accept_connections)
 	{
@@ -1663,7 +1664,7 @@ ServerLoop(void)
 		for (int i = 0; i < nevents; i++)
 		{
 			if (events[i].events & WL_INTERRUPT)
-				ClearInterrupt(INTERRUPT_GENERAL);
+				ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 			/*
 			 * The following requests are handled unconditionally, even if we
@@ -1962,7 +1963,7 @@ static void
 handle_pm_pmsignal_signal(SIGNAL_ARGS)
 {
 	pending_pm_pmsignal = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -1972,7 +1973,7 @@ static void
 handle_pm_reload_request_signal(SIGNAL_ARGS)
 {
 	pending_pm_reload_request = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -2049,7 +2050,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			pending_pm_shutdown_request = true;
 			break;
 	}
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -2210,7 +2211,7 @@ static void
 handle_pm_child_exit_signal(SIGNAL_ARGS)
 {
 	pending_pm_child_exit = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -4211,7 +4212,7 @@ maybe_start_bgworkers(void)
 
 				/* Report worker is gone now. */
 				if (notify_proc_number != INVALID_PROC_NUMBER)
-					SendInterrupt(INTERRUPT_GENERAL, notify_proc_number);
+					SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 
 				continue;
 			}

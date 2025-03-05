@@ -3004,18 +3004,15 @@ recoveryApplyDelay(XLogReaderState *record)
 
 	while (true)
 	{
-		/*
-		 * INTERRUPT_GENERAL is used for all the usual interrupts, like config
-		 * reloads.  The wakeups when more WAL arrive use a different
-		 * interrupt number (INTERRUPT_RECOVERY_CONTINUE) so that more WAL
-		 * arriving don't wake up the startup process excessively when we're
-		 * waiting in other places, like for recovery conflicts.
-		 */
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		/* This might change recovery_min_apply_delay. */
 		ProcessStartupProcInterrupts();
 
+		/*
+		 * INTERRUPT_RECOVERY_CONTINUE indicates that more WAL has arrived.
+		 * We don't use INTERRUPT_WAIT_WAKEUP, so that more WAL arriving don't
+		 * wake up the startup process excessively when we're waiting in other
+		 * places, like for recovery conflicts.
+		 */
 		ClearInterrupt(INTERRUPT_RECOVERY_CONTINUE);
 		if (CheckForStandbyTrigger())
 			break;
@@ -3037,8 +3034,8 @@ recoveryApplyDelay(XLogReaderState *record)
 
 		elog(DEBUG2, "recovery apply delay %ld milliseconds", msecs);
 
-		(void) WaitInterrupt(1 << INTERRUPT_RECOVERY_CONTINUE |
-							 1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_STARTUP_PROC_MASK |
+							 INTERRUPT_RECOVERY_CONTINUE,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 msecs,
 							 WAIT_EVENT_RECOVERY_APPLY_DELAY);
@@ -3696,8 +3693,8 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						/* Do background tasks that might benefit us later. */
 						KnownAssignedTransactionIdsIdleMaintenance();
 
-						(void) WaitInterrupt(1 << INTERRUPT_RECOVERY_CONTINUE |
-											 1 << INTERRUPT_GENERAL,
+						(void) WaitInterrupt(INTERRUPT_STARTUP_PROC_MASK |
+											 INTERRUPT_RECOVERY_CONTINUE,
 											 WL_INTERRUPT | WL_TIMEOUT |
 											 WL_EXIT_ON_PM_DEATH,
 											 wait_time,
@@ -3706,7 +3703,6 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						now = GetCurrentTimestamp();
 
 						/* Handle interrupt signals of startup process */
-						ClearInterrupt(INTERRUPT_GENERAL);
 						ProcessStartupProcInterrupts();
 					}
 					last_fail_time = now;
@@ -3973,8 +3969,8 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 					 * Wait for more WAL to arrive, when we will be woken
 					 * immediately by the WAL receiver.
 					 */
-					(void) WaitInterrupt(1 << INTERRUPT_RECOVERY_CONTINUE |
-										 1 << INTERRUPT_GENERAL,
+					(void) WaitInterrupt(INTERRUPT_STARTUP_PROC_MASK |
+										 INTERRUPT_RECOVERY_CONTINUE,
 										 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 										 -1L,
 										 WAIT_EVENT_RECOVERY_WAL_STREAM);
@@ -3998,7 +3994,6 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 		 * This possibly-long loop needs to handle interrupts of startup
 		 * process.
 		 */
-		ClearInterrupt(INTERRUPT_GENERAL);
 		ProcessStartupProcInterrupts();
 	}
 

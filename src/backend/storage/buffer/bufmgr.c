@@ -55,6 +55,7 @@
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
+#include "storage/procsignal.h"
 #include "storage/read_stream.h"
 #include "storage/smgr.h"
 #include "storage/standby.h"
@@ -2881,7 +2882,7 @@ UnpinBufferNoOwner(BufferDesc *buf)
 
 				buf_state &= ~BM_PIN_COUNT_WAITER;
 				UnlockBufHdr(buf, buf_state);
-				SendInterrupt(INTERRUPT_GENERAL, wait_backend_pgprocno);
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, wait_backend_pgprocno);
 			}
 			else
 				UnlockBufHdr(buf, buf_state);
@@ -2976,7 +2977,7 @@ BufferSync(int flags)
 		UnlockBufHdr(bufHdr, buf_state);
 
 		/* Check for barrier events in case NBuffers is large. */
-		if (ProcSignalBarrierPending)
+		if (InterruptPending(INTERRUPT_BARRIER))
 			ProcessProcSignalBarrier();
 	}
 
@@ -3057,7 +3058,7 @@ BufferSync(int flags)
 		s->num_to_scan++;
 
 		/* Check for barrier events. */
-		if (ProcSignalBarrierPending)
+		if (InterruptPending(INTERRUPT_BARRIER))
 			ProcessProcSignalBarrier();
 	}
 
@@ -5213,7 +5214,7 @@ LockBufferForCleanup(Buffer buffer)
 			 * deadlock_timeout for it.
 			 */
 			if (logged_recovery_conflict)
-				LogRecoveryConflict(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN,
+				LogRecoveryConflict(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN,
 									waitStart, GetCurrentTimestamp(),
 									NULL, false);
 
@@ -5263,7 +5264,7 @@ LockBufferForCleanup(Buffer buffer)
 				if (TimestampDifferenceExceeds(waitStart, now,
 											   DeadlockTimeout))
 				{
-					LogRecoveryConflict(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN,
+					LogRecoveryConflict(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN,
 										waitStart, now, NULL, true);
 					logged_recovery_conflict = true;
 				}
@@ -5285,16 +5286,17 @@ LockBufferForCleanup(Buffer buffer)
 		}
 		else
 		{
-			WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 						  WAIT_EVENT_BUFFER_PIN);
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 
 		/*
 		 * Remove flag marking us as waiter. Normally this will not be set
-		 * anymore, but ProcWaitForSignal() can return for other signals as
-		 * well.  We take care to only reset the flag if we're the waiter, as
+		 * anymore, but WaitInterrupt can return for other signals as well.
+		 * We take care to only reset the flag if we're the waiter, as
 		 * theoretically another backend could have started waiting. That's
 		 * impossible with the current usages due to table level locking, but
 		 * better be safe.

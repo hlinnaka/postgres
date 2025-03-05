@@ -1654,12 +1654,11 @@ pgfdw_get_cleanup_result(PGconn *conn, TimestampTz endtime,
 					pgfdw_we_cleanup_result = WaitEventExtensionNew("PostgresFdwCleanupResult");
 
 				/* Sleep until there's something to do */
-				wc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+				wc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK,
 										   WL_INTERRUPT | WL_SOCKET_READABLE |
 										   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 										   PQsocket(conn),
 										   cur_timeout, pgfdw_we_cleanup_result);
-				ClearInterrupt(INTERRUPT_GENERAL);
 
 				CHECK_FOR_INTERRUPTS();
 

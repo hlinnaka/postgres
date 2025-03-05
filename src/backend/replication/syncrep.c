@@ -231,7 +231,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		int			rc;
 
 		/* Must clear the interrupt flag before testing state. */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * Acquiring the lock is not needed, the interrupt ensures proper
@@ -252,10 +252,10 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * entitled to assume that an acknowledged commit is also replicated,
 		 * which might not be true. So in this case we issue a WARNING (which
 		 * some clients may be able to interpret) and shut off further output.
-		 * We do NOT reset ProcDiePending, so that the process will die after
+		 * We do NOT clear the interrupt bit, so that the process will die after
 		 * the commit is cleaned up.
 		 */
-		if (ProcDiePending)
+		if (InterruptPending(INTERRUPT_DIE))
 		{
 			ereport(WARNING,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
@@ -272,9 +272,8 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * altogether is not helpful, so we just terminate the wait with a
 		 * suitable warning.
 		 */
-		if (QueryCancelPending)
+		if (ConsumeInterrupt(INTERRUPT_QUERY_CANCEL))
 		{
-			QueryCancelPending = false;
 			ereport(WARNING,
 					(errmsg("canceling wait for synchronous replication due to user request"),
 					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
@@ -286,7 +285,9 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * Wait on interrupt.  Any condition that should wake us up will set
 		 * the interrupt, so no need for timeout.
 		 */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+						   INTERRUPT_DIE |
+						   INTERRUPT_QUERY_CANCEL,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH,
 						   -1,
 						   WAIT_EVENT_SYNC_REP);
@@ -297,7 +298,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 */
 		if (rc & WL_POSTMASTER_DEATH)
 		{
-			ProcDiePending = true;
+			RaiseInterrupt(INTERRUPT_DIE);
 			whereToSendOutput = DestNone;
 			SyncRepCancelWait();
 			break;
@@ -905,7 +906,7 @@ SyncRepWakeQueue(bool all, int mode)
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */
-		SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 
 		numprocs++;
 	}

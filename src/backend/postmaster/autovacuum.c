@@ -401,7 +401,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, avl_sigusr2_handler);
 	pqsignal(SIGFPE, FloatExceptionHandler);
 	pqsignal(SIGCHLD, SIG_DFL);
@@ -451,7 +451,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 
 		/* Forget any pending QueryCancel or timeout request */
 		disable_all_timeouts(false);
-		QueryCancelPending = false; /* second to avoid race condition */
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL); /* second to avoid race condition */
 
 		/* Report the error to the server log */
 		EmitErrorReport();
@@ -492,7 +492,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 		RESUME_INTERRUPTS();
 
 		/* if in shutdown mode, no need for anything further; just go away */
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 			AutoVacLauncherShutdown();
 
 		/*
@@ -551,7 +551,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	 */
 	if (!AutoVacuumingActive())
 	{
-		if (!ShutdownRequestPending)
+		if (!InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 			do_start_worker();
 		proc_exit(0);			/* done */
 	}
@@ -568,7 +568,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	rebuild_database_list(InvalidOid);
 
 	/* loop until shutdown request */
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 	{
 		struct timeval nap;
 		TimestampTz current_time = 0;
@@ -587,14 +587,18 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 		 * Wait until naptime expires or we get some type of signal (all the
 		 * signal handlers will wake us by calling RaiseInterrupt).
 		 */
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_SHUTDOWN_AUX |
+							 INTERRUPT_CONFIG_RELOAD |
+							 INTERRUPT_BARRIER |
+							 INTERRUPT_LOG_MEMORY_CONTEXT |
+							 INTERRUPT_WAIT_WAKEUP,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
 							 WAIT_EVENT_AUTOVACUUM_MAIN);
 
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		ProcessAutoVacLauncherInterrupts();
+
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * a worker finished, or postmaster signaled failure to start a worker
@@ -745,14 +749,13 @@ static void
 ProcessAutoVacLauncherInterrupts(void)
 {
 	/* the normal shutdown case */
-	if (ShutdownRequestPending)
+	if (InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 		AutoVacLauncherShutdown();
 
-	if (ConfigReloadPending)
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 	{
 		int			autovacuum_max_workers_prev = autovacuum_max_workers;
 
-		ConfigReloadPending = false;
 		ProcessConfigFile(PGC_SIGHUP);
 
 		/* shutdown requested in config file? */
@@ -772,11 +775,11 @@ ProcessAutoVacLauncherInterrupts(void)
 	}
 
 	/* Process barrier events */
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 
 	/* Process sinval catchup interrupts that happened while sleeping */
@@ -1359,7 +1362,7 @@ static void
 avl_sigusr2_handler(SIGNAL_ARGS)
 {
 	got_SIGUSR2 = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 
@@ -1408,7 +1411,7 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 	pqsignal(SIGFPE, FloatExceptionHandler);
 	pqsignal(SIGCHLD, SIG_DFL);
@@ -2278,9 +2281,8 @@ do_autovacuum(void)
 		/*
 		 * Check for config changes before processing each collected table.
 		 */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/*
@@ -2438,7 +2440,7 @@ do_autovacuum(void)
 			 * current table (we're done with it, so it would make no sense to
 			 * cancel at this point.)
 			 */
-			QueryCancelPending = false;
+			ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 		}
 		PG_CATCH();
 		{
@@ -2522,9 +2524,8 @@ deleted:
 		 * Check for config changes before acquiring lock for further jobs.
 		 */
 		CHECK_FOR_INTERRUPTS();
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			VacuumUpdateCosts();
 		}
@@ -2636,7 +2637,7 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 		 * (we're done with it, so it would make no sense to cancel at this
 		 * point.)
 		 */
-		QueryCancelPending = false;
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 	}
 	PG_CATCH();
 	{

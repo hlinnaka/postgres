@@ -318,7 +318,7 @@ RequestXLogStreaming(TimeLineID tli, XLogRecPtr recptr, const char *conninfo,
 	if (launch)
 		SendPostmasterSignal(PMSIGNAL_START_WALRECEIVER);
 	else if (walrcv_proc != INVALID_PROC_NUMBER)
-		SendInterrupt(INTERRUPT_GENERAL, walrcv_proc);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, walrcv_proc);
 }
 
 /*

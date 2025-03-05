@@ -718,14 +718,14 @@ pg_promote(PG_FUNCTION_ARGS)
 	{
 		int			rc;
 
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		if (!RecoveryInProgress())
 			PG_RETURN_BOOL(true);
 
 		CHECK_FOR_INTERRUPTS();
 
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 						   1000L / WAITS_PER_SECOND,
 						   WAIT_EVENT_PROMOTE);

@@ -251,7 +251,7 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN); /* not used */
 
 	/* Advertise ourselves. */
@@ -645,7 +645,7 @@ WakeupWalSummarizer(void)
 	LWLockRelease(WALSummarizerLock);
 
 	if (pgprocno != INVALID_PROC_NUMBER)
-		SendInterrupt(INTERRUPT_GENERAL, pgprocno);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, pgprocno);
 }
 
 /*
@@ -856,16 +856,13 @@ GetLatestLSN(TimeLineID *tli)
 static void
 ProcessWalSummarizerInterrupts(void)
 {
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		ProcessConfigFile(PGC_SIGHUP);
-	}
 
-	if (ShutdownRequestPending || !summarize_wal)
+	if (InterruptPending(INTERRUPT_SHUTDOWN_AUX) || !summarize_wal)
 	{
 		ereport(DEBUG1,
 				errmsg_internal("WAL summarizer shutting down"));
@@ -873,7 +870,7 @@ ProcessWalSummarizerInterrupts(void)
 	}
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 }
 
@@ -1639,11 +1636,15 @@ summarizer_wait_for_wal(void)
 	pgstat_report_wal(false);
 
 	/* OK, now sleep. */
-	(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+	(void) WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+						 INTERRUPT_SHUTDOWN_AUX |
+						 INTERRUPT_CONFIG_RELOAD |
+						 INTERRUPT_BARRIER |
+						 INTERRUPT_LOG_MEMORY_CONTEXT,
 						 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						 sleep_quanta * MS_PER_SLEEP_QUANTUM,
 						 WAIT_EVENT_WAL_SUMMARIZER_WAL);
-	ClearInterrupt(INTERRUPT_GENERAL);
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 	/* Reset count of pages read. */
 	pages_read_since_last_sleep = 0;

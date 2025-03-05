@@ -25,7 +25,7 @@
  * the walsender will exit quickly without sending any more XLOG records.
  *
  * If the server is shut down, checkpointer sends us
- * PROCSIG_WALSND_INIT_STOPPING after all regular backends have exited.  If
+ * INTERRUPT_WALSND_INIT_STOPPING after all regular backends have exited.  If
  * the backend is idle or runs an SQL query this causes the backend to
  * shutdown, if logical replication is in progress all existing WAL records
  * are processed followed by a shutdown.  Otherwise this causes the walsender
@@ -200,9 +200,9 @@ static volatile sig_atomic_t got_STOPPING = false;
 
 /*
  * This is set while we are streaming. When not set
- * PROCSIG_WALSND_INIT_STOPPING signal will be handled like SIGTERM. When set,
- * the main loop is responsible for checking got_STOPPING and terminating when
- * it's set (after streaming any remaining WAL).
+ * INTERRUPT_WALSND_INIT_STOPPING interrupt will be handled like SIGTERM. When
+ * set, the main loop is responsible for checking got_STOPPING and terminating
+ * when it's set (after streaming any remaining WAL).
  */
 static volatile sig_atomic_t replication_active = false;
 
@@ -260,7 +260,7 @@ static void WalSndKeepalive(bool requestReply, XLogRecPtr writePtr);
 static void WalSndKeepaliveIfNecessary(void);
 static void WalSndCheckTimeOut(void);
 static long WalSndComputeSleeptime(TimestampTz now);
-static void WalSndWait(uint32 socket_events, long timeout, uint32 wait_event);
+static void WalSndWait(uint32 socket_events, long timeout, uint32 wait_event, uint32 interruptMask);
 static void WalSndPrepareWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid, bool last_write);
 static void WalSndWriteData(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid, bool last_write);
 static void WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xid,
@@ -1609,17 +1609,19 @@ ProcessPendingWrites(void)
 
 		/* Sleep until something happens or we time out */
 		WalSndWait(WL_SOCKET_WRITEABLE | WL_SOCKET_READABLE, sleeptime,
-				   WAIT_EVENT_WAL_SENDER_WRITE_DATA);
+				   WAIT_EVENT_WAL_SENDER_WRITE_DATA,
+				   INTERRUPT_CFI_MASK |
+				   INTERRUPT_CONFIG_RELOAD |
+				   INTERRUPT_WAIT_WAKEUP);
 
 		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		CHECK_FOR_INTERRUPTS();
 
 		/* Process any requests or signals received recently */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			SyncRepInitConfig();
 		}
@@ -1630,7 +1632,8 @@ ProcessPendingWrites(void)
 	}
 
 	/* reactivate interrupt so WalSndLoop knows to continue */
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	/* FIXME: still needed? */
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -1818,14 +1821,13 @@ WalSndWaitForWal(XLogRecPtr loc)
 		long		sleeptime;
 
 		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		CHECK_FOR_INTERRUPTS();
 
 		/* Process any requests or signals received recently */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			SyncRepInitConfig();
 		}
@@ -1935,11 +1937,14 @@ WalSndWaitForWal(XLogRecPtr loc)
 
 		Assert(wait_event != 0);
 
-		WalSndWait(wakeEvents, sleeptime, wait_event);
+		WalSndWait(wakeEvents, sleeptime, wait_event,
+				   INTERRUPT_CFI_MASK |
+				   INTERRUPT_CONFIG_RELOAD |
+				   INTERRUPT_WAIT_WAKEUP);
 	}
 
 	/* reactivate interrupt flag so WalSndLoop knows to continue */
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 	return RecentFlushPtr;
 }
 
@@ -2755,14 +2760,13 @@ WalSndLoop(WalSndSendDataCallback send_data)
 	for (;;)
 	{
 		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		CHECK_FOR_INTERRUPTS();
 
 		/* Process any requests or signals received recently */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			SyncRepInitConfig();
 		}
@@ -2858,7 +2862,11 @@ WalSndLoop(WalSndSendDataCallback send_data)
 				wakeEvents |= WL_SOCKET_WRITEABLE;
 
 			/* Sleep until something happens or we time out */
-			WalSndWait(wakeEvents, sleeptime, WAIT_EVENT_WAL_SENDER_MAIN);
+			WalSndWait(wakeEvents, sleeptime, WAIT_EVENT_WAL_SENDER_MAIN,
+					   INTERRUPT_CFI_MASK |
+					   INTERRUPT_CONFIG_RELOAD |
+					   INTERRUPT_WAIT_WAKEUP
+				);
 		}
 	}
 }
@@ -2896,6 +2904,7 @@ InitWalSenderSlot(void)
 			/*
 			 * Found a free slot. Reserve it for us.
 			 */
+			walsnd->pgprocno = MyProcNumber;
 			walsnd->pid = MyProcPid;
 			walsnd->state = WALSNDSTATE_STARTUP;
 			walsnd->sentPtr = InvalidXLogRecPtr;
@@ -2952,6 +2961,7 @@ WalSndKill(int code, Datum arg)
 	SpinLockAcquire(&walsnd->mutex);
 	/* Mark WalSnd struct as no longer being in use. */
 	walsnd->pid = 0;
+	walsnd->pgprocno = 0;
 	SpinLockRelease(&walsnd->mutex);
 }
 
@@ -3526,10 +3536,10 @@ WalSndRqstFileReload(void)
 }
 
 /*
- * Handle PROCSIG_WALSND_INIT_STOPPING signal.
+ * Process INTERRUPT_WALSND_INIT_STOPPING interrupt
  */
 void
-HandleWalSndInitStopping(void)
+ProcessWalSndInitStopping(void)
 {
 	Assert(am_walsender);
 
@@ -3540,9 +3550,12 @@ HandleWalSndInitStopping(void)
 	 * standby, and then exit gracefully.
 	 */
 	if (!replication_active)
-		kill(MyProcPid, SIGTERM);
+		RaiseInterrupt(INTERRUPT_DIE);
 	else
+	{
 		got_STOPPING = true;
+		RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
+	}
 }
 
 /*
@@ -3554,7 +3567,7 @@ static void
 WalSndLastCycleHandler(SIGNAL_ARGS)
 {
 	got_SIGUSR2 = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /* Set up signal handlers */
@@ -3568,7 +3581,7 @@ WalSndSignals(void)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, WalSndLastCycleHandler);	/* request a last cycle and
 												 * shutdown */
 
@@ -3656,24 +3669,28 @@ WalSndWakeup(bool physical, bool logical)
  * on postmaster death.
  */
 static void
-WalSndWait(uint32 socket_events, long timeout, uint32 wait_event)
+WalSndWait(uint32 socket_events, long timeout, uint32 wait_event, uint32 interruptMask)
 {
 	WaitEvent	event;
 
+	/* for condition variables */
+	interruptMask |= INTERRUPT_WAIT_WAKEUP;
+
 	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, socket_events, 0);
+	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, interruptMask);
 
 	/*
 	 * We use a condition variable to efficiently wake up walsenders in
 	 * WalSndWakeup().
 	 *
 	 * Every walsender prepares to sleep on a shared memory CV. Note that it
-	 * just prepares to sleep on the CV (i.e., adds itself to the CV's
-	 * waitlist), but does not actually wait on the CV (IOW, it never calls
-	 * ConditionVariableSleep()). It still uses WaitEventSetWait() for
-	 * waiting, because we also need to wait for socket events. The processes
-	 * (startup process, walreceiver etc.) wanting to wake up walsenders use
-	 * ConditionVariableBroadcast(), which in turn calls SendInterrupt(),
-	 * helping walsenders come out of WaitEventSetWait().
+	 * just prepares to sleep on the CV waitlist), but does not actually wait
+	 * on the CV (IOW, it never calls ConditionVariableSleep()). It still uses
+	 * WaitEventSetWait() for waiting, because we also need to wait for socket
+	 * events. The processes (startup process, walreceiver etc.) wanting to
+	 * wake up walsenders use ConditionVariableBroadcast(), which in turn
+	 * calls SendInterrupt(), helping walsenders come out of
+	 * WaitEventSetWait().
 	 *
 	 * This approach is simple and efficient because, one doesn't have to loop
 	 * through all the walsenders slots, with a spinlock acquisition and
@@ -3721,16 +3738,16 @@ WalSndInitStopping(void)
 	for (i = 0; i < max_wal_senders; i++)
 	{
 		WalSnd	   *walsnd = &WalSndCtl->walsnds[i];
-		pid_t		pid;
+		ProcNumber	procno;
 
 		SpinLockAcquire(&walsnd->mutex);
-		pid = walsnd->pid;
+		procno = walsnd->pgprocno;
 		SpinLockRelease(&walsnd->mutex);
 
-		if (pid == 0)
+		if (procno == INVALID_PROC_NUMBER)
 			continue;
 
-		SendProcSignal(pid, PROCSIG_WALSND_INIT_STOPPING, INVALID_PROC_NUMBER);
+		SendInterrupt(INTERRUPT_WALSND_INIT_STOPPING, procno);
 	}
 }
 

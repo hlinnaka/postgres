@@ -27,7 +27,6 @@
 #include <signal.h>
 
 #include "storage/procnumber.h"
-#include "utils/resowner.h"
 
 /*
  * Bitmasks for events that may wake-up WaitInterrupt(),
@@ -82,7 +81,9 @@ extern void InitializeWaitEventSupport(void);
 extern HANDLE CreateSharedWakeupHandle(void);
 #endif
 
-extern WaitEventSet *CreateWaitEventSet(ResourceOwner resowner, int nevents);
+struct ResourceOwnerData;
+
+extern WaitEventSet *CreateWaitEventSet(struct ResourceOwnerData *resowner, int nevents);
 extern void FreeWaitEventSet(WaitEventSet *set);
 extern void FreeWaitEventSetAfterFork(WaitEventSet *set);
 extern int	AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd,

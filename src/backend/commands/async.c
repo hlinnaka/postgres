@@ -39,7 +39,7 @@
  *	  is no need for WAL support or fsync'ing.
  *
  * 3. Every backend that is listening on at least one channel registers by
- *	  entering its PID into the array in AsyncQueueControl. It then scans all
+ *	  entering itself into the array in AsyncQueueControl. It then scans all
  *	  incoming notifications in the central queue and first compares the
  *	  database OID of the notification with its own database OID and then
  *	  compares the notified channel with the list of channels that it listens
@@ -72,7 +72,7 @@
  *	  Then we signal any backends that may be interested in our messages
  *	  (including our own backend, if listening).  This is done by
  *	  SignalBackends(), which scans the list of listening backends and sends a
- *	  PROCSIG_NOTIFY_INTERRUPT signal to every listening backend (we don't
+ *	  INTERRUPT_ASYNC_NOTIFY interrupt to every listening backend (we don't
  *	  know which backend is listening on which channel so we must signal them
  *	  all).  We can exclude backends that are already up to date, though, and
  *	  we can also exclude backends that are in other databases (unless they
@@ -90,13 +90,11 @@
  *	  frontend until the command is done; but notifies to other backends
  *	  should go out immediately after each commit.
  *
- * 5. Upon receipt of a PROCSIG_NOTIFY_INTERRUPT signal, the signal handler
- *	  raises INTERRUPT_GENERAL, which triggers the event to be processed
- *	  immediately if this backend is idle (i.e., it is waiting for a frontend
+ * 5. The INTERRUPT_ASYNC_NOTIFY interrupt is processed immediately in the
+ *	  listening backend if it is idle (i.e., it is waiting for a frontend
  *	  command and is not within a transaction block. C.f.
- *	  ProcessClientReadInterrupt()).  Otherwise the handler may only set a
- *	  flag, which will cause the processing to occur just before we next go
- *	  idle.
+ *	  ProcessClientReadInterrupt()).  Otherwise the interrupt is processed
+ *	  later, just before we next go idle.
  *
  *	  Inbound-notify processing consists of reading all of the notifications
  *	  that have arrived since scanning last time. We read every notification
@@ -127,7 +125,6 @@
 
 #include <limits.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include "access/parallel.h"
 #include "access/slru.h"
@@ -143,7 +140,6 @@
 #include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
-#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 #include "utils/guc_hooks.h"
@@ -271,7 +267,7 @@ typedef struct QueueBackendStatus
  * NotifyQueueTailLock, then NotifyQueueLock, and lastly SLRU bank lock.
  *
  * Each backend uses the backend[] array entry with index equal to its
- * ProcNumber.  We rely on this to make SendProcSignal fast.
+ * ProcNumber.  We rely on this for sending interrupts.
  *
  * The backend[] array entries for actively-listening backends are threaded
  * together using firstListener and the nextListener links, so that we can
@@ -403,15 +399,6 @@ struct NotificationHash
 };
 
 static NotificationList *pendingNotifies = NULL;
-
-/*
- * Inbound notifications are initially processed by HandleNotifyInterrupt(),
- * called from inside a signal handler. That just sets the
- * notifyInterruptPending flag and raises the INTERRUPT_GENERAL interrupt.
- * ProcessNotifyInterrupt() will then be called whenever it's safe to actually
- * deal with the interrupt.
- */
-volatile sig_atomic_t notifyInterruptPending = false;
 
 /* True if we've registered an on_shmem_exit cleanup */
 static bool unlistenExitRegistered = false;
@@ -1581,29 +1568,25 @@ asyncQueueFillWarning(void)
 static void
 SignalBackends(void)
 {
-	int32	   *pids;
 	ProcNumber *procnos;
 	int			count;
 
 	/*
 	 * Identify backends that we need to signal.  We don't want to send
 	 * signals while holding the NotifyQueueLock, so this loop just builds a
-	 * list of target PIDs.
+	 * list of target backends.
 	 *
 	 * XXX in principle these pallocs could fail, which would be bad. Maybe
 	 * preallocate the arrays?  They're not that large, though.
 	 */
-	pids = (int32 *) palloc(MaxBackends * sizeof(int32));
 	procnos = (ProcNumber *) palloc(MaxBackends * sizeof(ProcNumber));
 	count = 0;
 
 	LWLockAcquire(NotifyQueueLock, LW_EXCLUSIVE);
 	for (ProcNumber i = QUEUE_FIRST_LISTENER; i != INVALID_PROC_NUMBER; i = QUEUE_NEXT_LISTENER(i))
 	{
-		int32		pid = QUEUE_BACKEND_PID(i);
 		QueuePosition pos;
 
-		Assert(pid != InvalidPid);
 		pos = QUEUE_BACKEND_POS(i);
 		if (QUEUE_BACKEND_DBOID(i) == MyDatabaseId)
 		{
@@ -1625,38 +1608,27 @@ SignalBackends(void)
 				continue;
 		}
 		/* OK, need to signal this one */
-		pids[count] = pid;
 		procnos[count] = i;
 		count++;
 	}
 	LWLockRelease(NotifyQueueLock);
 
-	/* Now send signals */
+	/* Now send the interrupts */
 	for (int i = 0; i < count; i++)
 	{
-		int32		pid = pids[i];
+		ProcNumber procno = procnos[i];
 
 		/*
-		 * If we are signaling our own process, no need to involve the kernel;
-		 * just set the flag directly.
+		 * Note: it's unlikely but certainly possible that the backend exited
+		 * since we released NotifyQueueLock. We'll send the interrupt to
+		 * wrong backend in that case, but that's harmless.
 		 */
-		if (pid == MyProcPid)
-		{
-			notifyInterruptPending = true;
-			continue;
-		}
-
-		/*
-		 * Note: assuming things aren't broken, a signal failure here could
-		 * only occur if the target backend exited since we released
-		 * NotifyQueueLock; which is unlikely but certainly possible. So we
-		 * just log a low-level debug message if it happens.
-		 */
-		if (SendProcSignal(pid, PROCSIG_NOTIFY_INTERRUPT, procnos[i]) < 0)
-			elog(DEBUG3, "could not signal backend with PID %d: %m", pid);
+		if (procno == MyProcNumber)
+			RaiseInterrupt(INTERRUPT_ASYNC_NOTIFY);
+		else
+			SendInterrupt(INTERRUPT_ASYNC_NOTIFY, procno);
 	}
 
-	pfree(pids);
 	pfree(procnos);
 }
 
@@ -1794,38 +1766,11 @@ AtSubAbort_Notify(void)
 }
 
 /*
- * HandleNotifyInterrupt
- *
- *		Signal handler portion of interrupt handling. Let the backend know
- *		that there's a pending notify interrupt. If we're currently reading
- *		from the client, this will interrupt the read and
- *		ProcessClientReadInterrupt() will call ProcessNotifyInterrupt().
- */
-void
-HandleNotifyInterrupt(void)
-{
-	/*
-	 * Note: this is called by a SIGNAL HANDLER. You must be very wary what
-	 * you do here.
-	 */
-
-	/* signal that work needs to be done */
-	notifyInterruptPending = true;
-
-	/* make sure the event is processed in due course */
-	RaiseInterrupt(INTERRUPT_GENERAL);
-}
-
-/*
  * ProcessNotifyInterrupt
  *
- *		This is called if we see notifyInterruptPending set, just before
- *		transmitting ReadyForQuery at the end of a frontend command, and
- *		also if a notify signal occurs while reading from the frontend.
- *		HandleNotifyInterrupt() will cause the read to be interrupted with
- *		INTERRUPT_GENERAL, and this routine will get called.  If we are truly
- *		idle (ie, *not* inside a transaction block), process the incoming
- *		notifies.
+ *		This is called if we see INTERRUPT_ASYNC_NOTIFY set, just before
+ *		transmitting ReadyForQuery at the end of a frontend command, and also
+ *		if a notify signal occurs while reading from the frontend.
  *
  *		If "flush" is true, force any frontend messages out immediately.
  *		This can be false when being called at the end of a frontend command,
@@ -1834,11 +1779,10 @@ HandleNotifyInterrupt(void)
 void
 ProcessNotifyInterrupt(bool flush)
 {
-	if (IsTransactionOrTransactionBlock())
-		return;					/* not really idle */
+	Assert(!IsTransactionOrTransactionBlock());
 
 	/* Loop in case another signal arrives while sending messages */
-	while (notifyInterruptPending)
+	while (ConsumeInterrupt(INTERRUPT_ASYNC_NOTIFY))
 		ProcessIncomingNotify(flush);
 }
 
@@ -2183,9 +2127,6 @@ asyncQueueAdvanceTail(void)
 static void
 ProcessIncomingNotify(bool flush)
 {
-	/* We *must* reset the flag */
-	notifyInterruptPending = false;
-
 	/* Do nothing else if we aren't actively listening */
 	if (listenChannels == NIL)
 		return;

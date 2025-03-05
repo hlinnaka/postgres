@@ -26,6 +26,7 @@
 #include "miscadmin.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/startup.h"
+#include "storage/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -50,7 +51,6 @@
 /*
  * Flags set by interrupt handlers for later service in the redo loop.
  */
-static volatile sig_atomic_t got_SIGHUP = false;
 static volatile sig_atomic_t shutdown_requested = false;
 static volatile sig_atomic_t promote_signaled = false;
 
@@ -101,8 +101,7 @@ StartupProcTriggerHandler(SIGNAL_ARGS)
 static void
 StartupProcSigHupHandler(SIGNAL_ARGS)
 {
-	got_SIGHUP = true;
-	WakeupRecovery();
+	RaiseInterrupt(INTERRUPT_CONFIG_RELOAD);
 }
 
 /* SIGTERM: set flag to abort redo and exit */
@@ -161,11 +160,8 @@ ProcessStartupProcInterrupts(void)
 	/*
 	 * Process any requests or signals received recently.
 	 */
-	if (got_SIGHUP)
-	{
-		got_SIGHUP = false;
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		StartupRereadConfig();
-	}
 
 	/*
 	 * Check if we were requested to exit without finishing recovery.
@@ -187,11 +183,11 @@ ProcessStartupProcInterrupts(void)
 		exit(1);
 
 	/* Process barrier events */
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 }
 
@@ -241,7 +237,7 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, StartupProcTriggerHandler);
 
 	/*

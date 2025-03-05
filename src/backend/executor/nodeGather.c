@@ -383,10 +383,11 @@ gather_readnext(GatherState *gatherstate)
 				return NULL;
 
 			/* Nothing to do except wait for developments. */
-			(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+			(void) WaitInterrupt(INTERRUPT_CFI_MASK |
+								 INTERRUPT_WAIT_WAKEUP,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 WAIT_EVENT_EXECUTE_GATHER);
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			nvisited = 0;
 		}
 	}

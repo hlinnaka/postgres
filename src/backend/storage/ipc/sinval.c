@@ -20,24 +20,7 @@
 #include "storage/sinvaladt.h"
 #include "utils/inval.h"
 
-
 uint64		SharedInvalidMessageCounter;
-
-
-/*
- * Because backends sitting idle will not be reading sinval events, we
- * need a way to give an idle backend a swift kick in the rear and make
- * it catch up before the sinval queue overflows and forces it to go
- * through a cache reset exercise.  This is done by sending
- * PROCSIG_CATCHUP_INTERRUPT to any backend that gets too far behind.
- *
- * The signal handler will set an interrupt pending flag and raise the
- * INTERRUPT_GENERAL. Whenever starting to read from the client, or when
- * interrupted while doing so, ProcessClientReadInterrupt() will call
- * ProcessCatchupEvent().
- */
-volatile sig_atomic_t catchupInterruptPending = false;
-
 
 /*
  * SendSharedInvalidMessages
@@ -132,36 +115,11 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	 * catchup signal this way avoids creating spikes in system load for what
 	 * should be just a background maintenance activity.
 	 */
-	if (catchupInterruptPending)
+	if (ConsumeInterrupt(INTERRUPT_SINVAL_CATCHUP))
 	{
-		catchupInterruptPending = false;
 		elog(DEBUG4, "sinval catchup complete, cleaning queue");
 		SICleanupQueue(false, 0);
 	}
-}
-
-
-/*
- * HandleCatchupInterrupt
- *
- * This is called when PROCSIG_CATCHUP_INTERRUPT is received.
- *
- * We used to directly call ProcessCatchupEvent directly when idle. These days
- * we just set a flag to do it later and notify the process of that fact by
- * raising INTERRUPT_GENERAL.
- */
-void
-HandleCatchupInterrupt(void)
-{
-	/*
-	 * Note: this is called by a SIGNAL HANDLER. You must be very wary what
-	 * you do here.
-	 */
-
-	catchupInterruptPending = true;
-
-	/* make sure the event is processed in due course */
-	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -173,12 +131,12 @@ HandleCatchupInterrupt(void)
 void
 ProcessCatchupInterrupt(void)
 {
-	while (catchupInterruptPending)
+	while (InterruptPending(INTERRUPT_SINVAL_CATCHUP))
 	{
 		/*
 		 * What we need to do here is cause ReceiveSharedInvalidMessages() to
 		 * run, which will do the necessary work and also reset the
-		 * catchupInterruptPending flag.  If we are inside a transaction we
+		 * INTERRUPT_SINVAL_CATCHUP flag.  If we are inside a transaction we
 		 * can just call AcceptInvalidationMessages() to do this.  If we
 		 * aren't, we start and immediately end a transaction; the call to
 		 * AcceptInvalidationMessages() happens down inside transaction start.
@@ -190,12 +148,12 @@ ProcessCatchupInterrupt(void)
 		 */
 		if (IsTransactionOrTransactionBlock())
 		{
-			elog(DEBUG4, "ProcessCatchupEvent inside transaction");
+			elog(DEBUG4, "ProcessCatchupInterrupt inside transaction");
 			AcceptInvalidationMessages();
 		}
 		else
 		{
-			elog(DEBUG4, "ProcessCatchupEvent outside transaction");
+			elog(DEBUG4, "ProcessCatchupInterrupt outside transaction");
 			StartTransactionCommand();
 			CommitTransactionCommand();
 		}

@@ -161,10 +161,11 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		 * Wait for interrupt.  (If we're awakened for some other reason, the
 		 * code below will cope anyway.)
 		 */
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL, wait_events, cur_timeout, wait_event_info);
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
+							 wait_events, cur_timeout, wait_event_info);
 
 		/* Clear the flag before examining the state of the wait list. */
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * If this process has been taken out of the wait list, then we know
@@ -270,7 +271,7 @@ ConditionVariableSignal(ConditionVariable *cv)
 
 	/* If we found someone sleeping, wake them up. */
 	if (proc != NULL)
-		SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 }
 
 /*
@@ -333,7 +334,7 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 
 	/* Awaken first waiter, if there was one. */
 	if (proc != NULL)
-		SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 
 	while (have_sentinel)
 	{
@@ -357,6 +358,6 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 		SpinLockRelease(&cv->mutex);
 
 		if (proc != NULL && proc != MyProc)
-			SendInterrupt(INTERRUPT_GENERAL, GetNumberFromPGProc(proc));
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 	}
 }

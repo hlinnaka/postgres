@@ -73,9 +73,9 @@
 /*
  * Struct for sharing information to control slot synchronization.
  *
- * The slot sync worker's pid is needed by the startup process to shut it
- * down during promotion. The startup process shuts down the slot sync worker
- * and also sets stopSignaled=true to handle the race condition when the
+ * The slot sync worker's proc number is needed by the startup process to shut
+ * it down during promotion. The startup process shuts down the slot sync
+ * worker and also sets stopSignaled=true to handle the race condition when the
  * postmaster has not noticed the promotion yet and thus may end up restarting
  * the slot sync worker. If stopSignaled is set, the worker will exit in such a
  * case. The SQL function pg_sync_replication_slots() will also error out if
@@ -95,7 +95,7 @@
  */
 typedef struct SlotSyncCtxStruct
 {
-	pid_t		pid;
+	ProcNumber	procno;
 	bool		stopSignaled;
 	bool		syncing;
 	time_t		last_start_time;
@@ -1113,7 +1113,7 @@ slotsync_reread_config(void)
 
 	Assert(sync_replication_slots);
 
-	ConfigReloadPending = false;
+	ClearInterrupt(INTERRUPT_CONFIG_RELOAD);
 	ProcessConfigFile(PGC_SIGHUP);
 
 	conninfo_changed = strcmp(old_primary_conninfo, PrimaryConnInfo) != 0;
@@ -1155,7 +1155,7 @@ ProcessSlotSyncInterrupts(WalReceiverConn *wrconn)
 {
 	CHECK_FOR_INTERRUPTS();
 
-	if (ShutdownRequestPending)
+	if (InterruptPending(INTERRUPT_DIE))
 	{
 		ereport(LOG,
 				errmsg("replication slot synchronization worker is shutting down on receiving SIGINT"));
@@ -1163,7 +1163,7 @@ ProcessSlotSyncInterrupts(WalReceiverConn *wrconn)
 		proc_exit(0);
 	}
 
-	if (ConfigReloadPending)
+	if (InterruptPending(INTERRUPT_CONFIG_RELOAD))
 		slotsync_reread_config();
 }
 
@@ -1207,7 +1207,7 @@ slotsync_worker_onexit(int code, Datum arg)
 
 	SpinLockAcquire(&SlotSyncCtx->mutex);
 
-	SlotSyncCtx->pid = InvalidPid;
+	SlotSyncCtx->procno = INVALID_PROC_NUMBER;
 
 	/*
 	 * If syncing_slots is true, it indicates that the process errored out
@@ -1253,13 +1253,15 @@ wait_for_slot_activity(bool some_slot_updated)
 		sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
 	}
 
-	rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+	rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+					   INTERRUPT_WAIT_WAKEUP |
+					   INTERRUPT_CONFIG_RELOAD,
 					   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 					   sleep_ms,
 					   WAIT_EVENT_REPLICATION_SLOTSYNC_MAIN);
 
 	if (rc & WL_INTERRUPT)
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -1267,12 +1269,12 @@ wait_for_slot_activity(bool some_slot_updated)
  * Otherwise, advertise that a sync is in progress.
  */
 static void
-check_and_set_sync_info(pid_t worker_pid)
+check_and_set_sync_info(ProcNumber worker_procno)
 {
 	SpinLockAcquire(&SlotSyncCtx->mutex);
 
 	/* The worker pid must not be already assigned in SlotSyncCtx */
-	Assert(worker_pid == InvalidPid || SlotSyncCtx->pid == InvalidPid);
+	Assert(worker_procno == INVALID_PROC_NUMBER || SlotSyncCtx->procno == INVALID_PROC_NUMBER);
 
 	/*
 	 * Emit an error if startup process signaled the slot sync machinery to
@@ -1297,10 +1299,10 @@ check_and_set_sync_info(pid_t worker_pid)
 	SlotSyncCtx->syncing = true;
 
 	/*
-	 * Advertise the required PID so that the startup process can kill the
-	 * slot sync worker on promotion.
+	 * Advertise the required proc number so that the startup process can kill
+	 * the slot sync worker on promotion.
 	 */
-	SlotSyncCtx->pid = worker_pid;
+	SlotSyncCtx->procno = worker_procno;
 
 	SpinLockRelease(&SlotSyncCtx->mutex);
 
@@ -1392,16 +1394,16 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
 	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
 	pqsignal(SIGTERM, die);
 	pqsignal(SIGFPE, FloatExceptionHandler);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGCHLD, SIG_DFL);
 
-	check_and_set_sync_info(MyProcPid);
+	check_and_set_sync_info(MyProcNumber);
 
 	ereport(LOG, errmsg("slot sync worker started"));
 
-	/* Register it as soon as SlotSyncCtx->pid is initialized. */
+	/* Register it as soon as SlotSyncCtx->procno is initialized. */
 	before_shmem_exit(slotsync_worker_onexit, (Datum) 0);
 
 	/*
@@ -1522,7 +1524,7 @@ update_synced_slots_inactive_since(void)
 		return;
 
 	/* The slot sync worker or SQL function mustn't be running by now */
-	Assert((SlotSyncCtx->pid == InvalidPid) && !SlotSyncCtx->syncing);
+	Assert((SlotSyncCtx->procno == INVALID_PROC_NUMBER) && !SlotSyncCtx->syncing);
 
 	LWLockAcquire(ReplicationSlotControlLock, LW_SHARED);
 
@@ -1536,7 +1538,7 @@ update_synced_slots_inactive_since(void)
 			Assert(SlotIsLogical(s));
 
 			/* The slot must not be acquired by any process */
-			Assert(s->active_pid == 0);
+			Assert(s->active_proc == INVALID_PROC_NUMBER);
 
 			/* Use the same inactive_since time for all the slots. */
 			if (now == 0)
@@ -1559,7 +1561,7 @@ update_synced_slots_inactive_since(void)
 void
 ShutDownSlotSync(void)
 {
-	pid_t		worker_pid;
+	ProcNumber	worker_procno;
 
 	SpinLockAcquire(&SlotSyncCtx->mutex);
 
@@ -1576,12 +1578,12 @@ ShutDownSlotSync(void)
 		return;
 	}
 
-	worker_pid = SlotSyncCtx->pid;
+	worker_procno = SlotSyncCtx->procno;
 
 	SpinLockRelease(&SlotSyncCtx->mutex);
 
-	if (worker_pid != InvalidPid)
-		kill(worker_pid, SIGINT);
+	if (worker_procno != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_QUERY_CANCEL, worker_procno);
 
 	/* Wait for slot sync to end */
 	for (;;)
@@ -1589,13 +1591,14 @@ ShutDownSlotSync(void)
 		int			rc;
 
 		/* Wait a bit, we don't expect to have to wait long */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+						   INTERRUPT_WAIT_WAKEUP,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_REPLICATION_SLOTSYNC_SHUTDOWN);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 
@@ -1674,7 +1677,7 @@ SlotSyncShmemInit(void)
 	if (!found)
 	{
 		memset(SlotSyncCtx, 0, size);
-		SlotSyncCtx->pid = InvalidPid;
+		SlotSyncCtx->procno = INVALID_PROC_NUMBER;
 		SpinLockInit(&SlotSyncCtx->mutex);
 	}
 }
@@ -1724,7 +1727,7 @@ SyncReplicationSlots(WalReceiverConn *wrconn)
 {
 	PG_ENSURE_ERROR_CLEANUP(slotsync_failure_callback, PointerGetDatum(wrconn));
 	{
-		check_and_set_sync_info(InvalidPid);
+		check_and_set_sync_info(INVALID_PROC_NUMBER);
 
 		validate_remote_info(wrconn);
 

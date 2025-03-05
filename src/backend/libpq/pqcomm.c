@@ -309,7 +309,7 @@ pq_init(ClientSocket *client_sock)
 	socket_pos = AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE,
 								   port->sock, 0, NULL);
 	interrupt_pos = AddWaitEventToSet(FeBeWaitSet, WL_INTERRUPT, PGINVALID_SOCKET,
-									  1 << INTERRUPT_GENERAL, NULL);
+									  INTERRUPT_CFI_MASK, NULL);
 	AddWaitEventToSet(FeBeWaitSet, WL_POSTMASTER_DEATH, PGINVALID_SOCKET,
 					  0, NULL);
 
@@ -1413,8 +1413,7 @@ internal_flush_buffer(const char *buf, size_t *start, size_t *end)
 			 * the connection.
 			 */
 			*start = *end = 0;
-			ClientConnectionLost = 1;
-			InterruptPending = 1;
+			RaiseInterrupt(INTERRUPT_CLIENT_CONNECTION_LOST);
 			return EOF;
 		}
 
@@ -2065,24 +2064,13 @@ pq_check_connection(void)
 	 * all FeBeWaitSet socket wait sites do the same.
 	 */
 	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, WL_SOCKET_CLOSED, 0);
+	ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, 0);
 
-retry:
 	rc = WaitEventSetWait(FeBeWaitSet, 0, events, lengthof(events), 0);
 	for (int i = 0; i < rc; ++i)
 	{
 		if (events[i].events & WL_SOCKET_CLOSED)
 			return false;
-		if (events[i].events & WL_INTERRUPT)
-		{
-			/*
-			 * An interrupt event might be preventing other events from being
-			 * reported.  Reset it and poll again.  No need to restore it
-			 * because no code should expect INTERRUPT_GENERAL to survive
-			 * across CHECK_FOR_INTERRUPTS().
-			 */
-			ClearInterrupt(INTERRUPT_GENERAL);
-			goto retry;
-		}
 	}
 
 	return true;

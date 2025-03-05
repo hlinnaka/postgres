@@ -21,6 +21,7 @@
 #include "storage/interrupt.h"
 #include "storage/proc.h"
 #include "storage/waiteventset.h"
+#include "utils/resowner.h"
 
 /* A common WaitEventSet used to implement WaitInterrupt() */
 static WaitEventSet *InterruptWaitSet;
@@ -89,17 +90,17 @@ SwitchToSharedInterrupts(void)
  * Set an interrupt flag in this backend.
  */
 void
-RaiseInterrupt(InterruptType reason)
+RaiseInterrupt(uint32 interruptMask)
 {
 	uint32		old_pending;
 
-	old_pending = pg_atomic_fetch_or_u32(MyPendingInterrupts, 1 << reason);
+	old_pending = pg_atomic_fetch_or_u32(MyPendingInterrupts, interruptMask);
 
 	/*
 	 * If the process is currently blocked waiting for an interrupt to arrive,
 	 * and the interrupt wasn't already pending, wake it up.
 	 */
-	if ((old_pending & (1 << reason | 1 << SLEEPING_ON_INTERRUPTS)) == 1 << SLEEPING_ON_INTERRUPTS)
+	if ((old_pending & (interruptMask | SLEEPING_ON_INTERRUPTS)) == SLEEPING_ON_INTERRUPTS)
 		WakeupMyProc();
 }
 
@@ -110,7 +111,7 @@ RaiseInterrupt(InterruptType reason)
  * trust the contents of shared memory.
  */
 void
-SendInterrupt(InterruptType reason, ProcNumber pgprocno)
+SendInterrupt(uint32 interruptMask, ProcNumber pgprocno)
 {
 	PGPROC	   *proc;
 	uint32		old_pending;
@@ -120,13 +121,13 @@ SendInterrupt(InterruptType reason, ProcNumber pgprocno)
 	Assert(pgprocno < ProcGlobal->allProcCount);
 
 	proc = &ProcGlobal->allProcs[pgprocno];
-	old_pending = pg_atomic_fetch_or_u32(&proc->pendingInterrupts, 1 << reason);
+	old_pending = pg_atomic_fetch_or_u32(&proc->pendingInterrupts, interruptMask);
 
 	/*
 	 * If the process is currently blocked waiting for an interrupt to arrive,
 	 * and the interrupt wasn't already pending, wake it up.
 	 */
-	if ((old_pending & (1 << reason | 1 << SLEEPING_ON_INTERRUPTS)) == 1 << SLEEPING_ON_INTERRUPTS)
+	if ((old_pending & (interruptMask | SLEEPING_ON_INTERRUPTS)) == SLEEPING_ON_INTERRUPTS)
 		WakeupOtherProc(proc);
 }
 

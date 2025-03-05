@@ -1577,9 +1577,10 @@ GetSafeSnapshot(Snapshot origSnapshot)
 				 SxactIsROUnsafe(MySerializableXact)))
 		{
 			LWLockRelease(SerializableXactHashLock);
-			WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 						  WAIT_EVENT_SAFE_SNAPSHOT);
-			ClearInterrupt(INTERRUPT_GENERAL);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 			LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 		}
@@ -3613,7 +3614,7 @@ ReleasePredicateLocks(bool isCommit, bool isReadOnlySafe)
 			 */
 			if (SxactIsDeferrableWaiting(roXact) &&
 				(SxactIsROUnsafe(roXact) || SxactIsROSafe(roXact)))
-				SendInterrupt(INTERRUPT_GENERAL, roXact->pgprocno);
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, roXact->pgprocno);
 		}
 	}
 

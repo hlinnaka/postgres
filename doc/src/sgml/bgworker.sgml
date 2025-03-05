@@ -114,7 +114,7 @@ typedef struct BackgroundWorker
       <para>
        <indexterm><primary>BGWORKER_NO_NOTIFY</primary></indexterm>
        Normally, the backend that registers a dynamic worker will be notified
-       with <literal>INTERRUPT_GENERAL</literal> when the workers state changes, which allows the
+       with <literal>INTERRUPT_WAIT_WAKEUP</literal> when the workers state changes, which allows the
        caller to wait for the worker to start and shut down.  That can be
        suppressed by setting this flag.
       </para>

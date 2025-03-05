@@ -26,7 +26,6 @@
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/ascii.h"
@@ -348,7 +347,7 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 			slot->in_use = false;
 
 			if (notify_proc_number != INVALID_PROC_NUMBER)
-				SendInterrupt(INTERRUPT_GENERAL, notify_proc_number);
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 
 			continue;
 		}
@@ -461,7 +460,7 @@ ReportBackgroundWorkerPID(RegisteredBgWorker *rw)
 	slot->pid = rw->rw_pid;
 
 	if (slot->notify_proc_number != INVALID_PROC_NUMBER)
-		SendInterrupt(INTERRUPT_GENERAL, slot->notify_proc_number);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, slot->notify_proc_number);
 }
 
 /*
@@ -496,7 +495,7 @@ ReportBackgroundWorkerExit(RegisteredBgWorker *rw)
 		ForgetBackgroundWorker(rw);
 
 	if (notify_proc_number != INVALID_PROC_NUMBER)
-		SendInterrupt(INTERRUPT_GENERAL, notify_proc_number);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 }
 
 /*
@@ -561,7 +560,7 @@ ForgetUnstartedBackgroundWorkers(void)
 
 			ForgetBackgroundWorker(rw);
 			if (notify_proc_number != INVALID_PROC_NUMBER)
-				SendInterrupt(INTERRUPT_GENERAL, notify_proc_number);
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 		}
 	}
 }
@@ -751,7 +750,7 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
 		 * SIGINT is used to signal canceling the current action
 		 */
 		pqsignal(SIGINT, StatementCancelHandler);
-		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+		pqsignal(SIGUSR1, SIG_IGN);
 		pqsignal(SIGFPE, FloatExceptionHandler);
 
 		/* XXX Any other handlers needed here? */
@@ -1233,7 +1232,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 		if (status != BGWH_NOT_YET_STARTED)
 			break;
 
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -1243,7 +1242,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 			break;
 		}
 
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	return status;
@@ -1277,7 +1276,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		if (status == BGWH_STOPPED)
 			break;
 
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_WAIT_WAKEUP,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_SHUTDOWN);
 
@@ -1287,7 +1286,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 			break;
 		}
 
-		ClearInterrupt(INTERRUPT_GENERAL);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	return status;

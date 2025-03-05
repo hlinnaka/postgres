@@ -14,6 +14,7 @@
 #ifndef PROCARRAY_H
 #define PROCARRAY_H
 
+#include "storage/interrupt.h"
 #include "storage/lock.h"
 #include "storage/standby.h"
 #include "utils/relcache.h"
@@ -77,14 +78,14 @@ extern VirtualTransactionId *GetCurrentVirtualXIDs(TransactionId limitXmin,
 												   bool excludeXmin0, bool allDbs, int excludeVacuum,
 												   int *nvxids);
 extern VirtualTransactionId *GetConflictingVirtualXIDs(TransactionId limitXmin, Oid dbOid);
-extern pid_t CancelVirtualTransaction(VirtualTransactionId vxid, ProcSignalReason sigmode);
-extern pid_t SignalVirtualTransaction(VirtualTransactionId vxid, ProcSignalReason sigmode,
+extern pid_t CancelVirtualTransaction(VirtualTransactionId vxid, InterruptType reason);
+extern pid_t SignalVirtualTransaction(VirtualTransactionId vxid, InterruptType reason,
 									  bool conflictPending);
 
 extern bool MinimumActiveBackends(int min);
 extern int	CountDBBackends(Oid databaseid);
 extern int	CountDBConnections(Oid databaseid);
-extern void CancelDBBackends(Oid databaseid, ProcSignalReason sigmode, bool conflictPending);
+extern void CancelDBBackends(Oid databaseid, InterruptType reason, bool conflictPending);
 extern int	CountUserBackends(Oid roleid);
 extern bool CountOtherDBBackends(Oid databaseId,
 								 int *nbackends, int *nprepared);

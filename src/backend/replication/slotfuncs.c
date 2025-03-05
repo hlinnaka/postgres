@@ -20,6 +20,7 @@
 #include "replication/logical.h"
 #include "replication/slot.h"
 #include "replication/slotsync.h"
+#include "storage/proc.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/pg_lsn.h"
@@ -255,6 +256,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	{
 		ReplicationSlot *slot = &ReplicationSlotCtl->replication_slots[slotno];
 		ReplicationSlot slot_contents;
+		int			active_pid;
 		Datum		values[PG_GET_REPLICATION_SLOTS_COLS];
 		bool		nulls[PG_GET_REPLICATION_SLOTS_COLS];
 		WALAvailability walstate;
@@ -267,6 +269,10 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 		/* Copy slot contents while holding spinlock, then examine at leisure */
 		SpinLockAcquire(&slot->mutex);
 		slot_contents = *slot;
+		if (slot_contents.active_proc != INVALID_PROC_NUMBER)
+			active_pid = GetPGProcByNumber(slot_contents.active_proc)->pid;
+		else
+			active_pid = 0;
 		SpinLockRelease(&slot->mutex);
 
 		memset(values, 0, sizeof(values));
@@ -291,10 +297,10 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 			values[i++] = ObjectIdGetDatum(slot_contents.data.database);
 
 		values[i++] = BoolGetDatum(slot_contents.data.persistency == RS_TEMPORARY);
-		values[i++] = BoolGetDatum(slot_contents.active_pid != 0);
+		values[i++] = BoolGetDatum(slot_contents.active_proc != INVALID_PROC_NUMBER);
 
-		if (slot_contents.active_pid != 0)
-			values[i++] = Int32GetDatum(slot_contents.active_pid);
+		if (slot_contents.active_proc != INVALID_PROC_NUMBER)
+			values[i++] = Int32GetDatum(active_pid);
 		else
 			nulls[i++] = true;
 
@@ -359,13 +365,13 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 				 */
 				if (!XLogRecPtrIsInvalid(slot_contents.data.restart_lsn))
 				{
-					int			pid;
+					ProcNumber	procno;
 
 					SpinLockAcquire(&slot->mutex);
-					pid = slot->active_pid;
+					procno = slot->active_proc;
 					slot_contents.data.restart_lsn = slot->data.restart_lsn;
 					SpinLockRelease(&slot->mutex);
-					if (pid != 0)
+					if (procno != INVALID_PROC_NUMBER)
 					{
 						values[i++] = CStringGetTextDatum("unreserved");
 						walstate = WALAVAIL_UNRESERVED;
