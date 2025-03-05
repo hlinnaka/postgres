@@ -48,6 +48,7 @@
 #include "postmaster/bgworker_internals.h"
 #include "postmaster/interrupt_handlers.h"
 #include "storage/bufmgr.h"
+#include "storage/interrupt.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -2408,8 +2409,7 @@ vacuum_delay_point(bool is_analyze)
 	/* Always check for interrupts */
 	CHECK_FOR_INTERRUPTS();
 
-	if (InterruptPending ||
-		(!VacuumCostActive && !ConfigReloadPending))
+	if (!VacuumCostActive && !InterruptPending(INTERRUPT_CONFIG_RELOAD))
 		return;
 
 	/*
@@ -2418,9 +2418,9 @@ vacuum_delay_point(bool is_analyze)
 	 * [autovacuum_]vacuum_cost_delay to take effect while a table is being
 	 * vacuumed or analyzed.
 	 */
-	if (ConfigReloadPending && AmAutoVacuumWorkerProcess())
+	if (InterruptPending(INTERRUPT_CONFIG_RELOAD) && AmAutoVacuumWorkerProcess())
 	{
-		ConfigReloadPending = false;
+		ClearInterrupt(INTERRUPT_CONFIG_RELOAD);
 		ProcessConfigFile(PGC_SIGHUP);
 		VacuumUpdateCosts();
 	}

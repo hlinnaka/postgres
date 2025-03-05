@@ -19,11 +19,6 @@
 #ifndef INTERRUPT_HANDLERS_H
 #define INTERRUPT_HANDLERS_H
 
-#include <signal.h>
-
-extern PGDLLIMPORT volatile sig_atomic_t ConfigReloadPending;
-extern PGDLLIMPORT volatile sig_atomic_t ShutdownRequestPending;
-
 extern void ProcessMainLoopInterrupts(void);
 extern void SignalHandlerForConfigReload(SIGNAL_ARGS);
 extern void SignalHandlerForCrashExit(SIGNAL_ARGS);

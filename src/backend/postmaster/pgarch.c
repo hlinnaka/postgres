@@ -232,7 +232,7 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, pgarch_waken_stop);
 
 	/* Reset some signals that are accepted by postmaster but not here */
@@ -333,7 +333,7 @@ pgarch_MainLoop(void)
 		 * idea.  If more than 60 seconds pass since SIGTERM, exit anyway, so
 		 * that the postmaster can start a new archiver if needed.
 		 */
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 		{
 			time_t		curtime = time(NULL);
 
@@ -355,7 +355,11 @@ pgarch_MainLoop(void)
 		{
 			int			rc;
 
-			rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+			rc = WaitInterrupt(INTERRUPT_GENERAL |
+							   INTERRUPT_SHUTDOWN_AUX |
+							   INTERRUPT_CONFIG_RELOAD |
+							   INTERRUPT_BARRIER |
+							   INTERRUPT_LOG_MEMORY_CONTEXT,
 							   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 							   PGARCH_AUTOWAKE_INTERVAL * 1000L,
 							   WAIT_EVENT_ARCHIVER_MAIN);
@@ -407,7 +411,7 @@ pgarch_ArchiverCopyLoop(void)
 			 * command, and the second is to avoid conflicts with another
 			 * archiver spawned by a newer postmaster.
 			 */
-			if (ShutdownRequestPending || !PostmasterIsAlive())
+			if (InterruptPending(INTERRUPT_SHUTDOWN_AUX) || !PostmasterIsAlive())
 				return;
 
 			/*
@@ -859,23 +863,23 @@ pgarch_die(int code, Datum arg)
 static void
 ProcessPgArchInterrupts(void)
 {
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 
 	/* Publish memory contexts of this process */
-	if (PublishMemoryContextPending)
+	if (InterruptPending(INTERRUPT_GET_MEMORY_CONTEXT))
 		ProcessGetMemoryContextInterrupt();
 
-	if (ConfigReloadPending)
+	if (InterruptPending(INTERRUPT_CONFIG_RELOAD))
 	{
 		char	   *archiveLib = pstrdup(XLogArchiveLibrary);
 		bool		archiveLibChanged;
 
-		ConfigReloadPending = false;
+		ClearInterrupt(INTERRUPT_CONFIG_RELOAD);
 		ProcessConfigFile(PGC_SIGHUP);
 
 		if (XLogArchiveLibrary[0] != '\0' && XLogArchiveCommand[0] != '\0')

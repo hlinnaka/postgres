@@ -371,12 +371,6 @@ handle_sig_alarm(SIGNAL_ARGS)
 	HOLD_INTERRUPTS();
 
 	/*
-	 * SIGALRM is always cause for waking anything waiting on
-	 * INTERRUPT_GENERAL.
-	 */
-	RaiseInterrupt(INTERRUPT_GENERAL);
-
-	/*
 	 * Always reset signal_pending, even if !alarm_enabled, since indeed no
 	 * signal is now pending.
 	 */

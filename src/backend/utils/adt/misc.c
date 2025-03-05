@@ -403,11 +403,10 @@ pg_sleep(PG_FUNCTION_ARGS)
 		else
 			break;
 
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 delay_ms,
 							 WAIT_EVENT_PG_SLEEP);
-		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	PG_RETURN_VOID();

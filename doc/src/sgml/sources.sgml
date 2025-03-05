@@ -1000,8 +1000,7 @@ MemoryContextSwitchTo(MemoryContext context)
 static void
 handle_sighup(SIGNAL_ARGS)
 {
-    got_SIGHUP = true;
-    RaiseInterrupt(INTERRUPT_GENERAL);
+    RaiseInterrupt(INTERRUPT_CONFIG_RELOAD);
 }
 </programlisting>
     </para>

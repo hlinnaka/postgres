@@ -155,10 +155,6 @@ static const char *userDoption = NULL;	/* -D switch */
 static bool EchoQuery = false;	/* -E switch */
 static bool UseSemiNewlineNewline = false;	/* -j switch */
 
-/* whether or not, and why, we were canceled by conflict with recovery */
-static volatile sig_atomic_t RecoveryConflictPending = false;
-static volatile sig_atomic_t RecoveryConflictPendingReasons[NUM_PROCSIGNALS];
-
 /* reused buffer to pass to SendRowDescriptionMessage() */
 static MemoryContext row_description_context = NULL;
 static StringInfoData row_description_buf;
@@ -497,42 +493,64 @@ ReadCommand(StringInfo inBuf)
  * false if about to read or done reading.
  *
  * Must preserve errno!
+ *
+ * Returns interrupt mask to use for waiting
  */
-void
+uint32
 ProcessClientReadInterrupt(bool blocked)
 {
 	int			save_errno = errno;
+	uint32		interruptMask = 0;
 
 	if (DoingCommandRead)
 	{
 		/* Check for general interrupts that arrived before/while reading */
+		interruptMask |= INTERRUPT_CFI_MASK;
 		CHECK_FOR_INTERRUPTS();
 
 		/* Process sinval catchup interrupts, if any */
-		if (catchupInterruptPending)
+		interruptMask |= INTERRUPT_SINVAL_CATCHUP;
+		if (InterruptPending(INTERRUPT_SINVAL_CATCHUP))
 			ProcessCatchupInterrupt();
 
-		/* Process notify interrupts, if any */
-		if (notifyInterruptPending)
-			ProcessNotifyInterrupt(true);
-	}
-	else if (ProcDiePending)
-	{
 		/*
-		 * We're dying.  If there is no data available to read, then it's safe
-		 * (and sane) to handle that now.  If we haven't tried to read yet,
-		 * make sure the interrupt flag is set, so that if there is no data
-		 * then we'll come back here and die.  If we're done reading, also
-		 * make sure the interrupt flag is set, as we might've undesirably
-		 * cleared it while reading.
+		 * If we are truly idle, ie. *not* inside a transaction block matching
+		 * the conditions in PostgresMain(), there are a few interrupts things
+		 * that we process immediately.
 		 */
-		if (blocked)
-			CHECK_FOR_INTERRUPTS();
-		else
-			RaiseInterrupt(INTERRUPT_GENERAL);
+		if (!IsTransactionOrTransactionBlock())
+		{
+			interruptMask |= INTERRUPT_ASYNC_NOTIFY;
+			if (InterruptPending(INTERRUPT_ASYNC_NOTIFY))
+				ProcessNotifyInterrupt(true);
+
+			interruptMask |= INTERRUPT_IDLE_STATS_TIMEOUT;
+			if (InterruptPending(INTERRUPT_IDLE_STATS_TIMEOUT))
+			{
+				ClearInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
+				pgstat_report_stat(true);
+			}
+		}
+	}
+	else
+	{
+		interruptMask |= INTERRUPT_DIE;
+		if (InterruptPending(INTERRUPT_DIE))
+		{
+			/*
+			 * We're dying.  If there is no data available to read, then it's safe
+			 * (and sane) to handle that now.  If we haven't tried to read yet,
+			 * don't clear the interrupt flag is set, so that if there is no data
+			 * then we'll come back here and die.
+			 */
+			if (blocked)
+				CHECK_FOR_INTERRUPTS();
+		}
 	}
 
 	errno = save_errno;
+
+	return interruptMask;
 }
 
 /*
@@ -544,12 +562,12 @@ ProcessClientReadInterrupt(bool blocked)
  *
  * Must preserve errno!
  */
-void
+uint32
 ProcessClientWriteInterrupt(bool blocked)
 {
 	int			save_errno = errno;
 
-	if (ProcDiePending)
+	if (InterruptPending(INTERRUPT_DIE))
 	{
 		/*
 		 * We're dying.  If it's not possible to write, then we should handle
@@ -580,11 +598,11 @@ ProcessClientWriteInterrupt(bool blocked)
 				CHECK_FOR_INTERRUPTS();
 			}
 		}
-		else
-			RaiseInterrupt(INTERRUPT_GENERAL);
 	}
 
 	errno = save_errno;
+
+	return INTERRUPT_DIE;
 }
 
 /*
@@ -2553,29 +2571,29 @@ errdetail_abort(void)
  * Add an errdetail() line showing conflict source.
  */
 static int
-errdetail_recovery_conflict(ProcSignalReason reason)
+errdetail_recovery_conflict(InterruptType reason)
 {
 	switch (reason)
 	{
-		case PROCSIG_RECOVERY_CONFLICT_BUFFERPIN:
+		case INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN:
 			errdetail("User was holding shared buffer pin for too long.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_LOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_LOCK:
 			errdetail("User was holding a relation lock for too long.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_TABLESPACE:
+		case INTERRUPT_RECOVERY_CONFLICT_TABLESPACE:
 			errdetail("User was or might have been using tablespace that must be dropped.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_SNAPSHOT:
+		case INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT:
 			errdetail("User query might have needed to see row versions that must be removed.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_LOGICALSLOT:
+		case INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT:
 			errdetail("User was using a logical replication slot that must be invalidated.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
 			errdetail("User transaction caused buffer deadlock with recovery.");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_DATABASE:
+		case INTERRUPT_RECOVERY_CONFLICT_DATABASE:
 			errdetail("User was connected to a database that must be dropped.");
 			break;
 		default:
@@ -3030,16 +3048,10 @@ die(SIGNAL_ARGS)
 {
 	/* Don't joggle the elbow of proc_exit */
 	if (!proc_exit_inprogress)
-	{
-		InterruptPending = true;
-		ProcDiePending = true;
-	}
+		RaiseInterrupt(INTERRUPT_DIE);
 
 	/* for the cumulative stats system */
 	pgStatSessionEndCause = DISCONNECT_KILLED;
-
-	/* If we're still here, waken anything waiting on the interrupt */
-	RaiseInterrupt(INTERRUPT_GENERAL);
 
 	/*
 	 * If we're in single user mode, we want to quit immediately - we can't
@@ -3058,17 +3070,7 @@ die(SIGNAL_ARGS)
 void
 StatementCancelHandler(SIGNAL_ARGS)
 {
-	/*
-	 * Don't joggle the elbow of proc_exit
-	 */
-	if (!proc_exit_inprogress)
-	{
-		InterruptPending = true;
-		QueryCancelPending = true;
-	}
-
-	/* If we're still here, waken anything waiting on the interrupt */
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_QUERY_CANCEL);
 }
 
 /* signal handler for floating point exception */
@@ -3085,27 +3087,14 @@ FloatExceptionHandler(SIGNAL_ARGS)
 }
 
 /*
- * Tell the next CHECK_FOR_INTERRUPTS() to check for a particular type of
- * recovery conflict.  Runs in a SIGUSR1 handler.
- */
-void
-HandleRecoveryConflictInterrupt(ProcSignalReason reason)
-{
-	RecoveryConflictPendingReasons[reason] = true;
-	RecoveryConflictPending = true;
-	InterruptPending = true;
-	/* INTERRUPT_GENERAL will be raised by procsignal_sigusr1_handler */
-}
-
-/*
- * Check one individual conflict reason.
+ * Process one individual conflict reason.
  */
 static void
-ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
+ProcessRecoveryConflictInterrupt(InterruptType reason)
 {
 	switch (reason)
 	{
-		case PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
 
 			/*
 			 * If we aren't waiting for a lock we can never deadlock.
@@ -3116,21 +3105,21 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 			/* Intentional fall through to check wait for pin */
 			/* FALLTHROUGH */
 
-		case PROCSIG_RECOVERY_CONFLICT_BUFFERPIN:
+		case INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN:
 
 			/*
-			 * If PROCSIG_RECOVERY_CONFLICT_BUFFERPIN is requested but we
+			 * If INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN is requested but we
 			 * aren't blocking the Startup process there is nothing more to
 			 * do.
 			 *
-			 * When PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK is requested,
+			 * When INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK is requested,
 			 * if we're waiting for locks and the startup process is not
 			 * waiting for buffer pin (i.e., also waiting for locks), we set
 			 * the flag so that ProcSleep() will check for deadlocks.
 			 */
 			if (!HoldingBufferPinThatDelaysRecovery())
 			{
-				if (reason == PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK &&
+				if (reason == INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK &&
 					GetStartupBufferPinWaitBufId() < 0)
 					CheckDeadLockAlert();
 				return;
@@ -3141,9 +3130,9 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 			/* Intentional fall through to error handling */
 			/* FALLTHROUGH */
 
-		case PROCSIG_RECOVERY_CONFLICT_LOCK:
-		case PROCSIG_RECOVERY_CONFLICT_TABLESPACE:
-		case PROCSIG_RECOVERY_CONFLICT_SNAPSHOT:
+		case INTERRUPT_RECOVERY_CONFLICT_LOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_TABLESPACE:
+		case INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT:
 
 			/*
 			 * If we aren't in a transaction any longer then ignore.
@@ -3153,14 +3142,14 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 
 			/* FALLTHROUGH */
 
-		case PROCSIG_RECOVERY_CONFLICT_LOGICALSLOT:
+		case INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT:
 
 			/*
 			 * If we're not in a subtransaction then we are OK to throw an
 			 * ERROR to resolve the conflict.  Otherwise drop through to the
 			 * FATAL case.
 			 *
-			 * PROCSIG_RECOVERY_CONFLICT_LOGICALSLOT is a special case that
+			 * RECOVERY_CONFLICT_LOGICALSLOT is a special case that
 			 * always throws an ERROR (ie never promotes to FATAL), though it
 			 * still has to respect QueryCancelHoldoffCount, so it shares this
 			 * code path.  Logical decoding slots are only acquired while
@@ -3170,17 +3159,17 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 			 * intercept an error before the replication slot is released.
 			 *
 			 * XXX other times that we can throw just an ERROR *may* be
-			 * PROCSIG_RECOVERY_CONFLICT_LOCK if no locks are held in parent
+			 * RECOVERY_CONFLICT_LOCK if no locks are held in parent
 			 * transactions
 			 *
-			 * PROCSIG_RECOVERY_CONFLICT_SNAPSHOT if no snapshots are held by
+			 * RECOVERY_CONFLICT_SNAPSHOT if no snapshots are held by
 			 * parent transactions and the transaction is not
 			 * transaction-snapshot mode
 			 *
-			 * PROCSIG_RECOVERY_CONFLICT_TABLESPACE if no temp files or
+			 * RECOVERY_CONFLICT_TABLESPACE if no temp files or
 			 * cursors open in parent transactions
 			 */
-			if (reason == PROCSIG_RECOVERY_CONFLICT_LOGICALSLOT ||
+			if (reason == INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT ||
 				!IsSubTransaction())
 			{
 				/*
@@ -3204,12 +3193,10 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 					if (QueryCancelHoldoffCount != 0)
 					{
 						/*
-						 * Re-arm and defer this interrupt until later.  See
-						 * similar code in ProcessInterrupts().
+						 * Leave the interrupt set to defer this interrupt
+						 * until later.  See similar code in
+						 * ProcessInterrupts().
 						 */
-						RecoveryConflictPendingReasons[reason] = true;
-						RecoveryConflictPending = true;
-						InterruptPending = true;
 						return;
 					}
 
@@ -3232,7 +3219,7 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 			/* Intentional fall through to session cancel */
 			/* FALLTHROUGH */
 
-		case PROCSIG_RECOVERY_CONFLICT_DATABASE:
+		case INTERRUPT_RECOVERY_CONFLICT_DATABASE:
 
 			/*
 			 * Retrying is not possible because the database is dropped, or we
@@ -3241,7 +3228,7 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 			 */
 			pgstat_report_recovery_conflict(reason);
 			ereport(FATAL,
-					(errcode(reason == PROCSIG_RECOVERY_CONFLICT_DATABASE ?
+					(errcode(reason == INTERRUPT_RECOVERY_CONFLICT_DATABASE ?
 							 ERRCODE_DATABASE_DROPPED :
 							 ERRCODE_T_R_SERIALIZATION_FAILURE),
 					 errmsg("terminating connection due to conflict with recovery"),
@@ -3256,59 +3243,36 @@ ProcessRecoveryConflictInterrupt(ProcSignalReason reason)
 }
 
 /*
- * Check each possible recovery conflict reason.
- */
-static void
-ProcessRecoveryConflictInterrupts(void)
-{
-	/*
-	 * We don't need to worry about joggling the elbow of proc_exit, because
-	 * proc_exit_prepare() holds interrupts, so ProcessInterrupts() won't call
-	 * us.
-	 */
-	Assert(!proc_exit_inprogress);
-	Assert(InterruptHoldoffCount == 0);
-	Assert(RecoveryConflictPending);
-
-	RecoveryConflictPending = false;
-
-	for (ProcSignalReason reason = PROCSIG_RECOVERY_CONFLICT_FIRST;
-		 reason <= PROCSIG_RECOVERY_CONFLICT_LAST;
-		 reason++)
-	{
-		if (RecoveryConflictPendingReasons[reason])
-		{
-			RecoveryConflictPendingReasons[reason] = false;
-			ProcessRecoveryConflictInterrupt(reason);
-		}
-	}
-}
-
-/*
  * ProcessInterrupts: out-of-line portion of CHECK_FOR_INTERRUPTS() macro
  *
  * If an interrupt condition is pending, and it's safe to service it,
  * then clear the flag and accept the interrupt.  Called only when
- * InterruptPending is true.
+ * INTERRUPTS_PENDING_CONDITION(CheckForInterruptsMask) is true.
  *
- * Note: if INTERRUPTS_CAN_BE_PROCESSED() is true, then ProcessInterrupts
- * is guaranteed to clear the InterruptPending flag before returning.
- * (This is not the same as guaranteeing that it's still clear when we
- * return; another interrupt could have arrived.  But we promise that
+ * Note: if INTERRUPTS_CAN_BE_PROCESSED() is true, then ProcessInterrupts is
+ * guaranteed to clear the interrupt bits in CheckForInterruptsMask before
+ * returning.  (This is not the same as guaranteeing that it's still clear
+ * when we return; another interrupt could have arrived.  But we promise that
  * any pre-existing one will have been serviced.)
  */
 void
 ProcessInterrupts(void)
 {
 	/* OK to accept any interrupts now? */
-	if (InterruptHoldoffCount != 0 || CritSectionCount != 0)
-		return;
-	InterruptPending = false;
+	Assert (InterruptHoldoffCount == 0);
+	Assert (CritSectionCount == 0);
 
-	if (ProcDiePending)
+	/*
+	 * TODO: it'd be good for performance to read the atomic
+	 * MyPendingInterrupts variable just once in this function
+	 */
+
+	if (ConsumeInterrupt(INTERRUPT_WALSND_INIT_STOPPING))
+		ProcessWalSndInitStopping();
+
+	if (ConsumeInterrupt(INTERRUPT_DIE))
 	{
-		ProcDiePending = false;
-		QueryCancelPending = false; /* ProcDie trumps QueryCancel */
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL); /* ProcDie trumps QueryCancel */
 		LockErrorCleanup();
 		/* As in quickdie, don't risk sending to client during auth */
 		if (ClientAuthInProgress && whereToSendOutput == DestRemote)
@@ -3358,10 +3322,8 @@ ProcessInterrupts(void)
 					 errmsg("terminating connection due to administrator command")));
 	}
 
-	if (CheckClientConnectionPending)
+	if (ConsumeInterrupt(INTERRUPT_CLIENT_CHECK_TIMEOUT))
 	{
-		CheckClientConnectionPending = false;
-
 		/*
 		 * Check for lost connection and re-arm, if still configured, but not
 		 * if we've arrived back at DoingCommandRead state.  We don't want to
@@ -3371,16 +3333,16 @@ ProcessInterrupts(void)
 		if (!DoingCommandRead && client_connection_check_interval > 0)
 		{
 			if (!pq_check_connection())
-				ClientConnectionLost = true;
+				RaiseInterrupt(INTERRUPT_CLIENT_CONNECTION_LOST);
 			else
 				enable_timeout_after(CLIENT_CONNECTION_CHECK_TIMEOUT,
 									 client_connection_check_interval);
 		}
 	}
 
-	if (ClientConnectionLost)
+	if (InterruptPending(INTERRUPT_CLIENT_CONNECTION_LOST))
 	{
-		QueryCancelPending = false; /* lost connection trumps QueryCancel */
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL); /* lost connection trumps QueryCancel */
 		LockErrorCleanup();
 		/* don't send to client, we already know the connection to be dead. */
 		whereToSendOutput = DestNone;
@@ -3397,24 +3359,17 @@ ProcessInterrupts(void)
 	 *
 	 * See similar logic in ProcessRecoveryConflictInterrupts().
 	 */
-	if (QueryCancelPending && QueryCancelHoldoffCount != 0)
+	if (InterruptPending(INTERRUPT_QUERY_CANCEL) && QueryCancelHoldoffCount != 0)
 	{
 		/*
-		 * Re-arm InterruptPending so that we process the cancel request as
-		 * soon as we're done reading the message.  (XXX this is seriously
-		 * ugly: it complicates INTERRUPTS_CAN_BE_PROCESSED(), and it means we
-		 * can't use that macro directly as the initial test in this function,
-		 * meaning that this code also creates opportunities for other bugs to
-		 * appear.)
+		 * Leave the interrupt set so that we process the cancel request as
+		 * soon as we're done reading the message.
 		 */
-		InterruptPending = true;
 	}
-	else if (QueryCancelPending)
+	else if (ConsumeInterrupt(INTERRUPT_QUERY_CANCEL))
 	{
 		bool		lock_timeout_occurred;
 		bool		stmt_timeout_occurred;
-
-		QueryCancelPending = false;
 
 		/*
 		 * If LOCK_TIMEOUT and STATEMENT_TIMEOUT indicators are both set, we
@@ -3469,10 +3424,28 @@ ProcessInterrupts(void)
 		}
 	}
 
-	if (RecoveryConflictPending)
-		ProcessRecoveryConflictInterrupts();
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_DATABASE))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_DATABASE);
 
-	if (IdleInTransactionSessionTimeoutPending)
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_TABLESPACE))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_TABLESPACE);
+
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_LOCK))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_LOCK);
+
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT);
+
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT);
+
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN);
+
+	if (ConsumeInterrupt(INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK))
+		ProcessRecoveryConflictInterrupt(INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
+
+	if (ConsumeInterrupt(INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT))
 	{
 		/*
 		 * If the GUC has been reset to zero, ignore the signal.  This is
@@ -3480,7 +3453,6 @@ ProcessInterrupts(void)
 		 * interrupt.  We need to unset the flag before the injection point,
 		 * otherwise we could loop in interrupts checking.
 		 */
-		IdleInTransactionSessionTimeoutPending = false;
 		if (IdleInTransactionSessionTimeout > 0)
 		{
 			INJECTION_POINT("idle-in-transaction-session-timeout");
@@ -3490,10 +3462,9 @@ ProcessInterrupts(void)
 		}
 	}
 
-	if (TransactionTimeoutPending)
+	if (ConsumeInterrupt(INTERRUPT_TRANSACTION_TIMEOUT))
 	{
 		/* As above, ignore the signal if the GUC has been reset to zero. */
-		TransactionTimeoutPending = false;
 		if (TransactionTimeout > 0)
 		{
 			INJECTION_POINT("transaction-timeout");
@@ -3503,10 +3474,9 @@ ProcessInterrupts(void)
 		}
 	}
 
-	if (IdleSessionTimeoutPending)
+	if (ConsumeInterrupt(INTERRUPT_IDLE_SESSION_TIMEOUT))
 	{
 		/* As above, ignore the signal if the GUC has been reset to zero. */
-		IdleSessionTimeoutPending = false;
 		if (IdleSessionTimeout > 0)
 		{
 			INJECTION_POINT("idle-session-timeout");
@@ -3516,30 +3486,19 @@ ProcessInterrupts(void)
 		}
 	}
 
-	/*
-	 * If there are pending stats updates and we currently are truly idle
-	 * (matching the conditions in PostgresMain(), report stats now.
-	 */
-	if (IdleStatsUpdateTimeoutPending &&
-		DoingCommandRead && !IsTransactionOrTransactionBlock())
-	{
-		IdleStatsUpdateTimeoutPending = false;
-		pgstat_report_stat(true);
-	}
-
-	if (ProcSignalBarrierPending)
+	if (InterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
-	if (ParallelMessagePending)
+	if (ConsumeInterrupt(INTERRUPT_PARALLEL_MESSAGE))
 		ProcessParallelMessages();
 
-	if (LogMemoryContextPending)
+	if (InterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 
-	if (PublishMemoryContextPending)
+	if (InterruptPending(INTERRUPT_GET_MEMORY_CONTEXT))
 		ProcessGetMemoryContextInterrupt();
 
-	if (ParallelApplyMessagePending)
+	if (ConsumeInterrupt(INTERRUPT_PARALLEL_APPLY_MESSAGE))
 		ProcessParallelApplyMessages();
 }
 
@@ -4245,7 +4204,7 @@ PostgresMain(const char *dbname, const char *username)
 		 * midst of output during who-knows-what operation...
 		 */
 		pqsignal(SIGPIPE, SIG_IGN);
-		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+		pqsignal(SIGUSR1, SIG_IGN);
 		pqsignal(SIGUSR2, SIG_IGN);
 		pqsignal(SIGFPE, FloatExceptionHandler);
 
@@ -4424,7 +4383,7 @@ PostgresMain(const char *dbname, const char *username)
 		 * forgetting a timeout cancel.
 		 */
 		disable_all_timeouts(false);	/* do first to avoid race condition */
-		QueryCancelPending = false;
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 		idle_in_transaction_timeout_enabled = false;
 		idle_session_timeout_enabled = false;
 
@@ -4609,7 +4568,7 @@ PostgresMain(const char *dbname, const char *username)
 				 * were received during the just-finished transaction, they'll
 				 * be seen by the client before ReadyForQuery is.
 				 */
-				if (notifyInterruptPending)
+				if (InterruptPending(INTERRUPT_ASYNC_NOTIFY))
 					ProcessNotifyInterrupt(false);
 
 				/*
@@ -4727,7 +4686,7 @@ PostgresMain(const char *dbname, const char *username)
 		 *
 		 * Query cancel is supposed to be a no-op when there is no query in
 		 * progress, so if a query cancel arrived while we were idle, just
-		 * reset QueryCancelPending. ProcessInterrupts() has that effect when
+		 * reset INTERRUPT_QUERY_CANCEL. ProcessInterrupts() has that effect when
 		 * it's called when DoingCommandRead is set, so check for interrupts
 		 * before resetting DoingCommandRead.
 		 */
@@ -4738,11 +4697,8 @@ PostgresMain(const char *dbname, const char *username)
 		 * (6) check for any other interesting events that happened while we
 		 * slept.
 		 */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/*
 		 * (7) process the command.  But ignore it if we're skipping till

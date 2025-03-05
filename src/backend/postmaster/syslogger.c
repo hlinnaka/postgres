@@ -338,7 +338,10 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	 * (including the postmaster).
 	 */
 	wes = CreateWaitEventSet(NULL, 2);
-	AddWaitEventToSet(wes, WL_INTERRUPT, PGINVALID_SOCKET, 1 << INTERRUPT_GENERAL, NULL);
+	AddWaitEventToSet(wes, WL_INTERRUPT, PGINVALID_SOCKET,
+					  INTERRUPT_CONFIG_RELOAD |
+					  INTERRUPT_GENERAL, /* for log rotation */
+					  NULL);
 #ifndef WIN32
 	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], 0, NULL);
 #endif
@@ -361,9 +364,8 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 		/*
 		 * Process any requests or signals received recently.
 		 */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/*

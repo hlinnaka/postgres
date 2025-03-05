@@ -402,7 +402,7 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
 
 	/* also registers a shutdown callback to unregister */
@@ -452,7 +452,7 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_SHUTDOWN_AUX))
 	{
 		uint32		io_index;
 		ProcNumber	peers[IO_WORKER_WAKEUP_FANOUT];

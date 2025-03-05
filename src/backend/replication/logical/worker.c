@@ -3653,11 +3653,8 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 					int			c;
 					StringInfoData s;
 
-					if (ConfigReloadPending)
-					{
-						ConfigReloadPending = false;
+					if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 						ProcessConfigFile(PGC_SIGHUP);
-					}
 
 					/* Reset timeout. */
 					last_recv_timestamp = GetCurrentTimestamp();
@@ -3752,7 +3749,9 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		else
 			wait_time = NAPTIME_PER_CYCLE;
 
-		rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+		rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+								   INTERRUPT_CONFIG_RELOAD |
+								   INTERRUPT_GENERAL,
 								   WL_SOCKET_READABLE | WL_INTERRUPT |
 								   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								   fd, wait_time,
@@ -3760,14 +3759,10 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
-		}
-
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
-			ProcessConfigFile(PGC_SIGHUP);
+			if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
+				ProcessConfigFile(PGC_SIGHUP);
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 
 		if (rc & WL_TIMEOUT)

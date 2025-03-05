@@ -4,9 +4,10 @@
  *	  single-reader, single-writer shared memory message queue
  *
  * Both the sender and the receiver must have a PGPROC; their respective
- * process interrupts are used for synchronization.  Only the sender may send,
- * and only the receiver may receive.  This is intended to allow a user
- * backend to communicate with worker backends that it has registered.
+ * INTERRUPT_GENERAL interrupts are used for synchronization.  Only the
+ * sender may send, and only the receiver may receive.  This is intended to
+ * allow a user backend to communicate with worker backends that it has
+ * registered.
  *
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -49,7 +50,7 @@
  * interrupt to the counterparty, the counterparty must be certain to see the
  * change after waking up.  Since SendInterrupt begins with a memory barrier
  * and ClearInterrupt ends with one, this should be OK.
- * XXX: No explicit memory barriers in SendIntterupt/ClearInterrupt, do we need to add some?
+ * XXX: No explicit memory barriers in SendInterrupt/ClearInterrupt, do we need to add some?
  *
  * mq_ring_size and mq_ring_offset never change after initialization, and
  * can therefore be read without the lock.
@@ -343,16 +344,15 @@ shm_mq_send(shm_mq_handle *mqh, Size nbytes, const void *data, bool nowait,
  * Write a message into a shared message queue, gathered from multiple
  * addresses.
  *
- * When nowait = false, we'll wait on our process interrupt when the ring
- * buffer fills up, and then continue writing once the receiver has drained
- * some data.  The process interrupt is cleared after each wait.
+ * When nowait = false, we'll wait when the ring buffer fills up, and then
+ * continue writing once the receiver has drained some data.
  *
- * When nowait = true, we do not manipulate the state of the process interrupt;
- * instead, if the buffer becomes full, we return SHM_MQ_WOULD_BLOCK.  In
- * this case, the caller should call this function again, with the same
- * arguments, each time the process interrupt is set.  (Once begun, the sending
- * of a message cannot be aborted except by detaching from the queue; changing
- * the length or payload will corrupt the queue.)
+ * When nowait = true, if the buffer becomes full, we return
+ * SHM_MQ_WOULD_BLOCK.  In this case, the caller should call this function
+ * again, with the same arguments, each time the INTERRUPT_GENERAL interrupt
+ * is set.  (Once begun, the sending of a message cannot be aborted except by
+ * detaching from the queue; changing the length or payload will corrupt the
+ * queue.)
  *
  * When force_flush = true, we immediately update the shm_mq's mq_bytes_written
  * and notify the receiver (if it is already attached).  Otherwise, we don't
@@ -559,16 +559,15 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait,
  * while still allowing longer messages.  In either case, the return value
  * remains valid until the next receive operation is performed on the queue.
  *
- * When nowait = false, we'll wait on our process interrupt when the ring
- * buffer is empty and we have not yet received a full message.  The sender
- * will set our process interrupt after more data has been written, and we'll
- * resume processing.  Each call will therefore return a complete message
- * (unless the sender detaches the queue).
+ * When nowait = false, we'll when the ring buffer is empty and we have not
+ * yet received a full message.  The sender will send us INTERRUPT_GENERAL
+ * after more data has been written, and we'll resume processing.  Each call
+ * will therefore return a complete message (unless the sender detaches the
+ * queue).
  *
- * When nowait = true, we do not manipulate the state of the process
- * interrupt; instead, whenever the buffer is empty and we need to read from
- * it, we return SHM_MQ_WOULD_BLOCK.  In this case, the caller should call
- * this function again after the process interrupt has been set.
+ * When nowait = true, we do not wait when the buffer is empty and return
+ * SHM_MQ_WOULD_BLOCK instead.  In this case, the caller should call this
+ * function again after INTERRUPT_GENERAL has been set.
  */
 shm_mq_result
 shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
@@ -1017,7 +1016,8 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 			 * interrupt at top of loop, because setting an already-set
 			 * interrupt is much cheaper than setting one that has been reset.
 			 */
-			(void) WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 WAIT_EVENT_MESSAGE_QUEUE_SEND);
 
 			/* Clear the interrupt so we don't spin. */
@@ -1163,14 +1163,15 @@ shm_mq_receive_bytes(shm_mq_handle *mqh, Size bytes_needed, bool nowait,
 		 * loop, because setting an already-set interrupt is much cheaper than
 		 * setting one that has been cleared.
 		 */
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 WAIT_EVENT_MESSAGE_QUEUE_RECEIVE);
+
+		/* Handle standard interrupts that may have occurred while we were waiting. */
+		CHECK_FOR_INTERRUPTS();
 
 		/* Clear the interrupt so we don't spin. */
 		ClearInterrupt(INTERRUPT_GENERAL);
-
-		/* An interrupt may have occurred while we were waiting. */
-		CHECK_FOR_INTERRUPTS();
 	}
 }
 
@@ -1252,14 +1253,15 @@ shm_mq_wait_internal(shm_mq *mq, PGPROC **ptr, BackgroundWorkerHandle *handle)
 		}
 
 		/* Wait to be signaled. */
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 WAIT_EVENT_MESSAGE_QUEUE_INTERNAL);
+
+		/* Handle standard interrupts that may have occurred while we were waiting. */
+		CHECK_FOR_INTERRUPTS();
 
 		/* Clear the interrupt so we don't spin. */
 		ClearInterrupt(INTERRUPT_GENERAL);
-
-		/* An interrupt may have occurred while we were waiting. */
-		CHECK_FOR_INTERRUPTS();
 	}
 
 	return result;

@@ -115,9 +115,6 @@ typedef struct FixedParallelState
  */
 int			ParallelWorkerNumber = -1;
 
-/* Is there a parallel message pending which we need to receive? */
-volatile sig_atomic_t ParallelMessagePending = false;
-
 /* Are we initializing a parallel worker? */
 bool		InitializingParallelWorker = false;
 
@@ -126,9 +123,6 @@ static FixedParallelState *MyFixedParallelState;
 
 /* List of active parallel contexts. */
 static dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
-
-/* Backend-local copy of data from FixedParallelState. */
-static pid_t ParallelLeaderPid;
 
 /*
  * List of internal parallel worker entry points.  We need this for
@@ -243,7 +237,7 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	 * We can deal with that edge case by pretending no workers were
 	 * requested.
 	 */
-	if (!INTERRUPTS_CAN_BE_PROCESSED())
+	if (!INTERRUPTS_CAN_BE_PROCESSED(INTERRUPT_CFI_MASK))
 		pcxt->nworkers = 0;
 
 	/*
@@ -759,16 +753,20 @@ WaitForParallelWorkersToAttach(ParallelContext *pcxt)
 			{
 				/*
 				 * Worker not yet started, so we must wait.  The postmaster
-				 * will notify us if the worker's state changes.  The
-				 * interrupt might also get set for some other reason, but if
-				 * so we'll just end up waiting for the same worker again.
+				 * will notify us with INTERRUPT_GENERAL if the worker's state
+				 * changes.  The interrupt might also get set for some other
+				 * reason, but if so we'll just end up waiting for the same
+				 * worker again.
 				 */
-				rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+				rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
 								   WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 								   -1, WAIT_EVENT_BGWORKER_STARTUP);
 
 				if (rc & WL_INTERRUPT)
+				{
+					CHECK_FOR_INTERRUPTS();
 					ClearInterrupt(INTERRUPT_GENERAL);
+				}
 			}
 		}
 
@@ -883,7 +881,7 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 			}
 		}
 
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
 							 WAIT_EVENT_PARALLEL_FINISH);
 		ClearInterrupt(INTERRUPT_GENERAL);
@@ -1028,21 +1026,6 @@ ParallelContextActive(void)
 }
 
 /*
- * Handle receipt of an interrupt indicating a parallel worker message.
- *
- * Note: this is called within a signal handler!  All we can do is set
- * a flag that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessParallelMessages().
- */
-void
-HandleParallelMessageInterrupt(void)
-{
-	InterruptPending = true;
-	ParallelMessagePending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
-}
-
-/*
  * Process any queued protocol messages received from parallel workers.
  */
 void
@@ -1077,7 +1060,7 @@ ProcessParallelMessages(void)
 	oldcontext = MemoryContextSwitchTo(hpm_context);
 
 	/* OK to process messages.  Reset the flag saying there are more to do. */
-	ParallelMessagePending = false;
+	ClearInterrupt(INTERRUPT_PARALLEL_MESSAGE);
 
 	dlist_foreach(iter, &pcxt_list)
 	{
@@ -1358,7 +1341,6 @@ ParallelWorkerMain(Datum main_arg)
 	MyFixedParallelState = fps;
 
 	/* Arrange to signal the leader if we exit. */
-	ParallelLeaderPid = fps->parallel_leader_pid;
 	ParallelLeaderProcNumber = fps->parallel_leader_proc_number;
 	before_shmem_exit(ParallelWorkerShutdown, PointerGetDatum(seg));
 
@@ -1374,8 +1356,7 @@ ParallelWorkerMain(Datum main_arg)
 	shm_mq_set_sender(mq, MyProc);
 	mqh = shm_mq_attach(mq, seg, NULL);
 	pq_redirect_to_shm_mq(seg, mqh);
-	pq_set_parallel_leader(fps->parallel_leader_pid,
-						   fps->parallel_leader_proc_number);
+	pq_set_parallel_leader(fps->parallel_leader_proc_number);
 
 	/*
 	 * Hooray! Primary initialization is complete.  Now, we need to set up our
@@ -1614,9 +1595,8 @@ ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end)
 static void
 ParallelWorkerShutdown(int code, Datum arg)
 {
-	SendProcSignal(ParallelLeaderPid,
-				   PROCSIG_PARALLEL_MESSAGE,
-				   ParallelLeaderProcNumber);
+	SendInterrupt(INTERRUPT_PARALLEL_MESSAGE,
+				  ParallelLeaderProcNumber);
 
 	dsm_detach((dsm_segment *) DatumGetPointer(arg));
 }

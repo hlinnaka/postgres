@@ -71,7 +71,6 @@
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
-#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -254,7 +253,7 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 
 	/* Reset some signals that are accepted by postmaster but not here */
@@ -431,9 +430,8 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 				/* Process any requests or signals received recently */
 				CHECK_FOR_INTERRUPTS();
 
-				if (ConfigReloadPending)
+				if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 				{
-					ConfigReloadPending = false;
 					ProcessConfigFile(PGC_SIGHUP);
 					/* recompute wakeup times */
 					now = GetCurrentTimestamp();
@@ -516,7 +514,10 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 				 * avoiding some system calls.
 				 */
 				Assert(wait_fd != PGINVALID_SOCKET);
-				rc = WaitInterruptOrSocket(1 << INTERRUPT_GENERAL,
+				rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+										   INTERRUPT_SHUTDOWN_AUX |
+										   INTERRUPT_CONFIG_RELOAD |
+										   INTERRUPT_GENERAL,
 										   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
 										   WL_TIMEOUT | WL_INTERRUPT,
 										   wait_fd,
@@ -524,7 +525,6 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 										   WAIT_EVENT_WAL_RECEIVER_MAIN);
 				if (rc & WL_INTERRUPT)
 				{
-					ClearInterrupt(INTERRUPT_GENERAL);
 					CHECK_FOR_INTERRUPTS();
 
 					if (walrcv->force_reply)
@@ -539,6 +539,7 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 						pg_memory_barrier();
 						XLogWalRcvSendReply(true, false);
 					}
+					ClearInterrupt(INTERRUPT_GENERAL);
 				}
 				if (rc & WL_TIMEOUT)
 				{
@@ -704,7 +705,9 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 		}
 		SpinLockRelease(&walrcv->mutex);
 
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK |
+							 INTERRUPT_SHUTDOWN_AUX |
+							 INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 							 0,
 							 WAIT_EVENT_WAL_RECEIVER_WAIT_START);

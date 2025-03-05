@@ -58,6 +58,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/pg_lfind.h"
+#include "storage/interrupt.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/acl.h"
@@ -3488,13 +3489,13 @@ GetConflictingVirtualXIDs(TransactionId limitXmin, Oid dbOid)
  * Returns pid of the process signaled, or 0 if not found.
  */
 pid_t
-CancelVirtualTransaction(VirtualTransactionId vxid, ProcSignalReason sigmode)
+CancelVirtualTransaction(VirtualTransactionId vxid, InterruptType reason)
 {
-	return SignalVirtualTransaction(vxid, sigmode, true);
+	return SignalVirtualTransaction(vxid, reason, true);
 }
 
 pid_t
-SignalVirtualTransaction(VirtualTransactionId vxid, ProcSignalReason sigmode,
+SignalVirtualTransaction(VirtualTransactionId vxid, InterruptType reason,
 						 bool conflictPending)
 {
 	ProcArrayStruct *arrayP = procArray;
@@ -3522,7 +3523,7 @@ SignalVirtualTransaction(VirtualTransactionId vxid, ProcSignalReason sigmode,
 				 * Kill the pid if it's still here. If not, that's what we
 				 * wanted so ignore any errors.
 				 */
-				(void) SendProcSignal(pid, sigmode, vxid.procNumber);
+				SendInterrupt(reason, vxid.procNumber);
 			}
 			break;
 		}
@@ -3656,7 +3657,7 @@ CountDBConnections(Oid databaseid)
  * CancelDBBackends --- cancel backends that are using specified database
  */
 void
-CancelDBBackends(Oid databaseid, ProcSignalReason sigmode, bool conflictPending)
+CancelDBBackends(Oid databaseid, InterruptType reason, bool conflictPending)
 {
 	ProcArrayStruct *arrayP = procArray;
 	int			index;
@@ -3671,20 +3672,17 @@ CancelDBBackends(Oid databaseid, ProcSignalReason sigmode, bool conflictPending)
 
 		if (databaseid == InvalidOid || proc->databaseId == databaseid)
 		{
-			VirtualTransactionId procvxid;
 			pid_t		pid;
-
-			GET_VXID_FROM_PGPROC(procvxid, *proc);
 
 			proc->recoveryConflictPending = conflictPending;
 			pid = proc->pid;
 			if (pid != 0)
 			{
 				/*
-				 * Kill the pid if it's still here. If not, that's what we
-				 * wanted so ignore any errors.
+				 * Cancel the backend if it's still here. If not, that's what
+				 * we wanted anyway.
 				 */
-				(void) SendProcSignal(pid, sigmode, procvxid.procNumber);
+				SendInterrupt(reason, pgprocno);
 			}
 		}
 	}

@@ -263,6 +263,9 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 	{
 		int			workers_ready;
 
+		/* Clear the interrupt flag so we don't spin. */
+		ClearInterrupt(INTERRUPT_GENERAL);
+
 		/* If all the workers are ready, we have succeeded. */
 		SpinLockAcquire(&hdr->mutex);
 		workers_ready = hdr->workers_ready;
@@ -285,11 +288,9 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 			we_bgworker_startup = WaitEventExtensionNew("TestShmMqBgWorkerStartup");
 
 		/* Wait to be signaled. */
-		(void) WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 we_bgworker_startup);
-
-		/* Clear the interrupt flag so we don't spin. */
-		ClearInterrupt(INTERRUPT_GENERAL);
 
 		/* An interrupt may have occurred while we were waiting. */
 		CHECK_FOR_INTERRUPTS();

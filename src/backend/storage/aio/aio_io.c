@@ -164,7 +164,7 @@ pgaio_io_before_start(PgAioHandle *ioh)
 	 * Otherwise the FDs referenced by the IO could be closed due to interrupt
 	 * processing.
 	 */
-	Assert(!INTERRUPTS_CAN_BE_PROCESSED());
+	Assert(!INTERRUPTS_CAN_BE_PROCESSED(INTERRUPT_CFI_MASK));
 }
 
 /*

@@ -46,7 +46,6 @@
 #include "storage/interrupt.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "storage/smgr.h"
 #include "storage/standby.h"
 #include "utils/memutils.h"
@@ -107,7 +106,7 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
 
 	/*
@@ -226,9 +225,7 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 		bool		can_hibernate;
 		int			rc;
 
-		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
-
+		/* Process any pending standard interrupts */
 		ProcessMainLoopInterrupts();
 
 		/*
@@ -305,7 +302,7 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 		 * down with interrupt events that are likely to happen frequently
 		 * during normal operation.
 		 */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_MAIN_LOOP_MASK,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
 
@@ -329,10 +326,14 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 		 */
 		if (rc == WL_TIMEOUT && can_hibernate && prev_hibernate)
 		{
+			/* Clear any already-pending wakeups */
+			ClearInterrupt(INTERRUPT_GENERAL);
+
 			/* Ask for notification at next buffer allocation */
 			StrategyNotifyBgWriter(MyProcNumber);
 			/* Sleep ... */
-			(void) WaitInterrupt(1 << INTERRUPT_GENERAL,
+			(void) WaitInterrupt(INTERRUPT_MAIN_LOOP_MASK |
+								 INTERRUPT_GENERAL,
 								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								 BgWriterDelay * HIBERNATE_FACTOR,
 								 WAIT_EVENT_BGWRITER_HIBERNATE);

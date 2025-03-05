@@ -1340,42 +1340,10 @@ MemoryContextAllocExtended(MemoryContext context, Size size, int flags)
 }
 
 /*
- * HandleLogMemoryContextInterrupt
- *		Handle receipt of an interrupt indicating logging of memory
- *		contexts.
- *
- * All the actual work is deferred to ProcessLogMemoryContextInterrupt(),
- * because we cannot safely emit a log message inside the signal handler.
- */
-void
-HandleLogMemoryContextInterrupt(void)
-{
-	InterruptPending = true;
-	LogMemoryContextPending = true;
-	/* INTERRUPT_GENERAL will be raised by procsignal_sigusr1_handler */
-}
-
-/*
- * HandleGetMemoryContextInterrupt
- *		Handle receipt of an interrupt indicating a request to publish memory
- *		contexts statistics.
- *
- * All the actual work is deferred to ProcessGetMemoryContextInterrupt() as
- * this cannot be performed in a signal handler.
- */
-void
-HandleGetMemoryContextInterrupt(void)
-{
-	InterruptPending = true;
-	PublishMemoryContextPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
-}
-
-/*
  * ProcessLogMemoryContextInterrupt
  * 		Perform logging of memory contexts of this backend process.
  *
- * Any backend that participates in ProcSignal signaling must arrange
+ * Any backend that participates in standard interrupt handling must arrange
  * to call this function if we see LogMemoryContextPending set.
  * It is called from CHECK_FOR_INTERRUPTS(), which is enough because
  * the target process for logging of memory contexts is a backend.
@@ -1383,7 +1351,7 @@ HandleGetMemoryContextInterrupt(void)
 void
 ProcessLogMemoryContextInterrupt(void)
 {
-	LogMemoryContextPending = false;
+	ClearInterrupt(INTERRUPT_LOG_MEMORY_CONTEXT);
 
 	/*
 	 * Use LOG_SERVER_ONLY to prevent this message from being sent to the
@@ -1448,7 +1416,7 @@ ProcessGetMemoryContextInterrupt(void)
 	MemoryContextCounters stat;
 	int			num_individual_stats = 0;
 
-	PublishMemoryContextPending = false;
+	ClearInterrupt(INTERRUPT_GET_MEMORY_CONTEXT);
 
 	/*
 	 * The hash table is used for constructing "path" column of the view,

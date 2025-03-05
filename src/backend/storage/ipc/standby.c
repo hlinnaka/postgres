@@ -72,13 +72,13 @@ static volatile sig_atomic_t got_standby_delay_timeout = false;
 static volatile sig_atomic_t got_standby_lock_timeout = false;
 
 static void ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
-												   ProcSignalReason reason,
+												   InterruptType reason,
 												   uint32 wait_event_info,
 												   bool report_waiting);
-static void SendRecoveryConflictWithBufferPin(ProcSignalReason reason);
+static void SendRecoveryConflictWithBufferPin(InterruptType reason);
 static XLogRecPtr LogCurrentRunningXacts(RunningTransactions CurrRunningXacts);
 static void LogAccessExclusiveLocks(int nlocks, xl_standby_lock *locks);
-static const char *get_recovery_conflict_desc(ProcSignalReason reason);
+static const char *get_recovery_conflict_desc(InterruptType reason);
 
 /*
  * InitRecoveryTransactionEnvironment
@@ -272,7 +272,7 @@ WaitExceedsMaxStandbyDelay(uint32 wait_event_info)
  * to be resolved or not.
  */
 void
-LogRecoveryConflict(ProcSignalReason reason, TimestampTz wait_start,
+LogRecoveryConflict(InterruptType reason, TimestampTz wait_start,
 					TimestampTz now, VirtualTransactionId *wait_list,
 					bool still_waiting)
 {
@@ -359,7 +359,7 @@ LogRecoveryConflict(ProcSignalReason reason, TimestampTz wait_start,
  */
 static void
 ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
-									   ProcSignalReason reason, uint32 wait_event_info,
+									   InterruptType reason, uint32 wait_event_info,
 									   bool report_waiting)
 {
 	TimestampTz waitStart = 0;
@@ -490,7 +490,7 @@ ResolveRecoveryConflictWithSnapshot(TransactionId snapshotConflictHorizon,
 	backends = GetConflictingVirtualXIDs(snapshotConflictHorizon,
 										 locator.dbOid);
 	ResolveRecoveryConflictWithVirtualXIDs(backends,
-										   PROCSIG_RECOVERY_CONFLICT_SNAPSHOT,
+										   INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT,
 										   WAIT_EVENT_RECOVERY_CONFLICT_SNAPSHOT,
 										   true);
 
@@ -561,7 +561,7 @@ ResolveRecoveryConflictWithTablespace(Oid tsid)
 	temp_file_users = GetConflictingVirtualXIDs(InvalidTransactionId,
 												InvalidOid);
 	ResolveRecoveryConflictWithVirtualXIDs(temp_file_users,
-										   PROCSIG_RECOVERY_CONFLICT_TABLESPACE,
+										   INTERRUPT_RECOVERY_CONFLICT_TABLESPACE,
 										   WAIT_EVENT_RECOVERY_CONFLICT_TABLESPACE,
 										   true);
 }
@@ -582,7 +582,7 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
 	 */
 	while (CountDBBackends(dbid) > 0)
 	{
-		CancelDBBackends(dbid, PROCSIG_RECOVERY_CONFLICT_DATABASE, true);
+		CancelDBBackends(dbid, INTERRUPT_RECOVERY_CONFLICT_DATABASE, true);
 
 		/*
 		 * Wait awhile for them to die so that we avoid flooding an
@@ -666,7 +666,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * because the caller, WaitOnLock(), has already reported that.
 		 */
 		ResolveRecoveryConflictWithVirtualXIDs(backends,
-											   PROCSIG_RECOVERY_CONFLICT_LOCK,
+											   INTERRUPT_RECOVERY_CONFLICT_LOCK,
 											   PG_WAIT_LOCK | locktag.locktag_type,
 											   false);
 	}
@@ -698,10 +698,11 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	}
 
 	/* Wait to be signaled by the release of the Relation Lock */
-	WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+	WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 				  PG_WAIT_LOCK | locktag.locktag_type);
-	ClearInterrupt(INTERRUPT_GENERAL);
 	CHECK_FOR_INTERRUPTS();
+	ClearInterrupt(INTERRUPT_GENERAL);
 
 	/*
 	 * Exit if ltime is reached. Then all the backends holding conflicting
@@ -728,7 +729,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		while (VirtualTransactionIdIsValid(*backends))
 		{
 			SignalVirtualTransaction(*backends,
-									 PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK,
+									 INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK,
 									 false);
 			backends++;
 		}
@@ -750,10 +751,11 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * until the relation locks are released or ltime is reached.
 		 */
 		got_standby_deadlock_timeout = false;
-		WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+		WaitInterrupt(INTERRUPT_CFI_MASK |
+					  INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 					  PG_WAIT_LOCK | locktag.locktag_type);
-		ClearInterrupt(INTERRUPT_GENERAL);
 		CHECK_FOR_INTERRUPTS();
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 cleanup:
@@ -779,9 +781,10 @@ cleanup:
  * We either resolve conflicts immediately or set a timeout to wake us at
  * the limit of our patience.
  *
- * Resolve conflicts by sending a PROCSIG signal to all backends to check if
- * they hold one of the buffer pins that is blocking Startup process. If so,
- * those backends will take an appropriate error action, ERROR or FATAL.
+ * Resolve conflicts by sending INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN to all
+ * backends to check if they hold one of the buffer pins that is blocking
+ * Startup process. If so, those backends will take an appropriate error
+ * action, ERROR or FATAL.
  *
  * We also must check for deadlocks.  Deadlocks occur because if queries
  * wait on a lock, that must be behind an AccessExclusiveLock, which can only
@@ -810,7 +813,7 @@ ResolveRecoveryConflictWithBufferPin(void)
 		/*
 		 * We're already behind, so clear a path as quickly as possible.
 		 */
-		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
+		SendRecoveryConflictWithBufferPin(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN);
 	}
 	else
 	{
@@ -845,17 +848,20 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * We assume that only UnpinBuffer() and the timeout requests established
 	 * above can wake us up here. WakeupRecovery() called by walreceiver or
 	 * SIGHUP signal handler, etc cannot do that because it uses the different
-	 * interrupt flag. FIXME: seems like a shaky assumption. WakeupRecovery()
-	 * indeed uses a different interrupt flag (different latch earlier), but
-	 * the signal handler??
+	 * interrupt flag.
+	 *
+	 * FIXME: seems like a shaky assumption. WakeupRecovery() indeed uses a
+	 * different interrupt flag (different latch earlier), but the signal
+	 * handler??
 	 */
-	WaitInterrupt(1 << INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+	WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 				  WAIT_EVENT_BUFFER_PIN);
-	ClearInterrupt(INTERRUPT_GENERAL);
 	CHECK_FOR_INTERRUPTS();
+	ClearInterrupt(INTERRUPT_GENERAL);
 
 	if (got_standby_delay_timeout)
-		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
+		SendRecoveryConflictWithBufferPin(INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN);
 	else if (got_standby_deadlock_timeout)
 	{
 		/*
@@ -871,7 +877,7 @@ ResolveRecoveryConflictWithBufferPin(void)
 		 * not be so harmful because the period that the buffer is kept pinned
 		 * is basically no so long. But we should fix this?
 		 */
-		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
+		SendRecoveryConflictWithBufferPin(INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
 	}
 
 	/*
@@ -886,10 +892,10 @@ ResolveRecoveryConflictWithBufferPin(void)
 }
 
 static void
-SendRecoveryConflictWithBufferPin(ProcSignalReason reason)
+SendRecoveryConflictWithBufferPin(InterruptType reason)
 {
-	Assert(reason == PROCSIG_RECOVERY_CONFLICT_BUFFERPIN ||
-		   reason == PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
+	Assert(reason == INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN ||
+		   reason == INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK);
 
 	/*
 	 * We send signal to all backends to ask them if they are holding the
@@ -948,6 +954,7 @@ void
 StandbyDeadLockHandler(void)
 {
 	got_standby_deadlock_timeout = true;
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -957,6 +964,7 @@ void
 StandbyTimeoutHandler(void)
 {
 	got_standby_delay_timeout = true;
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -966,6 +974,7 @@ void
 StandbyLockTimeoutHandler(void)
 {
 	got_standby_lock_timeout = true;
+	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -1501,31 +1510,31 @@ LogStandbyInvalidations(int nmsgs, SharedInvalidationMessage *msgs,
 
 /* Return the description of recovery conflict */
 static const char *
-get_recovery_conflict_desc(ProcSignalReason reason)
+get_recovery_conflict_desc(InterruptType reason)
 {
 	const char *reasonDesc = _("unknown reason");
 
 	switch (reason)
 	{
-		case PROCSIG_RECOVERY_CONFLICT_BUFFERPIN:
+		case INTERRUPT_RECOVERY_CONFLICT_BUFFERPIN:
 			reasonDesc = _("recovery conflict on buffer pin");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_LOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_LOCK:
 			reasonDesc = _("recovery conflict on lock");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_TABLESPACE:
+		case INTERRUPT_RECOVERY_CONFLICT_TABLESPACE:
 			reasonDesc = _("recovery conflict on tablespace");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_SNAPSHOT:
+		case INTERRUPT_RECOVERY_CONFLICT_SNAPSHOT:
 			reasonDesc = _("recovery conflict on snapshot");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_LOGICALSLOT:
+		case INTERRUPT_RECOVERY_CONFLICT_LOGICALSLOT:
 			reasonDesc = _("recovery conflict on replication slot");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
+		case INTERRUPT_RECOVERY_CONFLICT_STARTUP_DEADLOCK:
 			reasonDesc = _("recovery conflict on buffer deadlock");
 			break;
-		case PROCSIG_RECOVERY_CONFLICT_DATABASE:
+		case INTERRUPT_RECOVERY_CONFLICT_DATABASE:
 			reasonDesc = _("recovery conflict on database");
 			break;
 		default:

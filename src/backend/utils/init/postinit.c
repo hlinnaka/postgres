@@ -1399,41 +1399,31 @@ LockTimeoutHandler(void)
 static void
 TransactionTimeoutHandler(void)
 {
-	TransactionTimeoutPending = true;
-	InterruptPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_TRANSACTION_TIMEOUT);
 }
 
 static void
 IdleInTransactionSessionTimeoutHandler(void)
 {
-	IdleInTransactionSessionTimeoutPending = true;
-	InterruptPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT);
 }
 
 static void
 IdleSessionTimeoutHandler(void)
 {
-	IdleSessionTimeoutPending = true;
-	InterruptPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_IDLE_SESSION_TIMEOUT);
 }
 
 static void
 IdleStatsUpdateTimeoutHandler(void)
 {
-	IdleStatsUpdateTimeoutPending = true;
-	InterruptPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
 }
 
 static void
 ClientCheckTimeoutHandler(void)
 {
-	CheckClientConnectionPending = true;
-	InterruptPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_CLIENT_CHECK_TIMEOUT);
 }
 
 /*

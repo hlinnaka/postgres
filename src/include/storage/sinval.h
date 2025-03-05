@@ -137,15 +137,10 @@ typedef union
 /* Counter of messages processed; don't worry about overflow. */
 extern PGDLLIMPORT uint64 SharedInvalidMessageCounter;
 
-extern PGDLLIMPORT volatile sig_atomic_t catchupInterruptPending;
-
 extern void SendSharedInvalidMessages(const SharedInvalidationMessage *msgs,
 									  int n);
 extern void ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *msg),
 										 void (*resetFunction) (void));
-
-/* signal handler for catchup events (PROCSIG_CATCHUP_INTERRUPT) */
-extern void HandleCatchupInterrupt(void);
 
 /*
  * enable/disable processing of catchup events directly from signal handler.

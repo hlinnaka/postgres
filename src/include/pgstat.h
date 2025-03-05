@@ -609,7 +609,7 @@ extern bool pgstat_tracks_io_op(BackendType bktype, IOObject io_object,
 
 extern void pgstat_drop_database(Oid databaseid);
 extern void pgstat_report_autovac(Oid dboid);
-extern void pgstat_report_recovery_conflict(int reason);
+extern void pgstat_report_recovery_conflict(InterruptType reason);
 extern void pgstat_report_deadlock(void);
 extern void pgstat_prepare_report_checksum_failure(Oid dboid);
 extern void pgstat_report_checksum_failures_in_db(Oid dboid, int failurecount);

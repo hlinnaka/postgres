@@ -214,14 +214,14 @@ WaitForReplicationWorkerAttach(LogicalRepWorker *worker,
 		 * interrupt about the worker attach.  But we don't expect to have to
 		 * wait long.
 		 */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 	}
 }
@@ -442,6 +442,7 @@ retry:
 	worker->relstate_lsn = InvalidXLogRecPtr;
 	worker->stream_fileset = NULL;
 	worker->leader_pid = is_parallel_apply_worker ? MyProcPid : InvalidPid;
+	worker->leader_pgprocno = is_parallel_apply_worker ? MyProcNumber : INVALID_PROC_NUMBER;
 	worker->parallel_apply = is_parallel_apply_worker;
 	worker->last_lsn = InvalidXLogRecPtr;
 	TIMESTAMP_NOBEGIN(worker->last_send_time);
@@ -522,7 +523,7 @@ retry:
  * slot.
  */
 static void
-logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
+logicalrep_worker_stop_internal(LogicalRepWorker *worker, int interrupt)
 {
 	uint16		generation;
 
@@ -545,14 +546,14 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 
 		/* Recheck worker status. */
@@ -572,7 +573,7 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 	}
 
 	/* Now terminate the worker ... */
-	kill(worker->proc->pid, signo);
+	SendInterrupt(interrupt, GetNumberFromPGProc(worker->proc));
 
 	/* ... and wait for it to die. */
 	for (;;)
@@ -586,14 +587,14 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_SHUTDOWN);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 
 		LWLockAcquire(LogicalRepWorkerLock, LW_SHARED);
@@ -615,7 +616,7 @@ logicalrep_worker_stop(Oid subid, Oid relid)
 	if (worker)
 	{
 		Assert(!isParallelApplyWorker(worker));
-		logicalrep_worker_stop_internal(worker, SIGTERM);
+		logicalrep_worker_stop_internal(worker, INTERRUPT_DIE);
 	}
 
 	LWLockRelease(LogicalRepWorkerLock);
@@ -662,13 +663,14 @@ logicalrep_pa_worker_stop(ParallelApplyWorkerInfo *winfo)
 	 * Only stop the worker if the generation matches and the worker is alive.
 	 */
 	if (worker->generation == generation && worker->proc)
-		logicalrep_worker_stop_internal(worker, SIGINT);
+		logicalrep_worker_stop_internal(worker, INTERRUPT_QUERY_CANCEL);
 
 	LWLockRelease(LogicalRepWorkerLock);
 }
 
 /*
- * Wake up (using interrupt) any logical replication worker for specified sub/rel.
+ * Wake up (using INTERRUPT_GENERAL) any logical replication worker for
+ * specified sub/rel.
  */
 void
 logicalrep_worker_wakeup(Oid subid, Oid relid)
@@ -763,7 +765,7 @@ logicalrep_worker_detach(void)
 			LogicalRepWorker *w = (LogicalRepWorker *) lfirst(lc);
 
 			if (isParallelApplyWorker(w))
-				logicalrep_worker_stop_internal(w, SIGTERM);
+				logicalrep_worker_stop_internal(w, INTERRUPT_DIE);
 		}
 
 		LWLockRelease(LogicalRepWorkerLock);
@@ -793,6 +795,7 @@ logicalrep_worker_cleanup(LogicalRepWorker *worker)
 	worker->subid = InvalidOid;
 	worker->relid = InvalidOid;
 	worker->leader_pid = InvalidPid;
+	worker->leader_pgprocno = INVALID_PROC_NUMBER;
 	worker->parallel_apply = false;
 }
 
@@ -1218,22 +1221,20 @@ ApplyLauncherMain(Datum main_arg)
 		MemoryContextDelete(subctx);
 
 		/* Wait for more work. */
-		rc = WaitInterrupt(1 << INTERRUPT_GENERAL |
-						   1 << INTERRUPT_SUBSCRIPTION_CHANGE,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+						   INTERRUPT_CONFIG_RELOAD |
+						   INTERRUPT_SUBSCRIPTION_CHANGE |
+						   INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   wait_time,
 						   WAIT_EVENT_LOGICAL_LAUNCHER_MAIN);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
-		}
-
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
-			ProcessConfigFile(PGC_SIGHUP);
+			if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
+				ProcessConfigFile(PGC_SIGHUP);
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 	}
 
