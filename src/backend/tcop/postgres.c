@@ -505,7 +505,7 @@ ProcessClientReadInterrupt(bool blocked)
 	if (DoingCommandRead)
 	{
 		/* Check for general interrupts that arrived before/while reading */
-		interruptMask |= INTERRUPT_CFI_MASK;
+		interruptMask |= CheckForInterruptsMask;
 		CHECK_FOR_INTERRUPTS();
 
 		/* Process sinval catchup interrupts, if any */

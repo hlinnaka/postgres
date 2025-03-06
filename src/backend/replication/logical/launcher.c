@@ -214,7 +214,7 @@ WaitForReplicationWorkerAttach(LogicalRepWorker *worker,
 		 * interrupt about the worker attach.  But we don't expect to have to
 		 * wait long.
 		 */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -546,7 +546,7 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int interrupt)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -587,7 +587,7 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int interrupt)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_BGWORKER_SHUTDOWN);
 
@@ -1221,7 +1221,7 @@ ApplyLauncherMain(Datum main_arg)
 		MemoryContextDelete(subctx);
 
 		/* Wait for more work. */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+		rc = WaitInterrupt(CheckForInterruptsMask |
 						   INTERRUPT_CONFIG_RELOAD |
 						   INTERRUPT_SUBSCRIPTION_CHANGE |
 						   INTERRUPT_GENERAL,

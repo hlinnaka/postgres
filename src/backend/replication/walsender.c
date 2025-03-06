@@ -1616,7 +1616,7 @@ ProcessPendingWrites(void)
 		/* Sleep until something happens or we time out */
 		WalSndWait(WL_SOCKET_WRITEABLE | WL_SOCKET_READABLE, sleeptime,
 				   WAIT_EVENT_WAL_SENDER_WRITE_DATA,
-				   INTERRUPT_CFI_MASK |
+				   CheckForInterruptsMask |
 				   INTERRUPT_CONFIG_RELOAD |
 				   INTERRUPT_GENERAL);
 
@@ -1955,7 +1955,7 @@ WalSndWaitForWal(XLogRecPtr loc)
 		}
 
 		WalSndWait(wakeEvents, sleeptime, wait_event,
-				   INTERRUPT_CFI_MASK |
+				   CheckForInterruptsMask |
 				   INTERRUPT_CONFIG_RELOAD |
 				   INTERRUPT_GENERAL);
 	}
@@ -2920,7 +2920,7 @@ WalSndLoop(WalSndSendDataCallback send_data)
 
 			/* Sleep until something happens or we time out */
 			WalSndWait(wakeEvents, sleeptime, WAIT_EVENT_WAL_SENDER_MAIN,
-					   INTERRUPT_CFI_MASK |
+					   CheckForInterruptsMask |
 					   INTERRUPT_CONFIG_RELOAD |
 					   INTERRUPT_GENERAL
 				);

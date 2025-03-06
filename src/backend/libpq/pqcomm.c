@@ -309,7 +309,7 @@ pq_init(ClientSocket *client_sock)
 	socket_pos = AddWaitEventToSet(FeBeWaitSet, WL_SOCKET_WRITEABLE,
 								   port->sock, 0, NULL);
 	interrupt_pos = AddWaitEventToSet(FeBeWaitSet, WL_INTERRUPT, PGINVALID_SOCKET,
-									  INTERRUPT_CFI_MASK, NULL);
+									  CheckForInterruptsMask, NULL);
 	AddWaitEventToSet(FeBeWaitSet, WL_POSTMASTER_DEATH, PGINVALID_SOCKET,
 					  0, NULL);
 

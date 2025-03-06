@@ -161,7 +161,7 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		 * Wait for interrupt.  (If we're awakened for some other reason, the
 		 * code below will cope anyway.)
 		 */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 wait_events, cur_timeout, wait_event_info);
 
 		/* Clear the flag before examining the state of the wait list. */

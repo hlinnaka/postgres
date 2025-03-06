@@ -1232,7 +1232,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 		if (status != BGWH_NOT_YET_STARTED)
 			break;
 
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -1276,7 +1276,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		if (status == BGWH_STOPPED)
 			break;
 
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_SHUTDOWN);
 

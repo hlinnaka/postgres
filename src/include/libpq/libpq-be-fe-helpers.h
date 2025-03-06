@@ -209,7 +209,7 @@ libpqsrv_connect_internal(PGconn *conn, uint32 wait_event_info)
 			else
 				io_flag = WL_SOCKET_WRITEABLE;
 
-			rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK,
+			rc = WaitInterruptOrSocket(CheckForInterruptsMask,
 									   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT | io_flag,
 									   PQsocket(conn),
 									   0,
@@ -338,7 +338,7 @@ libpqsrv_get_result(PGconn *conn, uint32 wait_event_info)
 	{
 		int			rc;
 
-		rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK,
+		rc = WaitInterruptOrSocket(CheckForInterruptsMask,
 								   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT |
 								   WL_SOCKET_READABLE,
 								   PQsocket(conn),
@@ -430,7 +430,7 @@ libpqsrv_cancel(PGconn *conn, TimestampTz endtime)
 			}
 
 			/* Sleep until there's something to do */
-			WaitInterruptOrSocket(INTERRUPT_CFI_MASK, waitEvents,
+			WaitInterruptOrSocket(CheckForInterruptsMask, waitEvents,
 								  PQcancelSocket(cancel_conn),
 								  cur_timeout, PG_WAIT_CLIENT);
 

@@ -3261,7 +3261,7 @@ lazy_truncate_heap(LVRelState *vacrel)
 				return;
 			}
 
-			(void) WaitInterrupt(INTERRUPT_CFI_MASK,
+			(void) WaitInterrupt(CheckForInterruptsMask,
 								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								 VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL,
 								 WAIT_EVENT_VACUUM_TRUNCATE);

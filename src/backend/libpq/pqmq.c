@@ -178,7 +178,7 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 		if (result != SHM_MQ_WOULD_BLOCK)
 			break;
 
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE);
 		ClearInterrupt(INTERRUPT_GENERAL);

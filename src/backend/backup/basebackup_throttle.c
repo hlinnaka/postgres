@@ -169,7 +169,7 @@ throttle(bbsink_throttle *sink, size_t increment)
 		 * (TAR_SEND_SIZE / throttling_sample * elapsed_min_unit) should be
 		 * the maximum time to sleep. Thus the cast to long is safe.
 		 */
-		wait_result = WaitInterrupt(INTERRUPT_CFI_MASK,
+		wait_result = WaitInterrupt(CheckForInterruptsMask,
 									WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 									(long) (sleep / 1000),
 									WAIT_EVENT_BASE_BACKUP_THROTTLE);

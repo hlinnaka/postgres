@@ -205,7 +205,7 @@ pg_wait_until_termination(int pid, int64 timeout)
 		/* Process interrupts, if any, before waiting */
 		CHECK_FOR_INTERRUPTS();
 
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 waittime,
 							 WAIT_EVENT_BACKEND_TERMINATION);

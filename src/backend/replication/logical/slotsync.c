@@ -1274,7 +1274,7 @@ wait_for_slot_activity(bool some_slot_updated)
 		sleep_ms = MIN_SLOTSYNC_WORKER_NAPTIME_MS;
 	}
 
-	rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+	rc = WaitInterrupt(CheckForInterruptsMask |
 					   INTERRUPT_GENERAL |
 					   INTERRUPT_CONFIG_RELOAD,
 					   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
@@ -1612,7 +1612,7 @@ ShutDownSlotSync(void)
 		int			rc;
 
 		/* Wait a bit, we don't expect to have to wait long */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+		rc = WaitInterrupt(CheckForInterruptsMask |
 						   INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   10L, WAIT_EVENT_REPLICATION_SLOTSYNC_SHUTDOWN);

@@ -514,7 +514,7 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 				 * avoiding some system calls.
 				 */
 				Assert(wait_fd != PGINVALID_SOCKET);
-				rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+				rc = WaitInterruptOrSocket(CheckForInterruptsMask |
 										   INTERRUPT_SHUTDOWN_AUX |
 										   INTERRUPT_CONFIG_RELOAD |
 										   INTERRUPT_GENERAL,
@@ -705,7 +705,7 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 		}
 		SpinLockRelease(&walrcv->mutex);
 
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK |
+		(void) WaitInterrupt(CheckForInterruptsMask |
 							 INTERRUPT_SHUTDOWN_AUX |
 							 INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,

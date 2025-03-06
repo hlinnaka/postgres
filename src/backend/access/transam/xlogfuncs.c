@@ -725,7 +725,7 @@ pg_promote(PG_FUNCTION_ARGS)
 
 		CHECK_FOR_INTERRUPTS();
 
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK,
+		rc = WaitInterrupt(CheckForInterruptsMask,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 						   1000L / WAITS_PER_SECOND,
 						   WAIT_EVENT_PROMOTE);

@@ -237,7 +237,7 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	 * We can deal with that edge case by pretending no workers were
 	 * requested.
 	 */
-	if (!INTERRUPTS_CAN_BE_PROCESSED(INTERRUPT_CFI_MASK))
+	if (!INTERRUPTS_CAN_BE_PROCESSED(CheckForInterruptsMask))
 		pcxt->nworkers = 0;
 
 	/*
@@ -758,7 +758,7 @@ WaitForParallelWorkersToAttach(ParallelContext *pcxt)
 				 * reason, but if so we'll just end up waiting for the same
 				 * worker again.
 				 */
-				rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+				rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 								   WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 								   -1, WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -881,7 +881,7 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 			}
 		}
 
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
 							 WAIT_EVENT_PARALLEL_FINISH);
 		ClearInterrupt(INTERRUPT_GENERAL);

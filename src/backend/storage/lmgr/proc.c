@@ -1454,7 +1454,7 @@ ProcSleep(LOCALLOCK *locallock)
 		}
 		else
 		{
-			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
 			/* check for deadlocks first, as that's probably log-worthy */

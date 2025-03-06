@@ -9524,7 +9524,7 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 				reported_waiting = true;
 			}
 
-			(void) WaitInterrupt(INTERRUPT_CFI_MASK,
+			(void) WaitInterrupt(CheckForInterruptsMask,
 								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								 1000L,
 								 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);

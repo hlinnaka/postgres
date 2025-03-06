@@ -1016,7 +1016,7 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 			 * interrupt at top of loop, because setting an already-set
 			 * interrupt is much cheaper than setting one that has been reset.
 			 */
-			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 WAIT_EVENT_MESSAGE_QUEUE_SEND);
 
@@ -1163,7 +1163,7 @@ shm_mq_receive_bytes(shm_mq_handle *mqh, Size bytes_needed, bool nowait,
 		 * loop, because setting an already-set interrupt is much cheaper than
 		 * setting one that has been cleared.
 		 */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 WAIT_EVENT_MESSAGE_QUEUE_RECEIVE);
 
@@ -1253,7 +1253,7 @@ shm_mq_wait_internal(shm_mq *mq, PGPROC **ptr, BackgroundWorkerHandle *handle)
 		}
 
 		/* Wait to be signaled. */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 WAIT_EVENT_MESSAGE_QUEUE_INTERNAL);
 

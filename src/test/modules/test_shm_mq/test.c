@@ -241,7 +241,7 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 			 * they have read or written data and therefore there may now be
 			 * work for us to do.
 			 */
-			(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 we_message_queue);
 			CHECK_FOR_INTERRUPTS();

@@ -3749,7 +3749,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		else
 			wait_time = NAPTIME_PER_CYCLE;
 
-		rc = WaitInterruptOrSocket(INTERRUPT_CFI_MASK |
+		rc = WaitInterruptOrSocket(CheckForInterruptsMask |
 								   INTERRUPT_CONFIG_RELOAD |
 								   INTERRUPT_GENERAL,
 								   WL_SOCKET_READABLE | WL_INTERRUPT |

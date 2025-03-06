@@ -107,7 +107,7 @@ extern PGDLLIMPORT pg_atomic_uint32 *MyPendingInterrupts;
  * Flags in the pending interrupts bitmask. Each value represents one bit in
  * the bitmask.
  */
-typedef enum
+typedef enum InterruptType
 {
 	/*
 	 * INTERRUPT_GENERAL is used as a general-purpose wakeup, multiplexed for

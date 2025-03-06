@@ -217,7 +217,7 @@ worker_spi_main(Datum main_arg)
 		 * is awakened if postmaster dies.  That way the background process
 		 * goes away immediately in an emergency.
 		 */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK |
+		(void) WaitInterrupt(CheckForInterruptsMask |
 							 INTERRUPT_CONFIG_RELOAD |
 							 INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,

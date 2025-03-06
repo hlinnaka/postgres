@@ -5803,7 +5803,7 @@ LockBufferForCleanup(Buffer buffer)
 		}
 		else
 		{
-			WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+			WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 						  WAIT_EVENT_BUFFER_PIN);
 			CHECK_FOR_INTERRUPTS();

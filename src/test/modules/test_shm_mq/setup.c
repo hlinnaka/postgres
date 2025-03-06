@@ -288,7 +288,7 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 			we_bgworker_startup = WaitEventExtensionNew("TestShmMqBgWorkerStartup");
 
 		/* Wait to be signaled. */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 							 we_bgworker_startup);
 

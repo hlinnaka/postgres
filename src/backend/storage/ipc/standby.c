@@ -698,7 +698,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	}
 
 	/* Wait to be signaled by the release of the Relation Lock */
-	WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+	WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 				  PG_WAIT_LOCK | locktag.locktag_type);
 	CHECK_FOR_INTERRUPTS();
@@ -751,7 +751,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * until the relation locks are released or ltime is reached.
 		 */
 		got_standby_deadlock_timeout = false;
-		WaitInterrupt(INTERRUPT_CFI_MASK |
+		WaitInterrupt(CheckForInterruptsMask |
 					  INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 					  PG_WAIT_LOCK | locktag.locktag_type);
 		CHECK_FOR_INTERRUPTS();
@@ -854,7 +854,7 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * different interrupt flag (different latch earlier), but the signal
 	 * handler??
 	 */
-	WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+	WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 				  WAIT_EVENT_BUFFER_PIN);
 	CHECK_FOR_INTERRUPTS();

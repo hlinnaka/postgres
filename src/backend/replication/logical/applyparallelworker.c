@@ -796,7 +796,7 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 				int			rc;
 
 				/* Wait for more work. */
-				rc = WaitInterrupt(INTERRUPT_CFI_MASK |
+				rc = WaitInterrupt(CheckForInterruptsMask |
 								   INTERRUPT_SHUTDOWN_AUX |
 								   INTERRUPT_CONFIG_RELOAD |
 								   INTERRUPT_GENERAL,
@@ -1160,7 +1160,7 @@ pa_send_data(ParallelApplyWorkerInfo *winfo, Size nbytes, const void *data)
 		Assert(result == SHM_MQ_WOULD_BLOCK);
 
 		/* Wait before retrying. */
-		rc = WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   SHM_SEND_RETRY_INTERVAL_MS,
 						   WAIT_EVENT_LOGICAL_APPLY_SEND_DATA);
@@ -1232,7 +1232,7 @@ pa_wait_for_xact_state(ParallelApplyWorkerInfo *winfo,
 			break;
 
 		/* Wait to be signalled. */
-		(void) WaitInterrupt(INTERRUPT_CFI_MASK | INTERRUPT_GENERAL,
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 10L,
 							 WAIT_EVENT_LOGICAL_PARALLEL_APPLY_STATE_CHANGE);
