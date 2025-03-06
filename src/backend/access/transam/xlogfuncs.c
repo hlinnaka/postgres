@@ -708,6 +708,8 @@ pg_promote(PG_FUNCTION_ARGS)
 				 errmsg("failed to send signal to postmaster: %m")));
 	}
 
+	/* XXX: we could interrupt the startup process directly */
+
 	/* return immediately if waiting was not requested */
 	if (!wait)
 		PG_RETURN_BOOL(true);
@@ -718,14 +720,12 @@ pg_promote(PG_FUNCTION_ARGS)
 	{
 		int			rc;
 
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		if (!RecoveryInProgress())
 			PG_RETURN_BOOL(true);
 
 		CHECK_FOR_INTERRUPTS();
 
-		rc = WaitInterrupt(INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK(),
 						   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 						   1000L / WAITS_PER_SECOND,
 						   WAIT_EVENT_PROMOTE);

@@ -160,8 +160,8 @@ typedef struct ReplicationSlot
 	/* is this slot defined */
 	bool		in_use;
 
-	/* Who is streaming out changes for this slot? 0 in unused slots. */
-	pid_t		active_pid;
+	/* Who is streaming out changes for this slot? INVALID_PROC_NUMBER in unused slots. */
+	ProcNumber	active_proc;
 
 	/* any outstanding modifications? */
 	bool		just_dirtied;
@@ -187,7 +187,7 @@ typedef struct ReplicationSlot
 	/* is somebody performing io on this slot? */
 	LWLock		io_in_progress_lock;
 
-	/* Condition variable signaled when active_pid changes */
+	/* Condition variable signaled when active_proc changes */
 	ConditionVariable active_cv;
 
 	/* all the remaining data is only used for logical slots */

@@ -211,7 +211,7 @@ wait_for_relation_state_change(Oid relid, char expected_state)
 		if (!worker)
 			break;
 
-		(void) WaitInterrupt(INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
 
@@ -261,10 +261,10 @@ wait_for_worker_state_change(char expected_state)
 			break;
 
 		/*
-		 * Wait.  We expect to get an interrupt wakeup from the apply worker,
-		 * but use a timeout in case it dies without sending one.
+		 * Wait.  We expect to get an INTERRUPT_GENERAL wakeup from the apply
+		 * worker, but use a timeout in case it dies without sending one.
 		 */
-		rc = WaitInterrupt(INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
 
@@ -774,12 +774,10 @@ copy_read_data(void *outbuf, int minread, int maxread)
 		/*
 		 * Wait for more data or interrupt.
 		 */
-		(void) WaitInterruptOrSocket(INTERRUPT_GENERAL,
+		(void) WaitInterruptOrSocket(INTERRUPT_CFI_MASK(),
 									 WL_SOCKET_READABLE | WL_INTERRUPT |
 									 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 									 fd, 1000L, WAIT_EVENT_LOGICAL_SYNC_DATA);
-
-		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	return bytesread;

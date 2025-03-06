@@ -2397,8 +2397,7 @@ vacuum_delay_point(bool is_analyze)
 	/* Always check for interrupts */
 	CHECK_FOR_INTERRUPTS();
 
-	if (InterruptPending ||
-		(!VacuumCostActive && !ConfigReloadPending))
+	if (!VacuumCostActive && !IsInterruptPending(INTERRUPT_CONFIG_RELOAD))
 		return;
 
 	/*
@@ -2407,9 +2406,9 @@ vacuum_delay_point(bool is_analyze)
 	 * [autovacuum_]vacuum_cost_delay to take effect while a table is being
 	 * vacuumed or analyzed.
 	 */
-	if (ConfigReloadPending && AmAutoVacuumWorkerProcess())
+	if (IsInterruptPending(INTERRUPT_CONFIG_RELOAD) && AmAutoVacuumWorkerProcess())
 	{
-		ConfigReloadPending = false;
+		ClearInterrupt(INTERRUPT_CONFIG_RELOAD);
 		ProcessConfigFile(PGC_SIGHUP);
 		VacuumUpdateCosts();
 	}

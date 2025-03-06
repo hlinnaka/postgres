@@ -56,7 +56,6 @@
 #include "storage/fd.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "storage/smgr.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
@@ -108,7 +107,7 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN); /* not used */
 
 	/*
@@ -235,9 +234,6 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 			SetWalWriterSleeping(hibernating);
 		}
 
-		/* Clear any already-pending wakeups */
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		/* Process any signals received recently */
 		ProcessMainLoopInterrupts();
 
@@ -263,7 +259,7 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 		else
 			cur_timeout = WalWriterDelay * HIBERNATE_FACTOR;
 
-		(void) WaitInterrupt(INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_MAIN_LOOP_MASK,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 cur_timeout,
 							 WAIT_EVENT_WAL_WRITER_MAIN);

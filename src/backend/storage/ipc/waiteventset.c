@@ -1101,7 +1101,7 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 			 * synchronization so that if an interrupt bit is set after this,
 			 * the setter will wake us up.
 			 */
-			old_mask = pg_atomic_fetch_or_u32(MyPendingInterrupts, 1 << SLEEPING_ON_INTERRUPTS);
+			old_mask = pg_atomic_fetch_or_u32(MyPendingInterrupts, SLEEPING_ON_INTERRUPTS);
 			already_pending = ((old_mask & set->interrupt_mask) != 0);
 
 			/* remember to clear the SLEEPING_ON_INTERRUPTS flag later */
@@ -1176,7 +1176,7 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 
 	/* If we set the SLEEPING_ON_INTERRUPTS flag, reset it again */
 	if (sleeping_flag_armed)
-		pg_atomic_fetch_and_u32(MyPendingInterrupts, ~((uint32) 1 << SLEEPING_ON_INTERRUPTS));
+		pg_atomic_fetch_and_u32(MyPendingInterrupts, ~((uint32) SLEEPING_ON_INTERRUPTS));
 
 #ifndef WIN32
 	waiting = false;

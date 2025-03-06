@@ -1577,10 +1577,11 @@ GetSafeSnapshot(Snapshot origSnapshot)
 				 SxactIsROUnsafe(MySerializableXact)))
 		{
 			LWLockRelease(SerializableXactHashLock);
-			WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 						  WAIT_EVENT_SAFE_SNAPSHOT);
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
+			ClearInterrupt(INTERRUPT_GENERAL);
 			LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 		}
 		MySerializableXact->flags &= ~SXACT_FLAG_DEFERRABLE_WAITING;

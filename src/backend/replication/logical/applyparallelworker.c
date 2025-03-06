@@ -239,12 +239,6 @@ static List *ParallelApplyWorkerPool = NIL;
 ParallelApplyWorkerShared *MyParallelShared = NULL;
 
 /*
- * Is there a message sent by a parallel apply worker that the leader apply
- * worker needs to receive?
- */
-volatile sig_atomic_t ParallelApplyMessagePending = false;
-
-/*
  * Cache the parallel apply worker information required for applying the
  * current streaming transaction. It is used to save the cost of searching the
  * hash table when applying the changes between STREAM_START and STREAM_STOP.
@@ -713,7 +707,7 @@ ProcessParallelApplyInterrupts(void)
 {
 	CHECK_FOR_INTERRUPTS();
 
-	if (ShutdownRequestPending)
+	if (IsInterruptPending(INTERRUPT_SHUTDOWN_AUX))
 	{
 		ereport(LOG,
 				(errmsg("logical replication parallel apply worker for subscription \"%s\" has finished",
@@ -722,11 +716,8 @@ ProcessParallelApplyInterrupts(void)
 		proc_exit(0);
 	}
 
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		ProcessConfigFile(PGC_SIGHUP);
-	}
 }
 
 /* Parallel apply worker main loop. */
@@ -804,7 +795,10 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 				int			rc;
 
 				/* Wait for more work. */
-				rc = WaitInterrupt(INTERRUPT_GENERAL,
+				rc = WaitInterrupt(INTERRUPT_CFI_MASK() |
+								   INTERRUPT_SHUTDOWN_AUX |
+								   INTERRUPT_CONFIG_RELOAD |
+								   INTERRUPT_GENERAL,
 								   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								   1000L,
 								   WAIT_EVENT_LOGICAL_PARALLEL_APPLY_MAIN);
@@ -843,9 +837,8 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 static void
 pa_shutdown(int code, Datum arg)
 {
-	SendProcSignal(MyLogicalRepWorker->leader_pid,
-				   PROCSIG_PARALLEL_APPLY_MESSAGE,
-				   INVALID_PROC_NUMBER);
+	SendInterrupt(INTERRUPT_PARALLEL_APPLY_MESSAGE,
+				  MyLogicalRepWorker->leader_pgprocno);
 
 	dsm_detach((dsm_segment *) DatumGetPointer(arg));
 }
@@ -933,8 +926,7 @@ ParallelApplyWorkerMain(Datum main_arg)
 	error_mqh = shm_mq_attach(mq, seg, NULL);
 
 	pq_redirect_to_shm_mq(seg, error_mqh);
-	pq_set_parallel_leader(MyLogicalRepWorker->leader_pid,
-						   INVALID_PROC_NUMBER);
+	pq_set_parallel_leader(MyLogicalRepWorker->leader_pgprocno);
 
 	MyLogicalRepWorker->last_send_time = MyLogicalRepWorker->last_recv_time =
 		MyLogicalRepWorker->reply_time = 0;
@@ -976,21 +968,6 @@ ParallelApplyWorkerMain(Datum main_arg)
 	 * code to reach here.
 	 */
 	Assert(false);
-}
-
-/*
- * Handle receipt of an interrupt indicating a parallel apply worker message.
- *
- * Note: this is called within a signal handler! All we can do is set a flag
- * that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessParallelApplyMessages().
- */
-void
-HandleParallelApplyMessageInterrupt(void)
-{
-	InterruptPending = true;
-	ParallelApplyMessagePending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
 }
 
 /*
@@ -1057,7 +1034,7 @@ ProcessParallelApplyMessage(StringInfo msg)
 }
 
 /*
- * Handle any queued protocol messages received from parallel apply workers.
+ * Process any queued protocol messages received from parallel apply workers.
  */
 void
 ProcessParallelApplyMessages(void)
@@ -1090,7 +1067,7 @@ ProcessParallelApplyMessages(void)
 
 	oldcontext = MemoryContextSwitchTo(hpam_context);
 
-	ParallelApplyMessagePending = false;
+	ClearInterrupt(INTERRUPT_PARALLEL_APPLY_MESSAGE);
 
 	foreach(lc, ParallelApplyWorkerPool)
 	{
@@ -1182,15 +1159,15 @@ pa_send_data(ParallelApplyWorkerInfo *winfo, Size nbytes, const void *data)
 		Assert(result == SHM_MQ_WOULD_BLOCK);
 
 		/* Wait before retrying. */
-		rc = WaitInterrupt(INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						   SHM_SEND_RETRY_INTERVAL_MS,
 						   WAIT_EVENT_LOGICAL_APPLY_SEND_DATA);
 
 		if (rc & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
+			ClearInterrupt(INTERRUPT_GENERAL);
 		}
 
 		if (startTime == 0)
@@ -1254,16 +1231,16 @@ pa_wait_for_xact_state(ParallelApplyWorkerInfo *winfo,
 			break;
 
 		/* Wait to be signalled. */
-		(void) WaitInterrupt(INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 10L,
 							 WAIT_EVENT_LOGICAL_PARALLEL_APPLY_STATE_CHANGE);
 
-		/* Clear the interrupt flag so we don't spin. */
-		ClearInterrupt(INTERRUPT_GENERAL);
-
 		/* An interrupt may have occurred while we were waiting. */
 		CHECK_FOR_INTERRUPTS();
+
+		/* Clear the interrupt flag so we don't spin. */
+		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 }
 

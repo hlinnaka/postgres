@@ -39,7 +39,6 @@
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
-#include "storage/procsignal.h"
 #include "storage/smgr.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
@@ -149,7 +148,7 @@ autoprewarm_main(Datum main_arg)
 	/* Establish signal handlers; once that's done, unblock signals. */
 	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	BackgroundWorkerUnblockSignals();
 
 	/* Create (if necessary) and attach to our shared memory area. */
@@ -198,24 +197,22 @@ autoprewarm_main(Datum main_arg)
 	if (first_time)
 	{
 		apw_load_buffers();
-		final_dump_allowed = !ShutdownRequestPending;
+		final_dump_allowed = !IsInterruptPending(INTERRUPT_SHUTDOWN_AUX);
 		last_dump_time = GetCurrentTimestamp();
 	}
 
 	/* Periodically dump buffers until terminated. */
-	while (!ShutdownRequestPending)
+	while (!IsInterruptPending(INTERRUPT_SHUTDOWN_AUX))
 	{
 		/* In case of a SIGHUP, just reload the configuration. */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		if (autoprewarm_interval <= 0)
 		{
 			/* We're only dumping at shutdown, so just wait forever. */
-			(void) WaitInterrupt(INTERRUPT_GENERAL,
+			(void) WaitInterrupt(INTERRUPT_SHUTDOWN_AUX |
+								 INTERRUPT_CONFIG_RELOAD,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
 								 -1L,
 								 PG_WAIT_EXTENSION);
@@ -242,14 +239,12 @@ autoprewarm_main(Datum main_arg)
 			}
 
 			/* Sleep until the next dump time. */
-			(void) WaitInterrupt(INTERRUPT_GENERAL,
+			(void) WaitInterrupt(INTERRUPT_SHUTDOWN_AUX |
+								 INTERRUPT_CONFIG_RELOAD,
 								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 								 delay_in_ms,
 								 PG_WAIT_EXTENSION);
 		}
-
-		/* Reset the latch, loop. */
-		ClearInterrupt(INTERRUPT_GENERAL);
 	}
 
 	/*
@@ -394,7 +389,7 @@ apw_load_buffers(void)
 		 * Likewise, don't launch if we've already been told to shut down.
 		 * (The launch would fail anyway, but we might as well skip it.)
 		 */
-		if (ShutdownRequestPending)
+		if (IsInterruptPending(INTERRUPT_SHUTDOWN_AUX))
 			break;
 
 		/*
@@ -415,7 +410,7 @@ apw_load_buffers(void)
 	LWLockRelease(&apw_state->lock);
 
 	/* Report our success, if we were able to finish. */
-	if (!ShutdownRequestPending)
+	if (!IsInterruptPending(INTERRUPT_SHUTDOWN_AUX))
 		ereport(LOG,
 				(errmsg("autoprewarm successfully prewarmed %d of %d previously-loaded blocks",
 						apw_state->prewarmed_blocks, num_elements)));

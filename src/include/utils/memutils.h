@@ -101,7 +101,6 @@ extern void MemoryContextCheck(MemoryContext context);
 #define MemoryContextCopyAndSetIdentifier(cxt, id) \
 	MemoryContextSetIdentifier(cxt, MemoryContextStrdup(cxt, id))
 
-extern void HandleLogMemoryContextInterrupt(void);
 extern void ProcessLogMemoryContextInterrupt(void);
 
 /*

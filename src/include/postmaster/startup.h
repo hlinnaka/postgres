@@ -25,6 +25,14 @@
 
 extern PGDLLIMPORT int log_startup_progress_interval;
 
+/* The set of interrupts that are processed by ProcessStartupProcInterrupts */
+#define INTERRUPT_STARTUP_PROC_MASK	(			\
+		INTERRUPT_BARRIER |						\
+		INTERRUPT_DIE |							\
+		INTERRUPT_LOG_MEMORY_CONTEXT |			\
+		INTERRUPT_CONFIG_RELOAD					\
+		)
+
 extern void ProcessStartupProcInterrupts(void);
 extern void StartupProcessMain(const void *startup_data, size_t startup_data_len) pg_attribute_noreturn();
 extern void PreRestoreCommand(void);

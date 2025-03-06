@@ -265,7 +265,6 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 {
 	int			pid = PG_GETARG_INT32(0);
 	PGPROC	   *proc;
-	ProcNumber	procNumber = INVALID_PROC_NUMBER;
 
 	/*
 	 * See if the process with given pid is a backend or an auxiliary process.
@@ -294,14 +293,13 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 		PG_RETURN_BOOL(false);
 	}
 
-	procNumber = GetNumberFromPGProc(proc);
-	if (SendProcSignal(pid, PROCSIG_LOG_MEMORY_CONTEXT, procNumber) < 0)
-	{
-		/* Again, just a warning to allow loops */
-		ereport(WARNING,
-				(errmsg("could not send signal to process %d: %m", pid)));
-		PG_RETURN_BOOL(false);
-	}
+	/*
+	 * XXX: We're not holding any locks here, so the PGPROC could get recycled
+	 * for another backend. If that happens, we'll print the memory dump of
+	 * the newly started process instead, which is confusing but otherwise
+	 * harmless.
+	 */
+	SendInterrupt(INTERRUPT_LOG_MEMORY_CONTEXT, GetNumberFromPGProc(proc));
 
 	PG_RETURN_BOOL(true);
 }

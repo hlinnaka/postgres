@@ -250,7 +250,7 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	pqsignal(SIGUSR1, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN); /* not used */
 
 	/* Advertise ourselves. */
@@ -315,7 +315,12 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 		 * So a really fast retry time doesn't seem to be especially
 		 * beneficial, and it will clutter the logs.
 		 */
-		(void) WaitInterrupt(0, WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 10000,
+		(void) WaitInterrupt(INTERRUPT_GENERAL |
+							 INTERRUPT_BARRIER |
+							 INTERRUPT_CONFIG_RELOAD |
+							 INTERRUPT_SHUTDOWN_AUX |
+							 INTERRUPT_LOG_MEMORY_CONTEXT,
+							 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 10000,
 							 WAIT_EVENT_WAL_SUMMARIZER_ERROR);
 	}
 
@@ -855,16 +860,13 @@ GetLatestLSN(TimeLineID *tli)
 static void
 ProcessWalSummarizerInterrupts(void)
 {
-	if (ProcSignalBarrierPending)
+	if (IsInterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		ProcessConfigFile(PGC_SIGHUP);
-	}
 
-	if (ShutdownRequestPending || !summarize_wal)
+	if (IsInterruptPending(INTERRUPT_SHUTDOWN_AUX) || !summarize_wal)
 	{
 		ereport(DEBUG1,
 				errmsg_internal("WAL summarizer shutting down"));
@@ -872,7 +874,7 @@ ProcessWalSummarizerInterrupts(void)
 	}
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (IsInterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 }
 
@@ -1638,7 +1640,11 @@ summarizer_wait_for_wal(void)
 	pgstat_report_wal(false);
 
 	/* OK, now sleep. */
-	(void) WaitInterrupt(INTERRUPT_GENERAL,
+	(void) WaitInterrupt(INTERRUPT_GENERAL |
+						 INTERRUPT_SHUTDOWN_AUX |
+						 INTERRUPT_CONFIG_RELOAD |
+						 INTERRUPT_BARRIER |
+						 INTERRUPT_LOG_MEMORY_CONTEXT,
 						 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						 sleep_quanta * MS_PER_SLEEP_QUANTUM,
 						 WAIT_EVENT_WAL_SUMMARIZER_WAL);

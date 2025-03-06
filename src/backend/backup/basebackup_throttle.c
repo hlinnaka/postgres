@@ -155,6 +155,8 @@ throttle(bbsink_throttle *sink, size_t increment)
 					sleep;
 		int			wait_result;
 
+		CHECK_FOR_INTERRUPTS();
+
 		/* Time elapsed since the last measurement (and possible wake up). */
 		elapsed = GetCurrentTimestamp() - sink->throttled_last;
 
@@ -163,22 +165,14 @@ throttle(bbsink_throttle *sink, size_t increment)
 		if (sleep <= 0)
 			break;
 
-		ClearInterrupt(INTERRUPT_GENERAL);
-
-		/* We're eating a wakeup, so check for interrupts */
-		CHECK_FOR_INTERRUPTS();
-
 		/*
 		 * (TAR_SEND_SIZE / throttling_sample * elapsed_min_unit) should be
 		 * the maximum time to sleep. Thus the cast to long is safe.
 		 */
-		wait_result = WaitInterrupt(INTERRUPT_GENERAL,
+		wait_result = WaitInterrupt(INTERRUPT_CFI_MASK(),
 									WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 									(long) (sleep / 1000),
 									WAIT_EVENT_BASE_BACKUP_THROTTLE);
-
-		if (wait_result & WL_INTERRUPT)
-			CHECK_FOR_INTERRUPTS();
 
 		/* Done waiting? */
 		if (wait_result & WL_TIMEOUT)

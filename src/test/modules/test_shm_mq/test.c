@@ -171,6 +171,8 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 	{
 		bool		wait = true;
 
+		ClearInterrupt(INTERRUPT_GENERAL);
+
 		/*
 		 * If we haven't yet sent the message the requisite number of times,
 		 * try again to send it now.  Note that when shm_mq_send() returns
@@ -239,9 +241,9 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 			 * they have read or written data and therefore there may now be
 			 * work for us to do.
 			 */
-			(void) WaitInterrupt(INTERRUPT_GENERAL, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+			(void) WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 we_message_queue);
-			ClearInterrupt(INTERRUPT_GENERAL);
 			CHECK_FOR_INTERRUPTS();
 		}
 	}

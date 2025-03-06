@@ -216,7 +216,9 @@ worker_spi_main(Datum main_arg)
 		 * is awakened if postmaster dies.  That way the background process
 		 * goes away immediately in an emergency.
 		 */
-		(void) WaitInterrupt(INTERRUPT_GENERAL,
+		(void) WaitInterrupt(INTERRUPT_CFI_MASK() |
+							 INTERRUPT_CONFIG_RELOAD |
+							 INTERRUPT_GENERAL,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 worker_spi_naptime * 1000L,
 							 worker_spi_wait_event_main);
@@ -227,11 +229,8 @@ worker_spi_main(Datum main_arg)
 		/*
 		 * In case of a SIGHUP, just reload the configuration.
 		 */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/*
 		 * Start a transaction on which we can run queries.  Note that each

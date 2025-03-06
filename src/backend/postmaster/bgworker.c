@@ -26,7 +26,6 @@
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/ascii.h"
@@ -751,7 +750,7 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
 		 * SIGINT is used to signal canceling the current action
 		 */
 		pqsignal(SIGINT, StatementCancelHandler);
-		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+		pqsignal(SIGUSR1, SIG_IGN);
 		pqsignal(SIGFPE, FloatExceptionHandler);
 
 		/* XXX Any other handlers needed here? */
@@ -1233,7 +1232,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 		if (status != BGWH_NOT_YET_STARTED)
 			break;
 
-		rc = WaitInterrupt(INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_STARTUP);
 
@@ -1277,7 +1276,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		if (status == BGWH_STOPPED)
 			break;
 
-		rc = WaitInterrupt(INTERRUPT_GENERAL,
+		rc = WaitInterrupt(INTERRUPT_CFI_MASK() | INTERRUPT_GENERAL,
 						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
 						   WAIT_EVENT_BGWORKER_SHUTDOWN);
 

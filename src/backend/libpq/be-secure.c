@@ -179,10 +179,11 @@ ssize_t
 secure_read(Port *port, void *ptr, size_t len)
 {
 	ssize_t		n;
+	uint32		interruptMask;
 	int			waitfor;
 
 	/* Deal with any already-pending interrupt condition. */
-	ProcessClientReadInterrupt(false);
+	interruptMask = ProcessClientReadInterrupt(false);
 
 retry:
 #ifdef USE_SSL
@@ -214,6 +215,7 @@ retry:
 		Assert(waitfor);
 
 		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, interruptMask);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_READ);
@@ -243,8 +245,7 @@ retry:
 		/* Handle interrupt. */
 		if (event.events & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
-			ProcessClientReadInterrupt(true);
+			interruptMask = ProcessClientReadInterrupt(true);
 
 			/*
 			 * We'll retry the read. Most likely it will return immediately
@@ -259,7 +260,7 @@ retry:
 	 * Process interrupts that happened during a successful (or non-blocking,
 	 * or hard-failed) read.
 	 */
-	ProcessClientReadInterrupt(false);
+	(void) ProcessClientReadInterrupt(false);
 
 	return n;
 }
@@ -306,10 +307,11 @@ ssize_t
 secure_write(Port *port, const void *ptr, size_t len)
 {
 	ssize_t		n;
+	uint32		interruptMask;
 	int			waitfor;
 
 	/* Deal with any already-pending interrupt condition. */
-	ProcessClientWriteInterrupt(false);
+	interruptMask = ProcessClientWriteInterrupt(false);
 
 retry:
 	waitfor = 0;
@@ -340,6 +342,7 @@ retry:
 		Assert(waitfor);
 
 		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, interruptMask);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_WRITE);
@@ -353,8 +356,7 @@ retry:
 		/* Handle interrupt. */
 		if (event.events & WL_INTERRUPT)
 		{
-			ClearInterrupt(INTERRUPT_GENERAL);
-			ProcessClientWriteInterrupt(true);
+			interruptMask = ProcessClientWriteInterrupt(true);
 
 			/*
 			 * We'll retry the write. Most likely it will return immediately
@@ -369,7 +371,7 @@ retry:
 	 * Process interrupts that happened during a successful (or non-blocking,
 	 * or hard-failed) write.
 	 */
-	ProcessClientWriteInterrupt(false);
+	(void) ProcessClientWriteInterrupt(false);
 
 	return n;
 }

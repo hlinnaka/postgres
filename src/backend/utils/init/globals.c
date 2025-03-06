@@ -28,21 +28,6 @@
 
 ProtocolVersion FrontendProtocol;
 
-volatile sig_atomic_t InterruptPending = false;
-volatile sig_atomic_t QueryCancelPending = false;
-volatile sig_atomic_t ProcDiePending = false;
-volatile sig_atomic_t CheckClientConnectionPending = false;
-volatile sig_atomic_t ClientConnectionLost = false;
-volatile sig_atomic_t IdleInTransactionSessionTimeoutPending = false;
-volatile sig_atomic_t TransactionTimeoutPending = false;
-volatile sig_atomic_t IdleSessionTimeoutPending = false;
-volatile sig_atomic_t ProcSignalBarrierPending = false;
-volatile sig_atomic_t LogMemoryContextPending = false;
-volatile sig_atomic_t IdleStatsUpdateTimeoutPending = false;
-volatile uint32 InterruptHoldoffCount = 0;
-volatile uint32 QueryCancelHoldoffCount = 0;
-volatile uint32 CritSectionCount = 0;
-
 int			MyProcPid;
 pg_time_t	MyStartTime;
 TimestampTz MyStartTimestamp;

@@ -25,9 +25,7 @@
 #include "storage/waiteventset.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
-
-volatile sig_atomic_t ConfigReloadPending = false;
-volatile sig_atomic_t ShutdownRequestPending = false;
+#include "utils/resowner.h"
 
 /* A common WaitEventSet used to implement WaitInterrupt() */
 static WaitEventSet *InterruptWaitSet;
@@ -39,6 +37,10 @@ static WaitEventSet *InterruptWaitSet;
 static pg_atomic_uint32 LocalPendingInterrupts;
 
 pg_atomic_uint32 *MyPendingInterrupts = &LocalPendingInterrupts;
+
+volatile uint32 InterruptHoldoffCount = 0;
+volatile uint32 QueryCancelHoldoffCount = 0;
+volatile uint32 CritSectionCount = 0;
 
 /*
  * Switch to local interrupts.  Other backends can't send interrupts to this
@@ -128,6 +130,8 @@ SendInterrupt(uint32 interruptMask, ProcNumber pgprocno)
 
 	proc = &ProcGlobal->allProcs[pgprocno];
 	old_pending = pg_atomic_fetch_or_u32(&proc->pendingInterrupts, interruptMask);
+
+	/* need a memory barrier here? Or is WakeupOtherProc() sufficient? */
 
 	/*
 	 * If the process is currently blocked waiting for an interrupt to arrive,
@@ -283,20 +287,17 @@ WaitInterruptOrSocket(uint32 interruptMask, int wakeEvents, pgsocket sock,
 void
 ProcessMainLoopInterrupts(void)
 {
-	if (ProcSignalBarrierPending)
+	if (IsInterruptPending(INTERRUPT_BARRIER))
 		ProcessProcSignalBarrier();
 
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		ProcessConfigFile(PGC_SIGHUP);
-	}
 
-	if (ShutdownRequestPending)
+	if (IsInterruptPending(INTERRUPT_SHUTDOWN_AUX))
 		proc_exit(0);
 
 	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
+	if (IsInterruptPending(INTERRUPT_LOG_MEMORY_CONTEXT))
 		ProcessLogMemoryContextInterrupt();
 }
 
@@ -304,14 +305,13 @@ ProcessMainLoopInterrupts(void)
  * Simple signal handler for triggering a configuration reload.
  *
  * Normally, this handler would be used for SIGHUP. The idea is that code
- * which uses it would arrange to check the ConfigReloadPending flag at
- * convenient places inside main loops, or else call ProcessMainLoopInterrupts.
+ * which uses it would arrange to check the INTERRUPT_CONFIG_RELOAD interrupt at
+ * convenient places inside main loops, or else call HandleMainLoopInterrupts.
  */
 void
 SignalHandlerForConfigReload(SIGNAL_ARGS)
 {
-	ConfigReloadPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_CONFIG_RELOAD);
 }
 
 /*
@@ -348,12 +348,11 @@ SignalHandlerForCrashExit(SIGNAL_ARGS)
  * writer and the logical replication parallel apply worker exits on either
  * SIGINT or SIGTERM.
  *
- * ShutdownRequestPending should be checked at a convenient place within the
+ * INTERRUPT_SHUTDOWN_AUX should be checked at a convenient place within the
  * main loop, or else the main loop should call ProcessMainLoopInterrupts.
  */
 void
 SignalHandlerForShutdownRequest(SIGNAL_ARGS)
 {
-	ShutdownRequestPending = true;
-	RaiseInterrupt(INTERRUPT_GENERAL);
+	RaiseInterrupt(INTERRUPT_SHUTDOWN_AUX);
 }

@@ -1621,7 +1621,8 @@ ConfigurePostmasterWaitSet(bool accept_connections)
 	pm_wait_set = CreateWaitEventSet(NULL,
 									 accept_connections ? (1 + NumListenSockets) : 1);
 	AddWaitEventToSet(pm_wait_set, WL_INTERRUPT, PGINVALID_SOCKET,
-					  INTERRUPT_GENERAL, NULL);
+					  INTERRUPT_CONFIG_RELOAD | INTERRUPT_GENERAL,
+					  NULL);
 
 	if (accept_connections)
 	{
