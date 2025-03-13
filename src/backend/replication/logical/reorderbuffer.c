@@ -103,7 +103,7 @@
 #include "replication/logical.h"
 #include "replication/reorderbuffer.h"
 #include "replication/slot.h"
-#include "replication/snapbuild.h"	/* just for SnapBuildSnapDecRefcount */
+#include "replication/snapbuild.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
 #include "storage/procarray.h"
@@ -268,7 +268,6 @@ static void ReorderBufferSerializedPath(char *path, ReplicationSlot *slot,
 										TransactionId xid, XLogSegNo segno);
 static int	ReorderBufferTXNSizeCompare(const pairingheap_node *a, const pairingheap_node *b, void *arg);
 
-static void ReorderBufferFreeSnap(ReorderBuffer *rb, HistoricMVCCSnapshot snap);
 static HistoricMVCCSnapshot ReorderBufferCopySnap(ReorderBuffer *rb, HistoricMVCCSnapshot orig_snap,
 												  ReorderBufferTXN *txn, CommandId cid);
 
@@ -543,7 +542,7 @@ ReorderBufferFreeChange(ReorderBuffer *rb, ReorderBufferChange *change,
 		case REORDER_BUFFER_CHANGE_INTERNAL_SNAPSHOT:
 			if (change->data.snapshot)
 			{
-				ReorderBufferFreeSnap(rb, change->data.snapshot);
+				SnapBuildSnapDecRefcount(change->data.snapshot);
 				change->data.snapshot = NULL;
 			}
 			break;
@@ -1593,7 +1592,8 @@ ReorderBufferCleanupTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 	if (txn->snapshot_now != NULL)
 	{
 		Assert(rbtxn_is_streamed(txn));
-		ReorderBufferFreeSnap(rb, txn->snapshot_now);
+		SnapBuildSnapDecRefcount(txn->snapshot_now);
+		txn->snapshot_now = NULL;
 	}
 
 	/*
@@ -1902,7 +1902,6 @@ ReorderBufferCopySnap(ReorderBuffer *rb, HistoricMVCCSnapshot orig_snap,
 	snap = MemoryContextAllocZero(rb->context, size);
 	memcpy(snap, orig_snap, sizeof(HistoricMVCCSnapshotData));
 
-	snap->copied = true;
 	snap->refcount = 1;			/* mark as active so nobody frees it */
 	snap->regd_count = 0;
 	snap->committed_xids = (TransactionId *) (snap + 1);
@@ -1940,18 +1939,6 @@ ReorderBufferCopySnap(ReorderBuffer *rb, HistoricMVCCSnapshot orig_snap,
 	snap->curcid = cid;
 
 	return snap;
-}
-
-/*
- * Free a previously ReorderBufferCopySnap'ed snapshot
- */
-static void
-ReorderBufferFreeSnap(ReorderBuffer *rb, HistoricMVCCSnapshot snap)
-{
-	if (snap->copied)
-		pfree(snap);
-	else
-		SnapBuildSnapDecRefcount(snap);
 }
 
 /*
@@ -2104,11 +2091,8 @@ ReorderBufferSaveTXNSnapshot(ReorderBuffer *rb, ReorderBufferTXN *txn,
 	txn->command_id = command_id;
 
 	/* Avoid copying if it's already copied. */
-	if (snapshot_now->copied)
-		txn->snapshot_now = snapshot_now;
-	else
-		txn->snapshot_now = ReorderBufferCopySnap(rb, snapshot_now,
-												  txn, command_id);
+	txn->snapshot_now = snapshot_now;
+	SnapBuildSnapIncRefcount(txn->snapshot_now);
 }
 
 /*
@@ -2208,6 +2192,8 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 
 	/* setup the initial snapshot */
 	SetupHistoricSnapshot(snapshot_now, txn->tuplecid_hash);
+	/* increase refcount for the installed historic snapshot */
+	SnapBuildSnapIncRefcount(snapshot_now);
 
 	/*
 	 * Decoding needs access to syscaches et al., which in turn use
@@ -2511,33 +2497,12 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 				case REORDER_BUFFER_CHANGE_INTERNAL_SNAPSHOT:
 					/* get rid of the old */
 					TeardownHistoricSnapshot(false);
-
-					if (snapshot_now->copied)
-					{
-						ReorderBufferFreeSnap(rb, snapshot_now);
-						snapshot_now =
-							ReorderBufferCopySnap(rb, change->data.snapshot,
-												  txn, command_id);
-					}
-
-					/*
-					 * Restored from disk, need to be careful not to double
-					 * free. We could introduce refcounting for that, but for
-					 * now this seems infrequent enough not to care.
-					 */
-					else if (change->data.snapshot->copied)
-					{
-						snapshot_now =
-							ReorderBufferCopySnap(rb, change->data.snapshot,
-												  txn, command_id);
-					}
-					else
-					{
-						snapshot_now = change->data.snapshot;
-					}
+					SnapBuildSnapDecRefcount(snapshot_now);
 
 					/* and continue with the new one */
+					snapshot_now = change->data.snapshot;
 					SetupHistoricSnapshot(snapshot_now, txn->tuplecid_hash);
+					SnapBuildSnapIncRefcount(snapshot_now);
 					break;
 
 				case REORDER_BUFFER_CHANGE_INTERNAL_COMMAND_ID:
@@ -2547,16 +2512,26 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 					{
 						command_id = change->data.command_id;
 
-						if (!snapshot_now->copied)
+						TeardownHistoricSnapshot(false);
+
+						/*
+						 * Construct a new snapshot with the new command ID.
+						 *
+						 * If this is the only reference to the snapshot, and
+						 * it's a "copied" snapshot that already contains all
+						 * the replayed transaction's XIDs (curxnct > 0), we
+						 * can take a shortcut and update the snapshot's
+						 * command ID in place.
+						 */
+						if (snapshot_now->refcount == 1 && snapshot_now->curxcnt > 0)
+							snapshot_now->curcid = command_id;
+						else
 						{
-							/* we don't use the global one anymore */
+							SnapBuildSnapDecRefcount(snapshot_now);
 							snapshot_now = ReorderBufferCopySnap(rb, snapshot_now,
 																 txn, command_id);
 						}
 
-						snapshot_now->curcid = command_id;
-
-						TeardownHistoricSnapshot(false);
 						SetupHistoricSnapshot(snapshot_now, txn->tuplecid_hash);
 					}
 
@@ -2646,11 +2621,11 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 		 */
 		if (streaming)
 			ReorderBufferSaveTXNSnapshot(rb, txn, snapshot_now, command_id);
-		else if (snapshot_now->copied)
-			ReorderBufferFreeSnap(rb, snapshot_now);
 
 		/* cleanup */
 		TeardownHistoricSnapshot(false);
+		SnapBuildSnapDecRefcount(snapshot_now);
+		snapshot_now = NULL;
 
 		/*
 		 * Aborting the current (sub-)transaction as a whole has the right
@@ -2704,6 +2679,11 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 		TeardownHistoricSnapshot(true);
 
 		/*
+		 * don't decrement the refcount on snapshot_now yet, we still use it
+		 * in the ReorderBufferResetTXN() call below.
+		 */
+
+		/*
 		 * Force cache invalidation to happen outside of a valid transaction
 		 * to prevent catalog access as we just caught an error.
 		 */
@@ -2751,9 +2731,15 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 			ReorderBufferResetTXN(rb, txn, snapshot_now,
 								  command_id, prev_lsn,
 								  specinsert);
+
+			SnapBuildSnapDecRefcount(snapshot_now);
+			snapshot_now = NULL;
 		}
 		else
 		{
+			SnapBuildSnapDecRefcount(snapshot_now);
+			snapshot_now = NULL;
+
 			ReorderBufferCleanupTXN(rb, txn);
 			MemoryContextSwitchTo(ecxt);
 			PG_RE_THROW();
@@ -4256,8 +4242,7 @@ ReorderBufferStreamTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 											 txn, command_id);
 
 		/* Free the previously copied snapshot. */
-		Assert(txn->snapshot_now->copied);
-		ReorderBufferFreeSnap(rb, txn->snapshot_now);
+		SnapBuildSnapDecRefcount(txn->snapshot_now);
 		txn->snapshot_now = NULL;
 	}
 
@@ -4647,7 +4632,7 @@ ReorderBufferRestoreChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 				newsnap->committed_xids = (TransactionId *)
 					(((char *) newsnap) + sizeof(HistoricMVCCSnapshotData));
 				newsnap->curxip = newsnap->committed_xids + newsnap->xcnt;
-				newsnap->copied = true;
+				newsnap->refcount = 1;
 				break;
 			}
 			/* the base struct contains all the data, easy peasy */

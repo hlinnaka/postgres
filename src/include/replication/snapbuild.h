@@ -70,6 +70,7 @@ extern SnapBuild *AllocateSnapshotBuilder(struct ReorderBuffer *reorder,
 										  XLogRecPtr two_phase_at);
 extern void FreeSnapshotBuilder(SnapBuild *builder);
 
+extern void SnapBuildSnapIncRefcount(HistoricMVCCSnapshot snap);
 extern void SnapBuildSnapDecRefcount(HistoricMVCCSnapshot snap);
 
 extern MVCCSnapshot SnapBuildInitialSnapshot(SnapBuild *builder);
