@@ -67,8 +67,8 @@
  * In addition to snapshots pushed to the active snapshot stack, a snapshot
  * can be registered with a resource owner.
  *
- * The FirstXactSnapshot, if any, is treated a bit specially: we increment its
- * regd_count and list it in RegisteredSnapshots, but this reference is not
+ * If FirstXactSnapshotRegistered is set, we increment the static
+ * CurrentSnapshotData's regd_count and list it in RegisteredSnapshots, but this reference is not
  * tracked by a resource owner. We used to use the TopTransactionResourceOwner
  * to track this snapshot reference, but that introduces logical circularity
  * and thus makes it impossible to clean up in a sane fashion.  It's better to
@@ -145,9 +145,6 @@ SnapshotData SnapshotAnyData = {SNAPSHOT_ANY};
 SnapshotData SnapshotToastData = {SNAPSHOT_TOAST};
 
 /* Pointers to valid snapshots */
-static MVCCSnapshot CurrentSnapshot = NULL;
-static MVCCSnapshot SecondarySnapshot = NULL;
-static MVCCSnapshot CatalogSnapshot = NULL;
 static HistoricMVCCSnapshot HistoricSnapshot = NULL;
 
 /*
@@ -196,7 +193,7 @@ bool		FirstSnapshotSet = false;
  * FirstSnapshotSet in combination with IsolationUsesXactSnapshot(), because
  * GUC may be reset before us, changing the value of IsolationUsesXactSnapshot.
  */
-static MVCCSnapshot FirstXactSnapshot = NULL;
+static bool FirstXactSnapshotRegistered = false;
 
 /* Define pathname of exported-snapshot files */
 #define SNAPSHOT_EXPORT_DIR "pg_snapshots"
@@ -288,7 +285,7 @@ GetTransactionSnapshot(void)
 		InvalidateCatalogSnapshot();
 
 		Assert(pairingheap_is_empty(&RegisteredSnapshots));
-		Assert(FirstXactSnapshot == NULL);
+		Assert(!FirstXactSnapshotRegistered);
 
 		if (IsInParallelMode())
 			elog(ERROR,
@@ -296,42 +293,44 @@ GetTransactionSnapshot(void)
 
 		/*
 		 * In transaction-snapshot mode, the first snapshot must live until
-		 * end of xact regardless of what the caller does with it, so we must
-		 * make a copy of it rather than returning CurrentSnapshotData
-		 * directly.  Furthermore, if we're running in serializable mode,
-		 * predicate.c needs to wrap the snapshot fetch in its own processing.
+		 * end of xact regardless of what the caller does with it, so we keep
+		 * it in RegisteredSnapshots even though it's not tracked by any
+		 * resource owner.  Furthermore, if we're running in serializable
+		 * mode, predicate.c needs to wrap the snapshot fetch in its own
+		 * processing.
 		 */
 		if (IsolationUsesXactSnapshot())
 		{
 			/* First, create the snapshot in CurrentSnapshotData */
 			if (IsolationIsSerializable())
-				CurrentSnapshot = GetSerializableTransactionSnapshot(&CurrentSnapshotData);
+				GetSerializableTransactionSnapshot(&CurrentSnapshotData);
 			else
-				CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
+				GetSnapshotData(&CurrentSnapshotData);
 
-			/* Make a saved copy */
-			CurrentSnapshot = CopyMVCCSnapshot(CurrentSnapshot);
-			FirstXactSnapshot = CurrentSnapshot;
-			/* Mark it as "registered" in FirstXactSnapshot */
-			FirstXactSnapshot->regd_count++;
-			pairingheap_add(&RegisteredSnapshots, &FirstXactSnapshot->ph_node);
+			/* Mark it as "registered" */
+			CurrentSnapshotData.regd_count++;
+			FirstXactSnapshotRegistered = true;
+			pairingheap_add(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
 		}
 		else
-			CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
+			GetSnapshotData(&CurrentSnapshotData);
 
 		FirstSnapshotSet = true;
-		return (Snapshot) CurrentSnapshot;
+		return (Snapshot) &CurrentSnapshotData;
 	}
 
 	if (IsolationUsesXactSnapshot())
-		return (Snapshot) CurrentSnapshot;
+	{
+		Assert(CurrentSnapshotData.valid);
+		return (Snapshot) &CurrentSnapshotData;
+	}
 
 	/* Don't allow catalog snapshot to be older than xact snapshot. */
 	InvalidateCatalogSnapshot();
 
-	CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
+	GetSnapshotData(&CurrentSnapshotData);
 
-	return (Snapshot) CurrentSnapshot;
+	return (Snapshot) &CurrentSnapshotData;
 }
 
 /*
@@ -360,9 +359,9 @@ GetLatestSnapshot(void)
 	if (!FirstSnapshotSet)
 		return GetTransactionSnapshot();
 
-	SecondarySnapshot = GetSnapshotData(&SecondarySnapshotData);
+	GetSnapshotData(&SecondarySnapshotData);
 
-	return (Snapshot) SecondarySnapshot;
+	return (Snapshot) &SecondarySnapshotData;
 }
 
 /*
@@ -402,15 +401,15 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 	 * scan a relation for which neither catcache nor snapshot invalidations
 	 * are sent, we must refresh the snapshot every time.
 	 */
-	if (CatalogSnapshot &&
+	if (CatalogSnapshotData.valid &&
 		!RelationInvalidatesSnapshotsOnly(relid) &&
 		!RelationHasSysCache(relid))
 		InvalidateCatalogSnapshot();
 
-	if (CatalogSnapshot == NULL)
+	if (!CatalogSnapshotData.valid)
 	{
 		/* Get new snapshot. */
-		CatalogSnapshot = GetSnapshotData(&CatalogSnapshotData);
+		GetSnapshotData(&CatalogSnapshotData);
 
 		/*
 		 * Make sure the catalog snapshot will be accounted for in decisions
@@ -424,10 +423,10 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 		 * NB: it had better be impossible for this to throw error, since the
 		 * CatalogSnapshot pointer is already valid.
 		 */
-		pairingheap_add(&RegisteredSnapshots, &CatalogSnapshot->ph_node);
+		pairingheap_add(&RegisteredSnapshots, &CatalogSnapshotData.ph_node);
 	}
 
-	return (Snapshot) CatalogSnapshot;
+	return (Snapshot) &CatalogSnapshotData;
 }
 
 /*
@@ -443,10 +442,9 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 void
 InvalidateCatalogSnapshot(void)
 {
-	if (CatalogSnapshot)
+	if (CatalogSnapshotData.valid)
 	{
-		pairingheap_remove(&RegisteredSnapshots, &CatalogSnapshot->ph_node);
-		CatalogSnapshot = NULL;
+		pairingheap_remove(&RegisteredSnapshots, &CatalogSnapshotData.ph_node);
 		CatalogSnapshotData.valid = false;
 		SnapshotResetXmin();
 	}
@@ -465,7 +463,7 @@ InvalidateCatalogSnapshot(void)
 void
 InvalidateCatalogSnapshotConditionally(void)
 {
-	if (CatalogSnapshot &&
+	if (CatalogSnapshotData.valid &&
 		ActiveSnapshot == NULL &&
 		pairingheap_is_singular(&RegisteredSnapshots))
 		InvalidateCatalogSnapshot();
@@ -481,10 +479,10 @@ SnapshotSetCommandId(CommandId curcid)
 	if (!FirstSnapshotSet)
 		return;
 
-	if (CurrentSnapshot)
-		CurrentSnapshot->curcid = curcid;
-	if (SecondarySnapshot)
-		SecondarySnapshot->curcid = curcid;
+	if (CurrentSnapshotData.valid)
+		CurrentSnapshotData.curcid = curcid;
+	if (SecondarySnapshotData.valid)
+		SecondarySnapshotData.curcid = curcid;
 	/* Should we do the same with CatalogSnapshot? */
 }
 
@@ -507,7 +505,7 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	InvalidateCatalogSnapshot();
 
 	Assert(pairingheap_is_empty(&RegisteredSnapshots));
-	Assert(FirstXactSnapshot == NULL);
+	Assert(!FirstXactSnapshotRegistered);
 	Assert(!HistoricSnapshotActive());
 
 	/*
@@ -516,28 +514,28 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	 * CurrentSnapshotData's XID arrays have been allocated, and (2) to update
 	 * the state for GlobalVis*.
 	 */
-	CurrentSnapshot = GetSnapshotData(&CurrentSnapshotData);
+	GetSnapshotData(&CurrentSnapshotData);
 
 	/*
 	 * Now copy appropriate fields from the source snapshot.
 	 */
-	CurrentSnapshot->xmin = sourcesnap->xmin;
-	CurrentSnapshot->xmax = sourcesnap->xmax;
-	CurrentSnapshot->xcnt = sourcesnap->xcnt;
+	CurrentSnapshotData.xmin = sourcesnap->xmin;
+	CurrentSnapshotData.xmax = sourcesnap->xmax;
+	CurrentSnapshotData.xcnt = sourcesnap->xcnt;
 	Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
 	if (sourcesnap->xcnt > 0)
-		memcpy(CurrentSnapshot->xip, sourcesnap->xip,
+		memcpy(CurrentSnapshotData.xip, sourcesnap->xip,
 			   sourcesnap->xcnt * sizeof(TransactionId));
-	CurrentSnapshot->subxcnt = sourcesnap->subxcnt;
+	CurrentSnapshotData.subxcnt = sourcesnap->subxcnt;
 	Assert(sourcesnap->subxcnt <= GetMaxSnapshotSubxidCount());
 	if (sourcesnap->subxcnt > 0)
-		memcpy(CurrentSnapshot->subxip, sourcesnap->subxip,
+		memcpy(CurrentSnapshotData.subxip, sourcesnap->subxip,
 			   sourcesnap->subxcnt * sizeof(TransactionId));
-	CurrentSnapshot->suboverflowed = sourcesnap->suboverflowed;
-	CurrentSnapshot->takenDuringRecovery = sourcesnap->takenDuringRecovery;
+	CurrentSnapshotData.suboverflowed = sourcesnap->suboverflowed;
+	CurrentSnapshotData.takenDuringRecovery = sourcesnap->takenDuringRecovery;
 	/* NB: curcid should NOT be copied, it's a local matter */
 
-	CurrentSnapshot->snapXactCompletionCount = 0;
+	CurrentSnapshotData.snapXactCompletionCount = 0;
 
 	/*
 	 * Now we have to fix what GetSnapshotData did with MyProc->xmin and
@@ -552,13 +550,13 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	 */
 	if (sourceproc != NULL)
 	{
-		if (!ProcArrayInstallRestoredXmin(CurrentSnapshot->xmin, sourceproc))
+		if (!ProcArrayInstallRestoredXmin(CurrentSnapshotData.xmin, sourceproc))
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 					 errmsg("could not import the requested snapshot"),
 					 errdetail("The source transaction is not running anymore.")));
 	}
-	else if (!ProcArrayInstallImportedXmin(CurrentSnapshot->xmin, sourcevxid))
+	else if (!ProcArrayInstallImportedXmin(CurrentSnapshotData.xmin, sourcevxid))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("could not import the requested snapshot"),
@@ -567,20 +565,19 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 
 	/*
 	 * In transaction-snapshot mode, the first snapshot must live until end of
-	 * xact, so we must make a copy of it.  Furthermore, if we're running in
-	 * serializable mode, predicate.c needs to do its own processing.
+	 * xact, so we include it in RegisteredSnapshots.  Furthermore, if we're
+	 * running in serializable mode, predicate.c needs to do its own
+	 * processing.
 	 */
 	if (IsolationUsesXactSnapshot())
 	{
 		if (IsolationIsSerializable())
-			SetSerializableTransactionSnapshot(CurrentSnapshot, sourcevxid,
+			SetSerializableTransactionSnapshot(&CurrentSnapshotData, sourcevxid,
 											   sourcepid);
-		/* Make a saved copy */
-		CurrentSnapshot = CopyMVCCSnapshot(CurrentSnapshot);
-		FirstXactSnapshot = CurrentSnapshot;
-		/* Mark it as "registered" in FirstXactSnapshot */
-		FirstXactSnapshot->regd_count++;
-		pairingheap_add(&RegisteredSnapshots, &FirstXactSnapshot->ph_node);
+		/* Mark it as "registered" */
+		FirstXactSnapshotRegistered = true;
+		CurrentSnapshotData.regd_count++;
+		pairingheap_add(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
 	}
 
 	FirstSnapshotSet = true;
@@ -701,8 +698,7 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 	 * Checking SecondarySnapshot is probably useless here, but it seems
 	 * better to be sure.
 	 */
-	if (origsnap == CurrentSnapshot || origsnap == SecondarySnapshot ||
-		!origsnap->copied)
+	if (!origsnap->copied)
 		newactive->as_snap = CopyMVCCSnapshot(origsnap);
 	else
 		newactive->as_snap = origsnap;
@@ -974,12 +970,10 @@ SnapshotResetXmin(void)
 	MVCCSnapshot minSnapshot;
 
 	/*
-	 * These static snapshots are not in the RegisteredSnapshots list, so we
-	 * might advance MyProc->xmin past their xmin. (Note that in case of
-	 * IsolationUsesXactSnapshot() == true, CurrentSnapshot points to the copy
-	 * in FirstSnapshot rather than CurrentSnapshotData.)
+	 * Invalidate these static snapshots so that we can advance xmin.
 	 */
-	CurrentSnapshotData.valid = false;
+	if (!FirstXactSnapshotRegistered)
+		CurrentSnapshotData.valid = false;
 	SecondarySnapshotData.valid = false;
 
 	if (ActiveSnapshot != NULL)
@@ -1068,13 +1062,13 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	 * stacked as active, we don't want the code below to be chasing through a
 	 * dangling pointer.
 	 */
-	if (FirstXactSnapshot != NULL)
+	if (FirstXactSnapshotRegistered)
 	{
-		Assert(FirstXactSnapshot->regd_count > 0);
+		Assert(CurrentSnapshotData.regd_count > 0);
 		Assert(!pairingheap_is_empty(&RegisteredSnapshots));
-		pairingheap_remove(&RegisteredSnapshots, &FirstXactSnapshot->ph_node);
+		pairingheap_remove(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
+		FirstXactSnapshotRegistered = false;
 	}
-	FirstXactSnapshot = NULL;
 
 	/*
 	 * If we exported any snapshots, clean them up.
@@ -1132,9 +1126,8 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	ActiveSnapshot = NULL;
 	pairingheap_reset(&RegisteredSnapshots);
 
-	CurrentSnapshot = NULL;
-	SecondarySnapshot = NULL;
-
+	CurrentSnapshotData.valid = false;
+	SecondarySnapshotData.valid = false;
 	FirstSnapshotSet = false;
 
 	/*
@@ -1695,7 +1688,7 @@ HaveRegisteredOrActiveSnapshot(void)
 	 * removed at any time due to invalidation processing. If explicitly
 	 * registered more than one snapshot has to be in RegisteredSnapshots.
 	 */
-	if (CatalogSnapshot != NULL &&
+	if (CatalogSnapshotData.valid &&
 		pairingheap_is_singular(&RegisteredSnapshots))
 		return false;
 
