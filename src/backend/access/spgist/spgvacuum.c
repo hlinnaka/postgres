@@ -808,7 +808,7 @@ spgvacuumscan(spgBulkDeleteState *bds)
 	/* Finish setting up spgBulkDeleteState */
 	initSpGistState(&bds->spgstate, index);
 	bds->pendingList = NULL;
-	bds->myXmin = GetActiveSnapshot()->mvcc.xmin;
+	bds->myXmin = GetActiveSnapshot()->mvcc.shared->xmin;
 	bds->lastFilledBlock = SPGIST_LAST_FIXED_BLKNO;
 
 	/*

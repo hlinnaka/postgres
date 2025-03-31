@@ -157,8 +157,8 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	Assert(queryDesc != NULL);
 	Assert(queryDesc->estate == NULL);
 
-	/* caller must ensure the query's snapshot is active */
-	Assert(GetActiveSnapshot() == queryDesc->snapshot);
+	/* ensure the query's snapshot is active */
+	PushActiveSnapshot(queryDesc->snapshot);
 
 	/*
 	 * If the transaction is read-only, we need to check if any writes are
@@ -271,6 +271,8 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	InitPlan(queryDesc, eflags);
 
 	MemoryContextSwitchTo(oldcontext);
+
+	PopActiveSnapshot();
 
 	return ExecPlanStillValid(queryDesc->estate);
 }
@@ -390,8 +392,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	Assert(!estate->es_aborted);
 	Assert(!(estate->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY));
 
-	/* caller must ensure the query's snapshot is active */
-	Assert(GetActiveSnapshot() == estate->es_snapshot);
+	/* ensure the query's snapshot is active */
+	PushActiveSnapshot(estate->es_snapshot);
 
 	/*
 	 * Switch into per-query memory context
@@ -455,6 +457,8 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 		InstrStopNode(queryDesc->totaltime, estate->es_processed);
 
 	MemoryContextSwitchTo(oldcontext);
+
+	PopActiveSnapshot();
 }
 
 /* ----------------------------------------------------------------

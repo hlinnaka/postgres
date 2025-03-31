@@ -242,8 +242,8 @@ typedef struct TransamVariablesData
 	 * Number of top-level transactions with xids (i.e. which may have
 	 * modified the database) that completed in some form since the start of
 	 * the server. This currently is solely used to check whether
-	 * GetSnapshotData() needs to recompute the contents of the snapshot, or
-	 * not. There are likely other users of this.  Always above 1.
+	 * GetMVCCSnapshotData() needs to recompute the contents of the snapshot,
+	 * or not. There are likely other users of this.  Always above 1.
 	 */
 	uint64		xactCompletionCount;
 

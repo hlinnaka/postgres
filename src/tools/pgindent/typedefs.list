@@ -1636,6 +1636,8 @@ MINIDUMP_TYPE
 MJEvalResult
 MTTargetRelLookup
 MVCCSnapshotData
+MVCCSnapshotKind
+MVCCSnapshotSharedData
 MVDependencies
 MVDependency
 MVNDistinct

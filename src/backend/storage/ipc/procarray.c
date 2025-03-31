@@ -62,6 +62,7 @@
 #include "storage/procarray.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 
@@ -105,7 +106,7 @@ typedef struct ProcArrayStruct
  * MVCC semantics: If the deleted row's xmax is not considered to be running
  * by anyone, the row can be removed.
  *
- * To avoid slowing down GetSnapshotData(), we don't calculate a precise
+ * To avoid slowing down GetMVCCSnapshotData(), we don't calculate a precise
  * cutoff XID while building a snapshot (looking at the frequently changing
  * xmins scales badly). Instead we compute two boundaries while building the
  * snapshot:
@@ -159,7 +160,7 @@ typedef struct ProcArrayStruct
  *
  * The boundaries are FullTransactionIds instead of TransactionIds to avoid
  * wraparound dangers. There e.g. would otherwise exist no procarray state to
- * prevent maybe_needed to become old enough after the GetSnapshotData()
+ * prevent maybe_needed to become old enough after the GetMVCCSnapshotData()
  * call.
  *
  * The typedef is in the header.
@@ -386,7 +387,7 @@ ProcArrayShmemSize(void)
 	/*
 	 * During Hot Standby processing we have a data structure called
 	 * KnownAssignedXids, created in shared memory. Local data structures are
-	 * also created in various backends during GetSnapshotData(),
+	 * also created in various backends during GetMVCCSnapshotData(),
 	 * TransactionIdIsInProgress() and GetRunningTransactionData(). All of the
 	 * main structures created in those functions must be identically sized,
 	 * since we may at times copy the whole of the data structures around. We
@@ -938,7 +939,7 @@ ProcArrayClearTransaction(PGPROC *proc)
 
 	/*
 	 * Need to increment completion count even though transaction hasn't
-	 * really committed yet. The reason for that is that GetSnapshotData()
+	 * really committed yet. The reason for that is that GetMVCCSnapshotData()
 	 * omits the xid of the current transaction, thus without the increment we
 	 * otherwise could end up reusing the snapshot later. Which would be bad,
 	 * because it might not count the prepared transaction as running.
@@ -2083,7 +2084,7 @@ GetMaxSnapshotSubxidCount(void)
 }
 
 /*
- * Helper function for GetSnapshotData() that checks if the bulk of the
+ * Helper function for GetMVCCSnapshotData() that checks if the bulk of the
  * visibility information in the snapshot is still valid. If so, it updates
  * the fields that need to change and returns true. Otherwise it returns
  * false.
@@ -2092,7 +2093,7 @@ GetMaxSnapshotSubxidCount(void)
  * least in the case we already hold a snapshot), but that's for another day.
  */
 static bool
-GetSnapshotDataReuse(MVCCSnapshot snapshot)
+GetMVCCSnapshotDataReuse(MVCCSnapshotShared snapshot)
 {
 	uint64		curXactCompletionCount;
 
@@ -2112,17 +2113,18 @@ GetSnapshotDataReuse(MVCCSnapshot snapshot)
 	 * contents:
 	 *
 	 * As explained in transam/README, the set of xids considered running by
-	 * GetSnapshotData() cannot change while ProcArrayLock is held. Snapshot
-	 * contents only depend on transactions with xids and xactCompletionCount
-	 * is incremented whenever a transaction with an xid finishes (while
-	 * holding ProcArrayLock exclusively). Thus the xactCompletionCount check
-	 * ensures we would detect if the snapshot would have changed.
+	 * GetMVCCSnapshotData() cannot change while ProcArrayLock is held.
+	 * Snapshot contents only depend on transactions with xids and
+	 * xactCompletionCount is incremented whenever a transaction with an xid
+	 * finishes (while holding ProcArrayLock exclusively). Thus the
+	 * xactCompletionCount check ensures we would detect if the snapshot would
+	 * have changed.
 	 *
 	 * As the snapshot contents are the same as it was before, it is safe to
 	 * re-enter the snapshot's xmin into the PGPROC array. None of the rows
 	 * visible under the snapshot could already have been removed (that'd
 	 * require the set of running transactions to change) and it fulfills the
-	 * requirement that concurrent GetSnapshotData() calls yield the same
+	 * requirement that concurrent GetMVCCSnapshotData() calls yield the same
 	 * xmin.
 	 */
 	if (!TransactionIdIsValid(MyProc->xmin))
@@ -2131,17 +2133,11 @@ GetSnapshotDataReuse(MVCCSnapshot snapshot)
 	RecentXmin = snapshot->xmin;
 	Assert(TransactionIdPrecedesOrEquals(TransactionXmin, RecentXmin));
 
-	snapshot->curcid = GetCurrentCommandId(false);
-	snapshot->active_count = 0;
-	snapshot->regd_count = 0;
-	snapshot->copied = false;
-	snapshot->valid = true;
-
 	return true;
 }
 
 /*
- * GetSnapshotData -- returns information about running transactions.
+ * GetMVCCSnapshotData -- returns information about running transactions.
  *
  * The returned snapshot includes xmin (lowest still-running xact ID),
  * xmax (highest completed xact ID + 1), and a list of running xact IDs
@@ -2168,12 +2164,9 @@ GetSnapshotDataReuse(MVCCSnapshot snapshot)
  *
  * And try to advance the bounds of GlobalVis{Shared,Catalog,Data,Temp}Rels
  * for the benefit of the GlobalVisTest* family of functions.
- *
- * Note: this function should probably not be called with an argument that's
- * not statically allocated (see xip allocation below).
  */
-MVCCSnapshot
-GetSnapshotData(MVCCSnapshot snapshot)
+MVCCSnapshotShared
+GetMVCCSnapshotData(void)
 {
 	ProcArrayStruct *arrayP = procArray;
 	TransactionId *other_xids = ProcGlobal->xids;
@@ -2187,43 +2180,34 @@ GetSnapshotData(MVCCSnapshot snapshot)
 	int			mypgxactoff;
 	TransactionId myxid;
 	uint64		curXactCompletionCount;
+	MVCCSnapshotShared snapshot;
 
 	TransactionId replication_slot_xmin = InvalidTransactionId;
 	TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 
-	Assert(snapshot != NULL);
-
-	/*
-	 * Allocating space for maxProcs xids is usually overkill; numProcs would
-	 * be sufficient.  But it seems better to do the malloc while not holding
-	 * the lock, so we can't look at numProcs.  Likewise, we allocate much
-	 * more subxip storage than is probably needed.
+	/*---
+	 * Allocate an MVCCSnapshotShared struct.  There are three cases:
 	 *
-	 * This does open a possibility for avoiding repeated malloc/free: since
-	 * maxProcs does not change at runtime, we can simply reuse the previous
-	 * xip arrays if any.  (This relies on the fact that all callers pass
-	 * static SnapshotData structs.)
+	 * 1. No transactions have completed since the last call: we can reuse the
+	 *    latest snapshot information.  See GetMVCCSnapshotDataReuse().
+	 *
+	 * 2. Need to recalculate the snapshot, and 'latestSnapshotShared' is not
+	 *    currently in use by any snapshot.  We can overwrite its contents.
+	 *
+	 * 3. Need to recalculate the XID list and 'latestSnapshotShared' is still
+	 *    in use.  We need to allocate a new MVCCSnapshotShared struct.
+	 *
+	 * We don't know if 'latestSnapshotShared' can be reused before we acquire
+	 * the lock, but if we do need to allocate, we want to do it before
+	 * acquiring the lock.  Therefore, we always make the allocation if we
+	 * might need it and if it turns out to have been unnecessary, we stash
+	 * away the allocated struct in 'spareSnapshotShared' to be reused on next
+	 * call.  This way, the unnecessary allocation is very cheap.
 	 */
-	if (snapshot->xip == NULL)
-	{
-		/*
-		 * First call for this snapshot. Snapshot is same size whether or not
-		 * we are in recovery, see later comments.
-		 */
-		snapshot->xip = (TransactionId *)
-			malloc(GetMaxSnapshotXidCount() * sizeof(TransactionId));
-		if (snapshot->xip == NULL)
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
-		Assert(snapshot->subxip == NULL);
-		snapshot->subxip = (TransactionId *)
-			malloc(GetMaxSnapshotSubxidCount() * sizeof(TransactionId));
-		if (snapshot->subxip == NULL)
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("out of memory")));
-	}
+	if (latestSnapshotShared && latestSnapshotShared->refcount == 0)
+		snapshot = latestSnapshotShared;	/* case 1 or 2 */
+	else
+		snapshot = AllocMVCCSnapshotShared();	/* case 1 or 3 */
 
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
@@ -2231,10 +2215,14 @@ GetSnapshotData(MVCCSnapshot snapshot)
 	 */
 	LWLockAcquire(ProcArrayLock, LW_SHARED);
 
-	if (GetSnapshotDataReuse(snapshot))
+	if (latestSnapshotShared && GetMVCCSnapshotDataReuse(latestSnapshotShared))
 	{
 		LWLockRelease(ProcArrayLock);
-		return snapshot;
+
+		/* if we made an allocation, stash it away for next call */
+		if (snapshot != latestSnapshotShared)
+			spareSnapshotShared = snapshot;
+		return latestSnapshotShared;
 	}
 
 	latest_completed = TransamVariables->latestCompletedXid;
@@ -2506,16 +2494,18 @@ GetSnapshotData(MVCCSnapshot snapshot)
 	snapshot->suboverflowed = suboverflowed;
 	snapshot->snapXactCompletionCount = curXactCompletionCount;
 
-	snapshot->curcid = GetCurrentCommandId(false);
-
 	/*
-	 * This is a new snapshot, so set both refcounts are zero, and mark it as
-	 * not copied in persistent memory.
+	 * If we allocated a new struct for this, remember that it is the latest
+	 * now and adjust the refcounts accordingly.
 	 */
-	snapshot->active_count = 0;
-	snapshot->regd_count = 0;
-	snapshot->copied = false;
-	snapshot->valid = true;
+	if (snapshot != latestSnapshotShared)
+	{
+		Assert(snapshot->refcount == 0);
+
+		if (latestSnapshotShared && latestSnapshotShared->refcount == 0)
+			FreeMVCCSnapshotShared(latestSnapshotShared);
+		latestSnapshotShared = snapshot;
+	}
 
 	return snapshot;
 }
@@ -2585,10 +2575,10 @@ ProcArrayInstallImportedXmin(TransactionId xmin,
 			continue;
 
 		/*
-		 * We're good.  Install the new xmin.  As in GetSnapshotData, set
+		 * We're good.  Install the new xmin.  As in GetMVCCSnapshotData, set
 		 * TransactionXmin too.  (Note that because snapmgr.c called
-		 * GetSnapshotData first, we'll be overwriting a valid xmin here, so
-		 * we don't check that.)
+		 * GetMVCCSnapshotData first, we'll be overwriting a valid xmin here,
+		 * so we don't check that.)
 		 */
 		MyProc->xmin = TransactionXmin = xmin;
 
@@ -2659,7 +2649,7 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
 /*
  * GetRunningTransactionData -- returns information about running transactions.
  *
- * Similar to GetSnapshotData but returns more information. We include
+ * Similar to GetMVCCSnapshotData but returns more information. We include
  * all PGPROCs with an assigned TransactionId, even VACUUM processes and
  * prepared transactions.
  *
@@ -2681,7 +2671,7 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
  * entries here to not hold on ProcArrayLock more than necessary.
  *
  * We don't worry about updating other counters, we want to keep this as
- * simple as possible and leave GetSnapshotData() as the primary code for
+ * simple as possible and leave GetMVCCSnapshotData() as the primary code for
  * that bookkeeping.
  *
  * Note that if any transaction has overflowed its cached subtransactions
@@ -2866,8 +2856,8 @@ GetRunningTransactionData(void)
 /*
  * GetOldestActiveTransactionId()
  *
- * Similar to GetSnapshotData but returns just oldestActiveXid. We include
- * all PGPROCs with an assigned TransactionId, even VACUUM processes.
+ * Similar to GetMVCCSnapshotData but returns just oldestActiveXid. We
+ * include all PGPROCs with an assigned TransactionId, even VACUUM processes.
  * We look at all databases, though there is no need to include WALSender
  * since this has no effect on hot standby conflicts.
  *
@@ -2875,7 +2865,7 @@ GetRunningTransactionData(void)
  * KnownAssignedXids.
  *
  * We don't worry about updating other counters, we want to keep this as
- * simple as possible and leave GetSnapshotData() as the primary code for
+ * simple as possible and leave GetMVCCSnapshotData() as the primary code for
  * that bookkeeping.
  */
 TransactionId
@@ -4356,7 +4346,7 @@ FullXidRelativeTo(FullTransactionId rel, TransactionId xid)
  * During hot standby we do not fret too much about the distinction between
  * top-level XIDs and subtransaction XIDs. We store both together in the
  * KnownAssignedXids list.  In backends, this is copied into snapshots in
- * GetSnapshotData(), taking advantage of the fact that XidInMVCCSnapshot()
+ * GetMVCCSnapshotData(), taking advantage of the fact that XidInMVCCSnapshot()
  * doesn't care about the distinction either.  Subtransaction XIDs are
  * effectively treated as top-level XIDs and in the typical case pg_subtrans
  * links are *not* maintained (which does not affect visibility).

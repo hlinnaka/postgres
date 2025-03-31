@@ -122,9 +122,6 @@
  * special-purpose code (say, RI checking.)  CatalogSnapshot points to an
  * MVCC snapshot intended to be used for catalog scans; we must invalidate it
  * whenever a system catalog change occurs.
- *
- * These SnapshotData structs are static to simplify memory allocation
- * (see the hack in GetSnapshotData to avoid repeated malloc/free).
  */
 static MVCCSnapshotData CurrentSnapshotData = {SNAPSHOT_MVCC};
 static MVCCSnapshotData SecondarySnapshotData = {SNAPSHOT_MVCC};
@@ -137,7 +134,7 @@ SnapshotData SnapshotToastData = {SNAPSHOT_TOAST};
 static HistoricMVCCSnapshot HistoricSnapshot = NULL;
 
 /*
- * These are updated by GetSnapshotData.  We initialize them this way
+ * These are updated by GetMVCCSnapshotData.  We initialize them this way
  * for the convenience of TransactionIdIsInProgress: even in bootstrap
  * mode, we don't want it to say that BootstrapTransactionId is in progress.
  */
@@ -150,14 +147,12 @@ static HTAB *tuplecid_data = NULL;
 /*
  * Elements of the active snapshot stack.
  *
- * Each element here accounts for exactly one active_count on SnapshotData.
- *
  * NB: the code assumes that elements in this list are in non-increasing
  * order of as_level; also, the list must be NULL-terminated.
  */
 typedef struct ActiveSnapshotElt
 {
-	MVCCSnapshot as_snap;
+	MVCCSnapshotData as_snap;
 	int			as_level;
 	struct ActiveSnapshotElt *as_next;
 } ActiveSnapshotElt;
@@ -188,19 +183,23 @@ static bool FirstXactSnapshotRegistered = false;
 typedef struct ExportedSnapshot
 {
 	char	   *snapfile;
-	MVCCSnapshot snapshot;
+	MVCCSnapshotShared snapshot;
 } ExportedSnapshot;
 
 /* Current xact's exported snapshots (a list of ExportedSnapshot structs) */
 static List *exportedSnapshots = NIL;
 
+MVCCSnapshotShared latestSnapshotShared = NULL;
+MVCCSnapshotShared spareSnapshotShared = NULL;
+
 /* Prototypes for local functions */
-static MVCCSnapshot CopyMVCCSnapshot(MVCCSnapshot snapshot);
+static void UpdateStaticMVCCSnapshot(MVCCSnapshot snapshot, MVCCSnapshotShared shared);
 static void UnregisterSnapshotNoOwner(Snapshot snapshot);
-static void FreeMVCCSnapshot(MVCCSnapshot snapshot);
 static void SnapshotResetXmin(void);
-static void valid_snapshots_push_tail(MVCCSnapshot snapshot);
-static void valid_snapshots_push_out_of_order(MVCCSnapshot snapshot);
+static void ReleaseMVCCSnapshotShared(MVCCSnapshotShared shared);
+static void valid_snapshots_push_tail(MVCCSnapshotShared snapshot);
+static void valid_snapshots_push_out_of_order(MVCCSnapshotShared snapshot);
+
 
 /* ResourceOwner callbacks to track snapshot references */
 static void ResOwnerReleaseSnapshot(Datum res);
@@ -266,6 +265,8 @@ GetTransactionSnapshot(void)
 	/* First call in transaction? */
 	if (!FirstSnapshotSet)
 	{
+		MVCCSnapshotShared shared;
+
 		/*
 		 * Don't allow catalog snapshot to be older than xact snapshot.  Must
 		 * do this first to allow the empty-heap Assert to succeed.
@@ -287,23 +288,18 @@ GetTransactionSnapshot(void)
 		 * mode, predicate.c needs to wrap the snapshot fetch in its own
 		 * processing.
 		 */
+		if (IsolationIsSerializable())
+			shared = GetSerializableTransactionSnapshotData();
+		else
+			shared = GetMVCCSnapshotData();
+
+		UpdateStaticMVCCSnapshot(&CurrentSnapshotData, shared);
+
 		if (IsolationUsesXactSnapshot())
 		{
-			/* First, create the snapshot in CurrentSnapshotData */
-			if (IsolationIsSerializable())
-				GetSerializableTransactionSnapshot(&CurrentSnapshotData);
-			else
-				GetSnapshotData(&CurrentSnapshotData);
-
-			/* Mark it as "registered" */
+			/* keep it */
 			FirstXactSnapshotRegistered = true;
 		}
-		else
-		{
-			GetSnapshotData(&CurrentSnapshotData);
-		}
-		valid_snapshots_push_tail(&CurrentSnapshotData);
-
 		FirstSnapshotSet = true;
 		return (Snapshot) &CurrentSnapshotData;
 	}
@@ -318,12 +314,29 @@ GetTransactionSnapshot(void)
 	/* Don't allow catalog snapshot to be older than xact snapshot. */
 	InvalidateCatalogSnapshot();
 
-	if (CurrentSnapshotData.valid)
-		dlist_delete(&CurrentSnapshotData.node);
-	GetSnapshotData(&CurrentSnapshotData);
-	valid_snapshots_push_tail(&CurrentSnapshotData);
-
+	UpdateStaticMVCCSnapshot(&CurrentSnapshotData, GetMVCCSnapshotData());
 	return (Snapshot) &CurrentSnapshotData;
+}
+
+/*
+ * Update a static snapshot with the given shared struct.
+ *
+ * If the static snapshot is previously valid, release its old 'shared'
+ * struct first.
+ */
+static void
+UpdateStaticMVCCSnapshot(MVCCSnapshot snapshot, MVCCSnapshotShared shared)
+{
+	/* Replace the 'shared' struct */
+	if (snapshot->shared)
+		ReleaseMVCCSnapshotShared(snapshot->shared);
+	snapshot->shared = shared;
+	snapshot->shared->refcount++;
+	if (snapshot->shared->refcount == 1)
+		valid_snapshots_push_tail(shared);
+
+	snapshot->curcid = GetCurrentCommandId(false);
+	snapshot->valid = true;
 }
 
 /*
@@ -352,10 +365,7 @@ GetLatestSnapshot(void)
 	if (!FirstSnapshotSet)
 		return GetTransactionSnapshot();
 
-	if (SecondarySnapshotData.valid)
-		dlist_delete(&SecondarySnapshotData.node);
-	GetSnapshotData(&SecondarySnapshotData);
-	valid_snapshots_push_tail(&SecondarySnapshotData);
+	UpdateStaticMVCCSnapshot(&SecondarySnapshotData, GetMVCCSnapshotData());
 
 	return (Snapshot) &SecondarySnapshotData;
 }
@@ -405,7 +415,7 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 	if (!CatalogSnapshotData.valid)
 	{
 		/* Get new snapshot. */
-		GetSnapshotData(&CatalogSnapshotData);
+		UpdateStaticMVCCSnapshot(&CatalogSnapshotData, GetMVCCSnapshotData());
 
 		/*
 		 * Make sure the catalog snapshot will be accounted for in decisions
@@ -419,7 +429,6 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 		 * NB: it had better be impossible for this to throw error, since the
 		 * CatalogSnapshot pointer is already valid.
 		 */
-		valid_snapshots_push_tail(&CatalogSnapshotData);
 	}
 
 	return (Snapshot) &CatalogSnapshotData;
@@ -440,17 +449,20 @@ InvalidateCatalogSnapshot(void)
 {
 	if (CatalogSnapshotData.valid)
 	{
-		dlist_delete(&CatalogSnapshotData.node);
+		ReleaseMVCCSnapshotShared(CatalogSnapshotData.shared);
+		CatalogSnapshotData.shared = NULL;
 		CatalogSnapshotData.valid = false;
 	}
 	if (!FirstXactSnapshotRegistered && CurrentSnapshotData.valid)
 	{
-		dlist_delete(&CurrentSnapshotData.node);
+		ReleaseMVCCSnapshotShared(CurrentSnapshotData.shared);
+		CurrentSnapshotData.shared = NULL;
 		CurrentSnapshotData.valid = false;
 	}
 	if (SecondarySnapshotData.valid)
 	{
-		dlist_delete(&SecondarySnapshotData.node);
+		ReleaseMVCCSnapshotShared(SecondarySnapshotData.shared);
+		SecondarySnapshotData.shared = NULL;
 		SecondarySnapshotData.valid = false;
 	}
 
@@ -465,13 +477,14 @@ InvalidateCatalogSnapshot(void)
  * want to continue holding the catalog snapshot if it might mean that the
  * global xmin horizon can't advance.  However, if there are other snapshots
  * still active or registered, the catalog snapshot isn't likely to be the
- * oldest one, so we might as well keep it.
+ * oldest one, so we might as well keep it. XXX
  */
 void
 InvalidateCatalogSnapshotConditionally(void)
 {
 	if (CatalogSnapshotData.valid &&
-		dlist_head_node(&ValidSnapshots) == &CatalogSnapshotData.node)
+		dlist_tail_node(&ValidSnapshots) == &CatalogSnapshotData.shared->node &&
+		CatalogSnapshotData.shared->refcount == 1)
 		InvalidateCatalogSnapshot();
 }
 
@@ -501,7 +514,7 @@ SnapshotSetCommandId(CommandId curcid)
  * in GetTransactionSnapshot.
  */
 static void
-SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid,
+SetTransactionSnapshot(MVCCSnapshotShared sourcesnap, VirtualTransactionId *sourcevxid,
 					   int sourcepid, PGPROC *sourceproc)
 {
 	/* Caller should have checked this already */
@@ -512,38 +525,25 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 
 	Assert(!FirstXactSnapshotRegistered);
 	Assert(!HistoricSnapshotActive());
+	Assert(sourcesnap->refcount > 0);
 
 	/*
 	 * Even though we are not going to use the snapshot it computes, we must
-	 * call GetSnapshotData, for two reasons: (1) to be sure that
-	 * CurrentSnapshotData's XID arrays have been allocated, and (2) to update
-	 * the state for GlobalVis*.
+	 * call GetMVCCSnapshotData to update the state for GlobalVis*.
 	 */
-	GetSnapshotData(&CurrentSnapshotData);
+	UpdateStaticMVCCSnapshot(&CurrentSnapshotData, GetMVCCSnapshotData());
 
 	/*
 	 * Now copy appropriate fields from the source snapshot.
 	 */
-	CurrentSnapshotData.xmin = sourcesnap->xmin;
-	CurrentSnapshotData.xmax = sourcesnap->xmax;
-	CurrentSnapshotData.xcnt = sourcesnap->xcnt;
-	Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
-	if (sourcesnap->xcnt > 0)
-		memcpy(CurrentSnapshotData.xip, sourcesnap->xip,
-			   sourcesnap->xcnt * sizeof(TransactionId));
-	CurrentSnapshotData.subxcnt = sourcesnap->subxcnt;
-	Assert(sourcesnap->subxcnt <= GetMaxSnapshotSubxidCount());
-	if (sourcesnap->subxcnt > 0)
-		memcpy(CurrentSnapshotData.subxip, sourcesnap->subxip,
-			   sourcesnap->subxcnt * sizeof(TransactionId));
-	CurrentSnapshotData.suboverflowed = sourcesnap->suboverflowed;
-	CurrentSnapshotData.takenDuringRecovery = sourcesnap->takenDuringRecovery;
+	ReleaseMVCCSnapshotShared(CurrentSnapshotData.shared);
+	CurrentSnapshotData.shared = sourcesnap;
+	CurrentSnapshotData.shared->refcount++;
+
 	/* NB: curcid should NOT be copied, it's a local matter */
 
-	CurrentSnapshotData.snapXactCompletionCount = 0;
-
 	/*
-	 * Now we have to fix what GetSnapshotData did with MyProc->xmin and
+	 * Now we have to fix what GetMVCCSnapshotData did with MyProc->xmin and
 	 * TransactionXmin.  There is a race condition: to make sure we are not
 	 * causing the global xmin to go backwards, we have to test that the
 	 * source transaction is still running, and that has to be done
@@ -555,13 +555,13 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	 */
 	if (sourceproc != NULL)
 	{
-		if (!ProcArrayInstallRestoredXmin(CurrentSnapshotData.xmin, sourceproc))
+		if (!ProcArrayInstallRestoredXmin(CurrentSnapshotData.shared->xmin, sourceproc))
 			ereport(ERROR,
 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 					 errmsg("could not import the requested snapshot"),
 					 errdetail("The source transaction is not running anymore.")));
 	}
-	else if (!ProcArrayInstallImportedXmin(CurrentSnapshotData.xmin, sourcevxid))
+	else if (!ProcArrayInstallImportedXmin(CurrentSnapshotData.shared->xmin, sourcevxid))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("could not import the requested snapshot"),
@@ -577,87 +577,13 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	if (IsolationUsesXactSnapshot())
 	{
 		if (IsolationIsSerializable())
-			SetSerializableTransactionSnapshot(&CurrentSnapshotData, sourcevxid,
-											   sourcepid);
-		/* Mark it as "registered" */
+			SetSerializableTransactionSnapshotData(CurrentSnapshotData.shared,
+												   sourcevxid, sourcepid);
+		/* keep it */
 		FirstXactSnapshotRegistered = true;
 	}
-	valid_snapshots_push_tail(&CurrentSnapshotData);
 
 	FirstSnapshotSet = true;
-}
-
-/*
- * CopyMVCCSnapshot
- *		Copy the given snapshot.
- *
- * The copy is palloc'd in TopTransactionContext and has initial refcounts set
- * to 0.  The returned snapshot has the copied flag set.
- */
-static MVCCSnapshot
-CopyMVCCSnapshot(MVCCSnapshot snapshot)
-{
-	MVCCSnapshot newsnap;
-	Size		subxipoff;
-	Size		size;
-
-	/* We allocate any XID arrays needed in the same palloc block. */
-	size = subxipoff = sizeof(MVCCSnapshotData) +
-		snapshot->xcnt * sizeof(TransactionId);
-	if (snapshot->subxcnt > 0)
-		size += snapshot->subxcnt * sizeof(TransactionId);
-
-	newsnap = (MVCCSnapshot) MemoryContextAlloc(TopTransactionContext, size);
-	memcpy(newsnap, snapshot, sizeof(MVCCSnapshotData));
-
-	newsnap->regd_count = 0;
-	newsnap->active_count = 0;
-	newsnap->copied = true;
-	newsnap->valid = true;
-	newsnap->snapXactCompletionCount = 0;
-
-	/* setup XID array */
-	if (snapshot->xcnt > 0)
-	{
-		newsnap->xip = (TransactionId *) (newsnap + 1);
-		memcpy(newsnap->xip, snapshot->xip,
-			   snapshot->xcnt * sizeof(TransactionId));
-	}
-	else
-		newsnap->xip = NULL;
-
-	/*
-	 * Setup subXID array. Don't bother to copy it if it had overflowed,
-	 * though, because it's not used anywhere in that case. Except if it's a
-	 * snapshot taken during recovery; all the top-level XIDs are in subxip as
-	 * well in that case, so we mustn't lose them.
-	 */
-	if (snapshot->subxcnt > 0 &&
-		(!snapshot->suboverflowed || snapshot->takenDuringRecovery))
-	{
-		newsnap->subxip = (TransactionId *) ((char *) newsnap + subxipoff);
-		memcpy(newsnap->subxip, snapshot->subxip,
-			   snapshot->subxcnt * sizeof(TransactionId));
-	}
-	else
-		newsnap->subxip = NULL;
-
-	return newsnap;
-}
-
-/*
- * FreeMVCCSnapshot
- *		Free the memory associated with a snapshot.
- */
-static void
-FreeMVCCSnapshot(MVCCSnapshot snapshot)
-{
-	Assert(snapshot->regd_count == 0);
-	Assert(snapshot->active_count == 0);
-	Assert(snapshot->copied);
-	Assert(snapshot->valid);
-
-	pfree(snapshot);
 }
 
 /*
@@ -666,7 +592,7 @@ FreeMVCCSnapshot(MVCCSnapshot snapshot)
  *
  * If the passed snapshot is a statically-allocated one, or it is possibly
  * subject to a future command counter update, create a new long-lived copy
- * with active refcount=1.  Otherwise, only increment the refcount.
+ * with active refcount=1.  Otherwise, only increment the refcount. XXX
  *
  * Only regular MVCC snaphots can be used as the active snapshot.
  */
@@ -697,23 +623,12 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 	Assert(ActiveSnapshot == NULL || snap_level >= ActiveSnapshot->as_level);
 
 	newactive = MemoryContextAlloc(TopTransactionContext, sizeof(ActiveSnapshotElt));
-
-	/*
-	 * Checking SecondarySnapshot is probably useless here, but it seems
-	 * better to be sure.
-	 */
-	if (!origsnap->copied)
-	{
-		newactive->as_snap = CopyMVCCSnapshot(origsnap);
-		dlist_insert_after(&origsnap->node, &newactive->as_snap->node);
-	}
-	else
-		newactive->as_snap = origsnap;
+	memcpy(&newactive->as_snap, origsnap, sizeof(MVCCSnapshotData));
+	newactive->as_snap.kind = SNAPSHOT_ACTIVE;
+	newactive->as_snap.shared->refcount++;
 
 	newactive->as_next = ActiveSnapshot;
 	newactive->as_level = snap_level;
-
-	newactive->as_snap->active_count++;
 
 	ActiveSnapshot = newactive;
 }
@@ -729,20 +644,20 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 void
 PushCopiedSnapshot(Snapshot snapshot)
 {
-	MVCCSnapshot copy;
-
 	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
 
-	copy = CopyMVCCSnapshot(&snapshot->mvcc);
-	dlist_insert_after(&snapshot->mvcc.node, &copy->node);
-	PushActiveSnapshot((Snapshot) copy);
+	/*
+	 * This used to be different from PushActiveSnapshot, but these days
+	 * PushActiveSnapshot creates a copy too and there's no difference.
+	 */
+	PushActiveSnapshot(snapshot);
 }
 
 /*
  * UpdateActiveSnapshotCommandId
  *
  * Update the current CID of the active snapshot.  This can only be applied
- * to a snapshot that is not referenced elsewhere.
+ * to a snapshot that is not referenced elsewhere. XXX
  */
 void
 UpdateActiveSnapshotCommandId(void)
@@ -751,8 +666,6 @@ UpdateActiveSnapshotCommandId(void)
 				curcid;
 
 	Assert(ActiveSnapshot != NULL);
-	Assert(ActiveSnapshot->as_snap->active_count == 1);
-	Assert(ActiveSnapshot->as_snap->regd_count == 0);
 
 	/*
 	 * Don't allow modification of the active snapshot during parallel
@@ -762,11 +675,12 @@ UpdateActiveSnapshotCommandId(void)
 	 * CommandCounterIncrement, but there are a few places that call this
 	 * directly, so we put an additional guard here.
 	 */
-	save_curcid = ActiveSnapshot->as_snap->curcid;
+	save_curcid = ActiveSnapshot->as_snap.curcid;
 	curcid = GetCurrentCommandId(false);
 	if (IsInParallelMode() && save_curcid != curcid)
 		elog(ERROR, "cannot modify commandid in active snapshot during a parallel operation");
-	ActiveSnapshot->as_snap->curcid = curcid;
+
+	ActiveSnapshot->as_snap.curcid = curcid;
 }
 
 /*
@@ -782,16 +696,7 @@ PopActiveSnapshot(void)
 
 	newstack = ActiveSnapshot->as_next;
 
-	Assert(ActiveSnapshot->as_snap->active_count > 0);
-
-	ActiveSnapshot->as_snap->active_count--;
-
-	if (ActiveSnapshot->as_snap->active_count == 0 &&
-		ActiveSnapshot->as_snap->regd_count == 0)
-	{
-		dlist_delete(&ActiveSnapshot->as_snap->node);
-		FreeMVCCSnapshot(ActiveSnapshot->as_snap);
-	}
+	ReleaseMVCCSnapshotShared(ActiveSnapshot->as_snap.shared);
 
 	pfree(ActiveSnapshot);
 	ActiveSnapshot = newstack;
@@ -808,7 +713,7 @@ GetActiveSnapshot(void)
 {
 	Assert(ActiveSnapshot != NULL);
 
-	return (Snapshot) ActiveSnapshot->as_snap;
+	return (Snapshot) &ActiveSnapshot->as_snap;
 }
 
 /*
@@ -844,7 +749,7 @@ RegisterSnapshot(Snapshot snapshot)
 Snapshot
 RegisterSnapshotOnOwner(Snapshot orig_snapshot, ResourceOwner owner)
 {
-	MVCCSnapshot snapshot;
+	MVCCSnapshot newsnap;
 
 	if (orig_snapshot == InvalidSnapshot)
 		return InvalidSnapshot;
@@ -861,22 +766,19 @@ RegisterSnapshotOnOwner(Snapshot orig_snapshot, ResourceOwner owner)
 	}
 
 	Assert(orig_snapshot->snapshot_type == SNAPSHOT_MVCC);
-	snapshot = &orig_snapshot->mvcc;
-	Assert(snapshot->valid);
+	Assert(orig_snapshot->mvcc.valid);
 
-	/* Static snapshot?  Create a persistent copy */
-	if (!snapshot->copied)
-	{
-		snapshot = CopyMVCCSnapshot(snapshot);
-		dlist_insert_after(&orig_snapshot->mvcc.node, &snapshot->node);
-	}
+	/* Create a copy */
+	newsnap = MemoryContextAlloc(TopTransactionContext, sizeof(MVCCSnapshotData));
+	memcpy(newsnap, &orig_snapshot->mvcc, sizeof(MVCCSnapshotData));
+	newsnap->kind = SNAPSHOT_REGISTERED;
+	newsnap->shared->refcount++;
 
 	/* and tell resowner.c about it */
 	ResourceOwnerEnlarge(owner);
-	snapshot->regd_count++;
-	ResourceOwnerRememberSnapshot(owner, (Snapshot) snapshot);
+	ResourceOwnerRememberSnapshot(owner, (Snapshot) newsnap);
 
-	return (Snapshot) snapshot;
+	return (Snapshot) newsnap;
 }
 
 /*
@@ -914,18 +816,12 @@ UnregisterSnapshotNoOwner(Snapshot snapshot)
 {
 	if (snapshot->snapshot_type == SNAPSHOT_MVCC)
 	{
-		MVCCSnapshot mvccsnap = &snapshot->mvcc;
-
-		Assert(mvccsnap->regd_count > 0);
+		Assert(snapshot->mvcc.kind == SNAPSHOT_REGISTERED);
 		Assert(!dlist_is_empty(&ValidSnapshots));
 
-		mvccsnap->regd_count--;
-		if (mvccsnap->regd_count == 0 && mvccsnap->active_count == 0)
-		{
-			dlist_delete(&mvccsnap->node);
-			FreeMVCCSnapshot(mvccsnap);
-			SnapshotResetXmin();
-		}
+		ReleaseMVCCSnapshotShared(snapshot->mvcc.shared);
+		pfree(snapshot);
+		SnapshotResetXmin();
 	}
 	else if (snapshot->snapshot_type == SNAPSHOT_HISTORIC_MVCC)
 	{
@@ -963,19 +859,21 @@ UnregisterSnapshotNoOwner(Snapshot snapshot)
 static void
 SnapshotResetXmin(void)
 {
-	MVCCSnapshot minSnapshot;
+	MVCCSnapshotShared minSnapshot;
 
 	/*
 	 * Invalidate these static snapshots so that we can advance xmin.
 	 */
 	if (!FirstXactSnapshotRegistered && CurrentSnapshotData.valid)
 	{
-		dlist_delete(&CurrentSnapshotData.node);
+		ReleaseMVCCSnapshotShared(CurrentSnapshotData.shared);
+		CurrentSnapshotData.shared = NULL;
 		CurrentSnapshotData.valid = false;
 	}
 	if (SecondarySnapshotData.valid)
 	{
-		dlist_delete(&SecondarySnapshotData.node);
+		ReleaseMVCCSnapshotShared(SecondarySnapshotData.shared);
+		SecondarySnapshotData.shared = NULL;
 		SecondarySnapshotData.valid = false;
 	}
 
@@ -988,7 +886,7 @@ SnapshotResetXmin(void)
 		return;
 	}
 
-	minSnapshot = dlist_head_element(MVCCSnapshotData, node, &ValidSnapshots);
+	minSnapshot = dlist_head_element(MVCCSnapshotSharedData, node, &ValidSnapshots);
 
 	if (TransactionIdPrecedes(MyProc->xmin, minSnapshot->xmin))
 		MyProc->xmin = TransactionXmin = minSnapshot->xmin;
@@ -1028,21 +926,7 @@ AtSubAbort_Snapshot(int level)
 
 		next = ActiveSnapshot->as_next;
 
-		/*
-		 * Decrement the snapshot's active count.  If it's still registered or
-		 * marked as active by an outer subtransaction, we can't free it yet.
-		 */
-		Assert(ActiveSnapshot->as_snap->active_count >= 1);
-		ActiveSnapshot->as_snap->active_count -= 1;
-
-		if (ActiveSnapshot->as_snap->active_count == 0 &&
-			ActiveSnapshot->as_snap->regd_count == 0)
-		{
-			dlist_delete(&ActiveSnapshot->as_snap->node);
-			FreeMVCCSnapshot(ActiveSnapshot->as_snap);
-		}
-
-		/* and free the stack element */
+		ReleaseMVCCSnapshotShared(ActiveSnapshot->as_snap.shared);
 		pfree(ActiveSnapshot);
 
 		ActiveSnapshot = next;
@@ -1058,6 +942,8 @@ AtSubAbort_Snapshot(int level)
 void
 AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 {
+	dlist_mutable_iter iter;
+
 	/*
 	 * If we exported any snapshots, clean them up.
 	 */
@@ -1084,7 +970,7 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 				elog(WARNING, "could not unlink file \"%s\": %m",
 					 esnap->snapfile);
 
-			dlist_delete(&esnap->snapshot->node);
+			ReleaseMVCCSnapshotShared(esnap->snapshot);
 		}
 
 		exportedSnapshots = NIL;
@@ -1093,17 +979,20 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	/* Drop all static snapshot */
 	if (CatalogSnapshotData.valid)
 	{
-		dlist_delete(&CatalogSnapshotData.node);
+		ReleaseMVCCSnapshotShared(CatalogSnapshotData.shared);
+		CatalogSnapshotData.shared = NULL;
 		CatalogSnapshotData.valid = false;
 	}
 	if (CurrentSnapshotData.valid)
 	{
-		dlist_delete(&CurrentSnapshotData.node);
+		ReleaseMVCCSnapshotShared(CurrentSnapshotData.shared);
+		CurrentSnapshotData.shared = NULL;
 		CurrentSnapshotData.valid = false;
 	}
 	if (SecondarySnapshotData.valid)
 	{
-		dlist_delete(&SecondarySnapshotData.node);
+		ReleaseMVCCSnapshotShared(SecondarySnapshotData.shared);
+		SecondarySnapshotData.shared = NULL;
 		SecondarySnapshotData.valid = false;
 	}
 
@@ -1124,11 +1013,23 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	 * And reset our state.  We don't need to free the memory explicitly --
 	 * it'll go away with TopTransactionContext.
 	 */
-	ActiveSnapshot = NULL;
-	dlist_init(&ValidSnapshots);
+	dlist_foreach_modify(iter, &ValidSnapshots)
+	{
+		MVCCSnapshotShared cur = dlist_container(MVCCSnapshotSharedData, node, iter.cur);
 
-	CurrentSnapshotData.valid = false;
-	SecondarySnapshotData.valid = false;
+		dlist_delete(iter.cur);
+		cur->refcount = 0;
+		if (cur == latestSnapshotShared)
+		{
+			/* keep it */
+		}
+		else if (spareSnapshotShared == NULL)
+			spareSnapshotShared = cur;
+		else
+			pfree(cur);
+	}
+
+	ActiveSnapshot = NULL;
 	FirstSnapshotSet = false;
 	FirstXactSnapshotRegistered = false;
 
@@ -1151,9 +1052,8 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
  *		snapshot.
  */
 char *
-ExportSnapshot(MVCCSnapshot snapshot)
+ExportSnapshot(MVCCSnapshotShared snapshot)
 {
-	MVCCSnapshot orig_snapshot;
 	TransactionId topXid;
 	TransactionId *children;
 	ExportedSnapshot *esnap;
@@ -1214,20 +1114,15 @@ ExportSnapshot(MVCCSnapshot snapshot)
 	 * Copy the snapshot into TopTransactionContext, add it to the
 	 * exportedSnapshots list, and mark it pseudo-registered.  We do this to
 	 * ensure that the snapshot's xmin is honored for the rest of the
-	 * transaction.
+	 * transaction. XXX
 	 */
-	orig_snapshot = snapshot;
-	snapshot = CopyMVCCSnapshot(orig_snapshot);
-
 	oldcxt = MemoryContextSwitchTo(TopTransactionContext);
 	esnap = (ExportedSnapshot *) palloc(sizeof(ExportedSnapshot));
 	esnap->snapfile = pstrdup(path);
 	esnap->snapshot = snapshot;
+	snapshot->refcount++;
 	exportedSnapshots = lappend(exportedSnapshots, esnap);
 	MemoryContextSwitchTo(oldcxt);
-
-	snapshot->regd_count++;
-	dlist_insert_after(&orig_snapshot->node, &snapshot->node);
 
 	/*
 	 * Fill buf with a text serialization of the snapshot, plus identification
@@ -1248,8 +1143,8 @@ ExportSnapshot(MVCCSnapshot snapshot)
 	/*
 	 * We must include our own top transaction ID in the top-xid data, since
 	 * by definition we will still be running when the importing transaction
-	 * adopts the snapshot, but GetSnapshotData never includes our own XID in
-	 * the snapshot.  (There must, therefore, be enough room to add it.)
+	 * adopts the snapshot, but GetMVCCSnapshotData never includes our own XID
+	 * in the snapshot.  (There must, therefore, be enough room to add it.)
 	 *
 	 * However, it could be that our topXid is after the xmax, in which case
 	 * we shouldn't include it because xip[] members are expected to be before
@@ -1334,7 +1229,7 @@ pg_export_snapshot(PG_FUNCTION_ARGS)
 {
 	char	   *snapshotName;
 
-	snapshotName = ExportSnapshot((MVCCSnapshot) GetActiveSnapshot());
+	snapshotName = ExportSnapshot(((MVCCSnapshot) GetActiveSnapshot())->shared);
 	PG_RETURN_TEXT_P(cstring_to_text(snapshotName));
 }
 
@@ -1438,7 +1333,7 @@ ImportSnapshot(const char *idstr)
 	Oid			src_dbid;
 	int			src_isolevel;
 	bool		src_readonly;
-	MVCCSnapshotData snapshot;
+	MVCCSnapshotShared snapshot;
 
 	/*
 	 * Must be at top level of a fresh transaction.  Note in particular that
@@ -1508,8 +1403,6 @@ ImportSnapshot(const char *idstr)
 	/*
 	 * Construct a snapshot struct by parsing the file content.
 	 */
-	memset(&snapshot, 0, sizeof(snapshot));
-
 	parseVxidFromText("vxid:", &filebuf, path, &src_vxid);
 	src_pid = parseIntFromText("pid:", &filebuf, path);
 	/* we abuse parseXidFromText a bit here ... */
@@ -1517,12 +1410,11 @@ ImportSnapshot(const char *idstr)
 	src_isolevel = parseIntFromText("iso:", &filebuf, path);
 	src_readonly = parseIntFromText("ro:", &filebuf, path);
 
-	snapshot.snapshot_type = SNAPSHOT_MVCC;
+	snapshot = AllocMVCCSnapshotShared();
+	snapshot->xmin = parseXidFromText("xmin:", &filebuf, path);
+	snapshot->xmax = parseXidFromText("xmax:", &filebuf, path);
 
-	snapshot.xmin = parseXidFromText("xmin:", &filebuf, path);
-	snapshot.xmax = parseXidFromText("xmax:", &filebuf, path);
-
-	snapshot.xcnt = xcnt = parseIntFromText("xcnt:", &filebuf, path);
+	snapshot->xcnt = xcnt = parseIntFromText("xcnt:", &filebuf, path);
 
 	/* sanity-check the xid count before palloc */
 	if (xcnt < 0 || xcnt > GetMaxSnapshotXidCount())
@@ -1530,15 +1422,15 @@ ImportSnapshot(const char *idstr)
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", path)));
 
-	snapshot.xip = (TransactionId *) palloc(xcnt * sizeof(TransactionId));
+	snapshot->xip = (TransactionId *) palloc(xcnt * sizeof(TransactionId));
 	for (i = 0; i < xcnt; i++)
-		snapshot.xip[i] = parseXidFromText("xip:", &filebuf, path);
+		snapshot->xip[i] = parseXidFromText("xip:", &filebuf, path);
 
-	snapshot.suboverflowed = parseIntFromText("sof:", &filebuf, path);
+	snapshot->suboverflowed = parseIntFromText("sof:", &filebuf, path);
 
-	if (!snapshot.suboverflowed)
+	if (!snapshot->suboverflowed)
 	{
-		snapshot.subxcnt = xcnt = parseIntFromText("sxcnt:", &filebuf, path);
+		snapshot->subxcnt = xcnt = parseIntFromText("sxcnt:", &filebuf, path);
 
 		/* sanity-check the xid count before palloc */
 		if (xcnt < 0 || xcnt > GetMaxSnapshotSubxidCount())
@@ -1546,17 +1438,19 @@ ImportSnapshot(const char *idstr)
 					(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 					 errmsg("invalid snapshot data in file \"%s\"", path)));
 
-		snapshot.subxip = (TransactionId *) palloc(xcnt * sizeof(TransactionId));
+		snapshot->subxip = (TransactionId *) palloc(xcnt * sizeof(TransactionId));
 		for (i = 0; i < xcnt; i++)
-			snapshot.subxip[i] = parseXidFromText("sxp:", &filebuf, path);
+			snapshot->subxip[i] = parseXidFromText("sxp:", &filebuf, path);
 	}
 	else
 	{
-		snapshot.subxcnt = 0;
-		snapshot.subxip = NULL;
+		snapshot->subxcnt = 0;
 	}
 
-	snapshot.takenDuringRecovery = parseIntFromText("rec:", &filebuf, path);
+	snapshot->takenDuringRecovery = parseIntFromText("rec:", &filebuf, path);
+
+	snapshot->refcount = 1;
+	valid_snapshots_push_out_of_order(snapshot);
 
 	/*
 	 * Do some additional sanity checking, just to protect ourselves.  We
@@ -1565,8 +1459,8 @@ ImportSnapshot(const char *idstr)
 	 */
 	if (!VirtualTransactionIdIsValid(src_vxid) ||
 		!OidIsValid(src_dbid) ||
-		!TransactionIdIsNormal(snapshot.xmin) ||
-		!TransactionIdIsNormal(snapshot.xmax))
+		!TransactionIdIsNormal(snapshot->xmin) ||
+		!TransactionIdIsNormal(snapshot->xmax))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
 				 errmsg("invalid snapshot data in file \"%s\"", path)));
@@ -1604,7 +1498,7 @@ ImportSnapshot(const char *idstr)
 				 errmsg("cannot import a snapshot from a different database")));
 
 	/* OK, install the snapshot */
-	SetTransactionSnapshot(&snapshot, &src_vxid, src_pid, NULL);
+	SetTransactionSnapshot(snapshot, &src_vxid, src_pid, NULL);
 }
 
 /*
@@ -1670,18 +1564,21 @@ ThereAreNoPriorRegisteredSnapshots(void)
 
 	dlist_foreach(iter, &ValidSnapshots)
 	{
-		MVCCSnapshot cur = dlist_container(MVCCSnapshotData, node, iter.cur);
+		MVCCSnapshotShared cur =
+			dlist_container(MVCCSnapshotSharedData, node, iter.cur);
+		uint32		allowedcount = 0;
 
 		if (FirstXactSnapshotRegistered)
 		{
 			Assert(CurrentSnapshotData.valid);
-			if (cur != &CurrentSnapshotData)
-				continue;
+			if (cur == CurrentSnapshotData.shared)
+				allowedcount++;
 		}
-		if (ActiveSnapshot && cur == ActiveSnapshot->as_snap)
-			continue;
+		if (ActiveSnapshot && cur == ActiveSnapshot->as_snap.shared)
+			allowedcount++;
 
-		return false;
+		if (cur->refcount != allowedcount)
+			return false;
 	}
 
 	return true;
@@ -1707,8 +1604,9 @@ HaveRegisteredOrActiveSnapshot(void)
 	 * registered more than one snapshot has to be in ValidSnapshots.
 	 */
 	if (CatalogSnapshotData.valid &&
-		dlist_head_node(&ValidSnapshots) == &CatalogSnapshotData.node &&
-		dlist_tail_node(&ValidSnapshots) == &CatalogSnapshotData.node)
+		CatalogSnapshotData.shared->refcount == 1 &&
+		dlist_head_node(&ValidSnapshots) == &CatalogSnapshotData.shared->node &&
+		dlist_tail_node(&ValidSnapshots) == &CatalogSnapshotData.shared->node)
 	{
 		return false;
 	}
@@ -1775,11 +1673,11 @@ EstimateSnapshotSpace(MVCCSnapshot snapshot)
 
 	/* We allocate any XID arrays needed in the same palloc block. */
 	size = add_size(sizeof(SerializedSnapshotData),
-					mul_size(snapshot->xcnt, sizeof(TransactionId)));
-	if (snapshot->subxcnt > 0 &&
-		(!snapshot->suboverflowed || snapshot->takenDuringRecovery))
+					mul_size(snapshot->shared->xcnt, sizeof(TransactionId)));
+	if (snapshot->shared->subxcnt > 0 &&
+		(!snapshot->shared->suboverflowed || snapshot->shared->takenDuringRecovery))
 		size = add_size(size,
-						mul_size(snapshot->subxcnt, sizeof(TransactionId)));
+						mul_size(snapshot->shared->subxcnt, sizeof(TransactionId)));
 
 	return size;
 }
@@ -1794,15 +1692,15 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 {
 	SerializedSnapshotData serialized_snapshot;
 
-	Assert(snapshot->subxcnt >= 0);
+	Assert(snapshot->shared->subxcnt >= 0);
 
 	/* Copy all required fields */
-	serialized_snapshot.xmin = snapshot->xmin;
-	serialized_snapshot.xmax = snapshot->xmax;
-	serialized_snapshot.xcnt = snapshot->xcnt;
-	serialized_snapshot.subxcnt = snapshot->subxcnt;
-	serialized_snapshot.suboverflowed = snapshot->suboverflowed;
-	serialized_snapshot.takenDuringRecovery = snapshot->takenDuringRecovery;
+	serialized_snapshot.xmin = snapshot->shared->xmin;
+	serialized_snapshot.xmax = snapshot->shared->xmax;
+	serialized_snapshot.xcnt = snapshot->shared->xcnt;
+	serialized_snapshot.subxcnt = snapshot->shared->subxcnt;
+	serialized_snapshot.suboverflowed = snapshot->shared->suboverflowed;
+	serialized_snapshot.takenDuringRecovery = snapshot->shared->takenDuringRecovery;
 	serialized_snapshot.curcid = snapshot->curcid;
 
 	/*
@@ -1810,7 +1708,7 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 	 * taken during recovery - in that case, top-level XIDs are in subxip as
 	 * well, and we mustn't lose them.
 	 */
-	if (serialized_snapshot.suboverflowed && !snapshot->takenDuringRecovery)
+	if (serialized_snapshot.suboverflowed && !snapshot->shared->takenDuringRecovery)
 		serialized_snapshot.subxcnt = 0;
 
 	/* Copy struct to possibly-unaligned buffer */
@@ -1818,10 +1716,10 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 		   &serialized_snapshot, sizeof(SerializedSnapshotData));
 
 	/* Copy XID array */
-	if (snapshot->xcnt > 0)
+	if (snapshot->shared->xcnt > 0)
 		memcpy((TransactionId *) (start_address +
 								  sizeof(SerializedSnapshotData)),
-			   snapshot->xip, snapshot->xcnt * sizeof(TransactionId));
+			   snapshot->shared->xip, snapshot->shared->xcnt * sizeof(TransactionId));
 
 	/*
 	 * Copy SubXID array. Don't bother to copy it if it had overflowed,
@@ -1832,10 +1730,10 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 	if (serialized_snapshot.subxcnt > 0)
 	{
 		Size		subxipoff = sizeof(SerializedSnapshotData) +
-			snapshot->xcnt * sizeof(TransactionId);
+			snapshot->shared->xcnt * sizeof(TransactionId);
 
 		memcpy((TransactionId *) (start_address + subxipoff),
-			   snapshot->subxip, snapshot->subxcnt * sizeof(TransactionId));
+			   snapshot->shared->subxip, snapshot->shared->subxcnt * sizeof(TransactionId));
 	}
 }
 
@@ -1863,49 +1761,46 @@ RestoreSnapshot(char *start_address)
 	size = sizeof(MVCCSnapshotData)
 		+ serialized_snapshot.xcnt * sizeof(TransactionId)
 		+ serialized_snapshot.subxcnt * sizeof(TransactionId);
+	Assert(serialized_snapshot.xcnt <= GetMaxSnapshotXidCount());
+	Assert(serialized_snapshot.subxcnt <= GetMaxSnapshotSubxidCount());
 
 	/* Copy all required fields */
 	snapshot = (MVCCSnapshot) MemoryContextAlloc(TopTransactionContext, size);
 	snapshot->snapshot_type = SNAPSHOT_MVCC;
-	snapshot->xmin = serialized_snapshot.xmin;
-	snapshot->xmax = serialized_snapshot.xmax;
-	snapshot->xip = NULL;
-	snapshot->xcnt = serialized_snapshot.xcnt;
-	snapshot->subxip = NULL;
-	snapshot->subxcnt = serialized_snapshot.subxcnt;
-	snapshot->suboverflowed = serialized_snapshot.suboverflowed;
-	snapshot->takenDuringRecovery = serialized_snapshot.takenDuringRecovery;
+	snapshot->kind = SNAPSHOT_REGISTERED;
+	snapshot->shared = AllocMVCCSnapshotShared();
+	snapshot->shared->xmin = serialized_snapshot.xmin;
+	snapshot->shared->xmax = serialized_snapshot.xmax;
+	snapshot->shared->xcnt = serialized_snapshot.xcnt;
+	snapshot->shared->subxcnt = serialized_snapshot.subxcnt;
+	snapshot->shared->suboverflowed = serialized_snapshot.suboverflowed;
+	snapshot->shared->takenDuringRecovery = serialized_snapshot.takenDuringRecovery;
+	snapshot->shared->snapXactCompletionCount = 0;
+
+	snapshot->shared->refcount = 1;
+	valid_snapshots_push_out_of_order(snapshot->shared);
+
 	snapshot->curcid = serialized_snapshot.curcid;
-	snapshot->snapXactCompletionCount = 0;
 
 	/* Copy XIDs, if present. */
 	if (serialized_snapshot.xcnt > 0)
 	{
-		snapshot->xip = (TransactionId *) (snapshot + 1);
-		memcpy(snapshot->xip, serialized_xids,
+		memcpy(snapshot->shared->xip, serialized_xids,
 			   serialized_snapshot.xcnt * sizeof(TransactionId));
 	}
 
 	/* Copy SubXIDs, if present. */
 	if (serialized_snapshot.subxcnt > 0)
 	{
-		snapshot->subxip = ((TransactionId *) (snapshot + 1)) +
-			serialized_snapshot.xcnt;
-		memcpy(snapshot->subxip, serialized_xids + serialized_snapshot.xcnt,
+		memcpy(snapshot->shared->subxip, serialized_xids + serialized_snapshot.xcnt,
 			   serialized_snapshot.subxcnt * sizeof(TransactionId));
 	}
 
-	/* Set the copied flag so that the caller will set refcounts correctly. */
-	snapshot->regd_count = 0;
-	snapshot->active_count = 0;
-	snapshot->copied = true;
 	snapshot->valid = true;
 
 	/* and tell resowner.c about it, just like RegisterSnapshot() */
 	ResourceOwnerEnlarge(CurrentResourceOwner);
-	snapshot->regd_count++;
 	ResourceOwnerRememberSnapshot(CurrentResourceOwner, (Snapshot) snapshot);
-	valid_snapshots_push_out_of_order(snapshot);
 
 	return snapshot;
 }
@@ -1919,21 +1814,21 @@ RestoreSnapshot(char *start_address)
 void
 RestoreTransactionSnapshot(MVCCSnapshot snapshot, void *source_pgproc)
 {
-	SetTransactionSnapshot(snapshot, NULL, InvalidPid, source_pgproc);
+	SetTransactionSnapshot(snapshot->shared, NULL, InvalidPid, source_pgproc);
 }
 
 /*
  * XidInMVCCSnapshot
  *		Is the given XID still-in-progress according to the snapshot?
  *
- * Note: GetSnapshotData never stores either top xid or subxids of our own
- * backend into a snapshot, so these xids will not be reported as "running"
- * by this function.  This is OK for current uses, because we always check
- * TransactionIdIsCurrentTransactionId first, except when it's known the
- * XID could not be ours anyway.
+ * Note: GetMVCCSnapshotData never stores either top xid or subxids of our own
+ * backend into a snapshot, so these xids will not be reported as "running" by
+ * this function.  This is OK for current uses, because we always check
+ * TransactionIdIsCurrentTransactionId first, except when it's known the XID
+ * could not be ours anyway.
  */
 bool
-XidInMVCCSnapshot(TransactionId xid, MVCCSnapshot snapshot)
+XidInMVCCSnapshot(TransactionId xid, MVCCSnapshotShared snapshot)
 {
 	/*
 	 * Make a quick range check to eliminate most XIDs without looking at the
@@ -2029,6 +1924,84 @@ XidInMVCCSnapshot(TransactionId xid, MVCCSnapshot snapshot)
 	return false;
 }
 
+/*
+ * Allocate an MVCCSnapshotShared struct
+ *
+ * The 'xip' and 'subxip' arrays are allocated so that they can hold the max
+ * number of XIDs. That's usually overkill, but it allows us to do the
+ * allocation while not holding ProcArrayLock.
+ *
+ * MVCCSnapshotShared structs are kept in TopMemoryContext and refcounted.
+ * The refcount is initially zero, the caller is expected to increment it.
+ */
+MVCCSnapshotShared
+AllocMVCCSnapshotShared(void)
+{
+	MemoryContext save_cxt;
+	MVCCSnapshotShared shared;
+	size_t		size;
+	char	   *p;
+
+	/*
+	 * To reduce alloc/free overhead in GetMVCCSnapshotData(), we have a
+	 * single-element pool.
+	 */
+	if (spareSnapshotShared)
+	{
+		shared = spareSnapshotShared;
+		spareSnapshotShared = NULL;
+		return shared;
+	}
+
+	save_cxt = MemoryContextSwitchTo(TopMemoryContext);
+
+	size = sizeof(MVCCSnapshotSharedData) +
+		GetMaxSnapshotXidCount() * sizeof(TransactionId) +
+		GetMaxSnapshotSubxidCount() * sizeof(TransactionId);
+	p = palloc(size);
+
+	shared = (MVCCSnapshotShared) p;
+	p += sizeof(MVCCSnapshotSharedData);
+	shared->xip = (TransactionId *) p;
+	p += GetMaxSnapshotXidCount() * sizeof(TransactionId);
+	shared->subxip = (TransactionId *) p;
+
+	shared->snapXactCompletionCount = 0;
+	shared->refcount = 0;
+
+	MemoryContextSwitchTo(save_cxt);
+
+	return shared;
+}
+
+/*
+ * Decrement the refcount on an MVCCSnapshotShared struct, freeing it if it
+ * reaches zero.
+ */
+static void
+ReleaseMVCCSnapshotShared(MVCCSnapshotShared shared)
+{
+	Assert(shared->refcount > 0);
+	shared->refcount--;
+
+	if (shared->refcount == 0)
+	{
+		dlist_delete(&shared->node);
+		if (shared != latestSnapshotShared)
+			FreeMVCCSnapshotShared(shared);
+	}
+}
+
+void
+FreeMVCCSnapshotShared(MVCCSnapshotShared shared)
+{
+	Assert(shared->refcount == 0);
+	if (spareSnapshotShared == NULL)
+		spareSnapshotShared = shared;
+	else
+		pfree(shared);
+}
+
 /* ResourceOwner callbacks */
 
 static void
@@ -2042,12 +2015,13 @@ ResOwnerReleaseSnapshot(Datum res)
 
 /* dlist_push_tail, with assertion that the list stays ordered by xmin */
 static void
-valid_snapshots_push_tail(MVCCSnapshot snapshot)
+valid_snapshots_push_tail(MVCCSnapshotShared snapshot)
 {
 #ifdef USE_ASSERT_CHECKING
 	if (!dlist_is_empty(&ValidSnapshots))
 	{
-		MVCCSnapshot tail = dlist_tail_element(MVCCSnapshotData, node, &ValidSnapshots);
+		MVCCSnapshotShared tail =
+			dlist_tail_element(MVCCSnapshotSharedData, node, &ValidSnapshots);
 
 		Assert(TransactionIdFollowsOrEquals(snapshot->xmin, tail->xmin));
 	}
@@ -2062,13 +2036,14 @@ valid_snapshots_push_tail(MVCCSnapshot snapshot)
  * the list is small.
  */
 static void
-valid_snapshots_push_out_of_order(MVCCSnapshot snapshot)
+valid_snapshots_push_out_of_order(MVCCSnapshotShared snapshot)
 {
 	dlist_iter	iter;
 
 	dlist_foreach(iter, &ValidSnapshots)
 	{
-		MVCCSnapshot cur = dlist_container(MVCCSnapshotData, node, iter.cur);
+		MVCCSnapshotShared cur =
+			dlist_container(MVCCSnapshotSharedData, node, iter.cur);
 
 		if (TransactionIdFollowsOrEquals(snapshot->xmin, cur->xmin))
 		{

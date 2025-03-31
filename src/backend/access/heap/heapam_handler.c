@@ -2308,7 +2308,7 @@ heapam_scan_sample_next_tuple(TableScanDesc scan, SampleScanState *scanstate,
 
 	page = (Page) BufferGetPage(hscan->rs_cbuf);
 	all_visible = PageIsAllVisible(page) &&
-		(scan->rs_snapshot->snapshot_type != SNAPSHOT_MVCC || !scan->rs_snapshot->mvcc.takenDuringRecovery);
+		(scan->rs_snapshot->snapshot_type != SNAPSHOT_MVCC || !scan->rs_snapshot->mvcc.shared->takenDuringRecovery);
 	maxoffset = PageGetMaxOffsetNumber(page);
 
 	for (;;)

@@ -143,12 +143,12 @@ find_inheritance_children_extended(Oid parentrelId, bool omit_detached,
 			if (omit_detached && ActiveSnapshotSet())
 			{
 				TransactionId xmin;
-				Snapshot	snap;
+				MVCCSnapshot snap;
 
 				xmin = HeapTupleHeaderGetXmin(inheritsTuple->t_data);
-				snap = GetActiveSnapshot();
+				snap = (MVCCSnapshot) GetActiveSnapshot();
 
-				if (!XidInMVCCSnapshot(xmin, (MVCCSnapshot) snap))
+				if (!XidInMVCCSnapshot(xmin, snap->shared))
 				{
 					if (detached_xmin)
 					{

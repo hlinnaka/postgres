@@ -19,7 +19,7 @@
  * That fixes that problem, but it also means there is a window where
  * TransactionIdIsInProgress and TransactionIdDidCommit will both return true.
  * If we check only TransactionIdDidCommit, we could consider a tuple
- * committed when a later GetSnapshotData call will still think the
+ * committed when a later GetMVCCSnapshotData call will still think the
  * originating transaction is in progress, which leads to application-level
  * inconsistency.  The upshot is that we gotta check TransactionIdIsInProgress
  * first in all code paths, except for a few cases where we are looking at
@@ -969,7 +969,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 	 * get invalidated while it's still in use, and this is a convenient place
 	 * to check for that.
 	 */
-	Assert(snapshot->regd_count > 0 || snapshot->active_count > 0);
+	Assert(snapshot->kind == SNAPSHOT_ACTIVE || snapshot->kind == SNAPSHOT_REGISTERED);
 
 	Assert(ItemPointerIsValid(&htup->t_self));
 	Assert(htup->t_tableOid != InvalidOid);
@@ -986,7 +986,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 
 			if (TransactionIdIsCurrentTransactionId(xvac))
 				return false;
-			if (!XidInMVCCSnapshot(xvac, snapshot))
+			if (!XidInMVCCSnapshot(xvac, snapshot->shared))
 			{
 				if (TransactionIdDidCommit(xvac))
 				{
@@ -1005,7 +1005,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 
 			if (!TransactionIdIsCurrentTransactionId(xvac))
 			{
-				if (XidInMVCCSnapshot(xvac, snapshot))
+				if (XidInMVCCSnapshot(xvac, snapshot->shared))
 					return false;
 				if (TransactionIdDidCommit(xvac))
 					SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
@@ -1060,7 +1060,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 			else
 				return false;	/* deleted before scan started */
 		}
-		else if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmin(tuple), snapshot))
+		else if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmin(tuple), snapshot->shared))
 			return false;
 		else if (TransactionIdDidCommit(HeapTupleHeaderGetRawXmin(tuple)))
 			SetHintBits(tuple, buffer, HEAP_XMIN_COMMITTED,
@@ -1077,7 +1077,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 	{
 		/* xmin is committed, but maybe not according to our snapshot */
 		if (!HeapTupleHeaderXminFrozen(tuple) &&
-			XidInMVCCSnapshot(HeapTupleHeaderGetRawXmin(tuple), snapshot))
+			XidInMVCCSnapshot(HeapTupleHeaderGetRawXmin(tuple), snapshot->shared))
 			return false;		/* treat as still in progress */
 	}
 
@@ -1108,7 +1108,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 			else
 				return false;	/* deleted before scan started */
 		}
-		if (XidInMVCCSnapshot(xmax, snapshot))
+		if (XidInMVCCSnapshot(xmax, snapshot->shared))
 			return true;
 		if (TransactionIdDidCommit(xmax))
 			return false;		/* updating transaction committed */
@@ -1126,7 +1126,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 				return false;	/* deleted before scan started */
 		}
 
-		if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmax(tuple), snapshot))
+		if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmax(tuple), snapshot->shared))
 			return true;
 
 		if (!TransactionIdDidCommit(HeapTupleHeaderGetRawXmax(tuple)))
@@ -1144,7 +1144,7 @@ HeapTupleSatisfiesMVCC(HeapTuple htup, MVCCSnapshot snapshot,
 	else
 	{
 		/* xmax is committed, but maybe not according to our snapshot */
-		if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmax(tuple), snapshot))
+		if (XidInMVCCSnapshot(HeapTupleHeaderGetRawXmax(tuple), snapshot->shared))
 			return true;		/* treat as still in progress */
 	}
 

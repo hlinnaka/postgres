@@ -380,7 +380,7 @@ pg_current_snapshot(PG_FUNCTION_ARGS)
 		elog(ERROR, "no active snapshot set");
 
 	/* allocate */
-	nxip = cur->xcnt;
+	nxip = cur->shared->xcnt;
 	snap = palloc(PG_SNAPSHOT_SIZE(nxip));
 
 	/*
@@ -389,12 +389,12 @@ pg_current_snapshot(PG_FUNCTION_ARGS)
 	 * advance past any of these XIDs.  Hence, these XIDs remain allowable
 	 * relative to next_fxid.
 	 */
-	snap->xmin = FullTransactionIdFromAllowableAt(next_fxid, cur->xmin);
-	snap->xmax = FullTransactionIdFromAllowableAt(next_fxid, cur->xmax);
+	snap->xmin = FullTransactionIdFromAllowableAt(next_fxid, cur->shared->xmin);
+	snap->xmax = FullTransactionIdFromAllowableAt(next_fxid, cur->shared->xmax);
 	snap->nxip = nxip;
 	for (i = 0; i < nxip; i++)
 		snap->xip[i] =
-			FullTransactionIdFromAllowableAt(next_fxid, cur->xip[i]);
+			FullTransactionIdFromAllowableAt(next_fxid, cur->shared->xip[i]);
 
 	/*
 	 * We want them guaranteed to be in ascending order.  This also removes

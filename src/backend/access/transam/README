@@ -231,7 +231,7 @@ we must ensure consistency about the commit order of transactions.
 For example, suppose an UPDATE in xact A is blocked by xact B's prior
 update of the same row, and xact B is doing commit while xact C gets a
 snapshot.  Xact A can complete and commit as soon as B releases its locks.
-If xact C's GetSnapshotData sees xact B as still running, then it had
+If xact C's GetMVCCSnapshotData sees xact B as still running, then it had
 better see xact A as still running as well, or it will be able to see two
 tuple versions - one deleted by xact B and one inserted by xact A.  Another
 reason why this would be bad is that C would see (in the row inserted by A)
@@ -248,8 +248,8 @@ with snapshot-taking: we do not allow any transaction to exit the set of
 running transactions while a snapshot is being taken.  (This rule is
 stronger than necessary for consistency, but is relatively simple to
 enforce, and it assists with some other issues as explained below.)  The
-implementation of this is that GetSnapshotData takes the ProcArrayLock in
-shared mode (so that multiple backends can take snapshots in parallel),
+implementation of this is that GetMVCCSnapshotData takes the ProcArrayLock
+in shared mode (so that multiple backends can take snapshots in parallel),
 but ProcArrayEndTransaction must take the ProcArrayLock in exclusive mode
 while clearing the ProcGlobal->xids[] entry at transaction end (either
 commit or abort). (To reduce context switching, when multiple transactions
@@ -257,7 +257,7 @@ commit nearly simultaneously, we have one backend take ProcArrayLock and
 clear the XIDs of multiple processes at once.)
 
 ProcArrayEndTransaction also holds the lock while advancing the shared
-latestCompletedXid variable.  This allows GetSnapshotData to use
+latestCompletedXid variable.  This allows GetMVCCSnapshotData to use
 latestCompletedXid + 1 as xmax for its snapshot: there can be no
 transaction >= this xid value that the snapshot needs to consider as
 completed.
@@ -301,7 +301,7 @@ if it currently has no live snapshots (eg, if it's between transactions or
 hasn't yet set a snapshot for a new transaction).  ComputeXidHorizons takes
 the MIN() of the valid xmin fields.  It does this with only shared lock on
 ProcArrayLock, which means there is a potential race condition against other
-backends doing GetSnapshotData concurrently: we must be certain that a
+backends doing GetMVCCSnapshotData concurrently: we must be certain that a
 concurrent backend that is about to set its xmin does not compute an xmin
 less than what ComputeXidHorizons determines.  We ensure that by including
 all the active XIDs into the MIN() calculation, along with the valid xmins.
@@ -310,27 +310,27 @@ ensures that concurrent holders of shared ProcArrayLock will compute the
 same minimum of currently-active XIDs: no xact, in particular not the
 oldest, can exit while we hold shared ProcArrayLock.  So
 ComputeXidHorizons's view of the minimum active XID will be the same as that
-of any concurrent GetSnapshotData, and so it can't produce an overestimate.
+of any concurrent GetMVCCSnapshotData, and so it can't produce an overestimate.
 If there is no active transaction at all, ComputeXidHorizons uses
 latestCompletedXid + 1, which is a lower bound for the xmin that might
-be computed by concurrent or later GetSnapshotData calls.  (We know that no
+be computed by concurrent or later GetMVCCSnapshotData calls.  (We know that no
 XID less than this could be about to appear in the ProcArray, because of the
 XidGenLock interlock discussed above.)
 
-As GetSnapshotData is performance critical, it does not perform an accurate
+As GetMVCCSnapshotData is performance critical, it does not perform an accurate
 oldest-xmin calculation (it used to, until v14). The contents of a snapshot
 only depend on the xids of other backends, not their xmin. As backend's xmin
-changes much more often than its xid, having GetSnapshotData look at xmins
+changes much more often than its xid, having GetMVCCSnapshotData look at xmins
 can lead to a lot of unnecessary cacheline ping-pong.  Instead
-GetSnapshotData updates approximate thresholds (one that guarantees that all
-deleted rows older than it can be removed, another determining that deleted
+GetMVCCSnapshotData updates approximate thresholds (one that guarantees that
+all deleted rows older than it can be removed, another determining that deleted
 rows newer than it can not be removed). GlobalVisTest* uses those thresholds
 to make invisibility decision, falling back to ComputeXidHorizons if
 necessary.
 
 Note that while it is certain that two concurrent executions of
-GetSnapshotData will compute the same xmin for their own snapshots, there is
-no such guarantee for the horizons computed by ComputeXidHorizons.  This is
+GetMVCCSnapshotData will compute the same xmin for their own snapshots, there
+is no such guarantee for the horizons computed by ComputeXidHorizons.  This is
 because we allow XID-less transactions to clear their MyProc->xmin
 asynchronously (without taking ProcArrayLock), so one execution might see
 what had been the oldest xmin, and another not.  This is OK since the

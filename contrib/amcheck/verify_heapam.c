@@ -310,7 +310,7 @@ verify_heapam(PG_FUNCTION_ARGS)
 	 * Any xmin newer than the xmin of our snapshot can't become all-visible
 	 * while we're running.
 	 */
-	ctx.safe_xmin = GetTransactionSnapshot()->mvcc.xmin;
+	ctx.safe_xmin = GetTransactionSnapshot()->mvcc.shared->xmin;
 
 	/*
 	 * If we report corruption when not examining some individual attribute,

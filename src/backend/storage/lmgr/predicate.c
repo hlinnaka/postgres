@@ -449,10 +449,10 @@ static void SerialSetActiveSerXmin(TransactionId xid);
 
 static uint32 predicatelock_hash(const void *key, Size keysize);
 static void SummarizeOldestCommittedSxact(void);
-static MVCCSnapshot GetSafeSnapshot(MVCCSnapshot origSnapshot);
-static MVCCSnapshot GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
-														  VirtualTransactionId *sourcevxid,
-														  int sourcepid);
+static MVCCSnapshotShared GetSafeSnapshot(void);
+static MVCCSnapshotShared GetSerializableTransactionSnapshotInt(VirtualTransactionId *sourcevxid,
+																TransactionId sourcexmin,
+																int sourcepid);
 static bool PredicateLockExists(const PREDICATELOCKTARGETTAG *targettag);
 static bool GetParentPredicateLockTag(const PREDICATELOCKTARGETTAG *tag,
 									  PREDICATELOCKTARGETTAG *parent);
@@ -1542,25 +1542,20 @@ SummarizeOldestCommittedSxact(void)
  *
  *		As with GetSerializableTransactionSnapshot (which this is a subroutine
  *		for), the passed-in Snapshot pointer should reference a static data
- *		area that can safely be passed to GetSnapshotData.
+ *		area that can safely be passed to GetMVCCSnapshotData.
  */
-static MVCCSnapshot
-GetSafeSnapshot(MVCCSnapshot origSnapshot)
+static MVCCSnapshotShared
+GetSafeSnapshot(void)
 {
-	MVCCSnapshot snapshot;
+	MVCCSnapshotShared snapshot;
 
 	Assert(XactReadOnly && XactDeferrable);
 
 	while (true)
 	{
-		/*
-		 * GetSerializableTransactionSnapshotInt is going to call
-		 * GetSnapshotData, so we need to provide it the static snapshot area
-		 * our caller passed to us.  The pointer returned is actually the same
-		 * one passed to it, but we avoid assuming that here.
-		 */
-		snapshot = GetSerializableTransactionSnapshotInt(origSnapshot,
-														 NULL, InvalidPid);
+		snapshot = GetSerializableTransactionSnapshotInt(NULL,
+														 InvalidTransactionId,
+														 InvalidPid);
 
 		if (MySerializableXact == InvalidSerializableXact)
 			return snapshot;	/* no concurrent r/w xacts; it's safe */
@@ -1663,13 +1658,11 @@ GetSafeSnapshotBlockingPids(int blocked_pid, int *output, int output_size)
  * Make sure we have a SERIALIZABLEXACT reference in MySerializableXact.
  * It should be current for this process and be contained in PredXact.
  *
- * The passed-in Snapshot pointer should reference a static data area that
- * can safely be passed to GetSnapshotData.  The return value is actually
- * always this same pointer; no new snapshot data structure is allocated
- * within this function.
+ * This calls GetMVCCSnapshotData to do the heavy lifting, but also sets up
+ * shared memory data structures specific to serializable transactions.
  */
-MVCCSnapshot
-GetSerializableTransactionSnapshot(MVCCSnapshot snapshot)
+MVCCSnapshotShared
+GetSerializableTransactionSnapshotData(void)
 {
 	Assert(IsolationIsSerializable());
 
@@ -1692,26 +1685,25 @@ GetSerializableTransactionSnapshot(MVCCSnapshot snapshot)
 	 * thereby avoid all SSI overhead once it's running.
 	 */
 	if (XactReadOnly && XactDeferrable)
-		return GetSafeSnapshot(snapshot);
+		return GetSafeSnapshot();
 
-	return GetSerializableTransactionSnapshotInt(snapshot,
-												 NULL, InvalidPid);
+	return GetSerializableTransactionSnapshotInt(NULL, InvalidTransactionId, InvalidPid);
 }
 
 /*
  * Import a snapshot to be used for the current transaction.
  *
- * This is nearly the same as GetSerializableTransactionSnapshot, except that
- * we don't take a new snapshot, but rather use the data we're handed.
+ * This is nearly the same as GetSerializableTransactionSnapshotData, except
+ * that we don't take a new snapshot, but rather use the data we're handed.
  *
  * The caller must have verified that the snapshot came from a serializable
  * transaction; and if we're read-write, the source transaction must not be
  * read-only.
  */
 void
-SetSerializableTransactionSnapshot(MVCCSnapshot snapshot,
-								   VirtualTransactionId *sourcevxid,
-								   int sourcepid)
+SetSerializableTransactionSnapshotData(MVCCSnapshotShared snapshot,
+									   VirtualTransactionId *sourcevxid,
+									   int sourcepid)
 {
 	Assert(IsolationIsSerializable());
 
@@ -1737,28 +1729,29 @@ SetSerializableTransactionSnapshot(MVCCSnapshot snapshot,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("a snapshot-importing transaction must not be READ ONLY DEFERRABLE")));
 
-	(void) GetSerializableTransactionSnapshotInt(snapshot, sourcevxid,
-												 sourcepid);
+	(void) GetSerializableTransactionSnapshotInt(sourcevxid, snapshot->xmin, sourcepid);
 }
 
 /*
  * Guts of GetSerializableTransactionSnapshot
  *
  * If sourcevxid is valid, this is actually an import operation and we should
- * skip calling GetSnapshotData, because the snapshot contents are already
+ * skip calling GetMVCCSnapshotData, because the snapshot contents are already
  * loaded up.  HOWEVER: to avoid race conditions, we must check that the
  * source xact is still running after we acquire SerializableXactHashLock.
  * We do that by calling ProcArrayInstallImportedXmin.
  */
-static MVCCSnapshot
-GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
-									  VirtualTransactionId *sourcevxid,
+static MVCCSnapshotShared
+GetSerializableTransactionSnapshotInt(VirtualTransactionId *sourcevxid,
+									  TransactionId sourcexmin,
 									  int sourcepid)
 {
 	PGPROC	   *proc;
 	VirtualTransactionId vxid;
 	SERIALIZABLEXACT *sxact,
 			   *othersxact;
+	MVCCSnapshotShared snapshot;
+	TransactionId xmin;
 
 	/* We only do this for serializable transactions.  Once. */
 	Assert(MySerializableXact == InvalidSerializableXact);
@@ -1783,7 +1776,7 @@ GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
 	 *
 	 * We must hold SerializableXactHashLock when taking/checking the snapshot
 	 * to avoid race conditions, for much the same reasons that
-	 * GetSnapshotData takes the ProcArrayLock.  Since we might have to
+	 * GetMVCCSnapshotData takes the ProcArrayLock.  Since we might have to
 	 * release SerializableXactHashLock to call SummarizeOldestCommittedSxact,
 	 * this means we have to create the sxact first, which is a bit annoying
 	 * (in particular, an elog(ERROR) in procarray.c would cause us to leak
@@ -1807,16 +1800,24 @@ GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
 
 	/* Get the snapshot, or check that it's safe to use */
 	if (!sourcevxid)
-		snapshot = GetSnapshotData(snapshot);
-	else if (!ProcArrayInstallImportedXmin(snapshot->xmin, sourcevxid))
 	{
-		ReleasePredXact(sxact);
-		LWLockRelease(SerializableXactHashLock);
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("could not import the requested snapshot"),
-				 errdetail("The source process with PID %d is not running anymore.",
-						   sourcepid)));
+		snapshot = GetMVCCSnapshotData();
+		xmin = snapshot->xmin;
+	}
+	else
+	{
+		if (!ProcArrayInstallImportedXmin(sourcexmin, sourcevxid))
+		{
+			ReleasePredXact(sxact);
+			LWLockRelease(SerializableXactHashLock);
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					 errmsg("could not import the requested snapshot"),
+					 errdetail("The source process with PID %d is not running anymore.",
+							   sourcepid)));
+		}
+		snapshot = NULL;
+		xmin = sourcexmin;
 	}
 
 	/*
@@ -1848,7 +1849,7 @@ GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
 	dlist_init(&(sxact->possibleUnsafeConflicts));
 	sxact->topXid = GetTopTransactionIdIfAny();
 	sxact->finishedBefore = InvalidTransactionId;
-	sxact->xmin = snapshot->xmin;
+	sxact->xmin = xmin;
 	sxact->pid = MyProcPid;
 	sxact->pgprocno = MyProcNumber;
 	dlist_init(&sxact->predicateLocks);
@@ -1902,18 +1903,18 @@ GetSerializableTransactionSnapshotInt(MVCCSnapshot snapshot,
 	if (!TransactionIdIsValid(PredXact->SxactGlobalXmin))
 	{
 		Assert(PredXact->SxactGlobalXminCount == 0);
-		PredXact->SxactGlobalXmin = snapshot->xmin;
+		PredXact->SxactGlobalXmin = xmin;
 		PredXact->SxactGlobalXminCount = 1;
-		SerialSetActiveSerXmin(snapshot->xmin);
+		SerialSetActiveSerXmin(xmin);
 	}
-	else if (TransactionIdEquals(snapshot->xmin, PredXact->SxactGlobalXmin))
+	else if (TransactionIdEquals(xmin, PredXact->SxactGlobalXmin))
 	{
 		Assert(PredXact->SxactGlobalXminCount > 0);
 		PredXact->SxactGlobalXminCount++;
 	}
 	else
 	{
-		Assert(TransactionIdFollows(snapshot->xmin, PredXact->SxactGlobalXmin));
+		Assert(TransactionIdFollows(xmin, PredXact->SxactGlobalXmin));
 	}
 
 	MySerializableXact = sxact;
@@ -3968,13 +3969,13 @@ XidIsConcurrent(TransactionId xid)
 
 	snap = (MVCCSnapshot) GetTransactionSnapshot();
 
-	if (TransactionIdPrecedes(xid, snap->xmin))
+	if (TransactionIdPrecedes(xid, snap->shared->xmin))
 		return false;
 
-	if (TransactionIdFollowsOrEquals(xid, snap->xmax))
+	if (TransactionIdFollowsOrEquals(xid, snap->shared->xmax))
 		return true;
 
-	return pg_lfind32(xid, snap->xip, snap->xcnt);
+	return pg_lfind32(xid, snap->shared->xip, snap->shared->xcnt);
 }
 
 bool

@@ -119,17 +119,44 @@ typedef enum SnapshotType
 	SNAPSHOT_NON_VACUUMABLE,
 } SnapshotType;
 
+typedef struct MVCCSnapshotSharedData *MVCCSnapshotShared;
+
+typedef enum MVCCSnapshotKind
+{
+	SNAPSHOT_STATIC,
+	SNAPSHOT_ACTIVE,
+	SNAPSHOT_REGISTERED,
+} MVCCSnapshotKind;
+
 /*
  * Struct representing a normal MVCC snapshot.
  *
  * MVCC snapshots come in two variants: those taken during recovery in hot
  * standby mode, and "normal" MVCC snapshots.  They are distinguished by
- * takenDuringRecovery.
+ * shared->takenDuringRecovery.
  */
 typedef struct MVCCSnapshotData
 {
 	SnapshotType snapshot_type; /* type of snapshot, must be first */
 
+	/*
+	 * Most fields are in this separate struct which can be reused and shared
+	 * between snapshots that only differ in the command ID.  It is reference
+	 * counted separately.
+	 */
+	MVCCSnapshotShared shared;
+
+	CommandId	curcid;			/* in my xact, CID < curcid are visible */
+
+	/*
+	 * Book-keeping information, used by the snapshot manager
+	 */
+	MVCCSnapshotKind kind;
+	bool		valid;
+} MVCCSnapshotData;
+
+typedef struct MVCCSnapshotSharedData
+{
 	/*
 	 * An MVCC snapshot can never see the effects of XIDs >= xmax. It can see
 	 * the effects of all older XIDs except those listed in the snapshot. xmin
@@ -160,25 +187,17 @@ typedef struct MVCCSnapshotData
 	bool		suboverflowed;	/* has the subxip array overflowed? */
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
-	bool		copied;			/* false if it's a static snapshot */
-	bool		valid;			/* is this snapshot valid? */
-
-	CommandId	curcid;			/* in my xact, CID < curcid are visible */
 
 	/*
-	 * Book-keeping information, used by the snapshot manager
-	 */
-	uint32		active_count;	/* refcount on ActiveSnapshot stack */
-	uint32		regd_count;		/* refcount of registrations in resowners */
-	dlist_node	node;			/* link in ValidSnapshots */
-
-	/*
-	 * The transaction completion count at the time GetSnapshotData() built
-	 * this snapshot. Allows to avoid re-computing static snapshots when no
-	 * transactions completed since the last GetSnapshotData().
+	 * The transaction completion count at the time GetMVCCSnapshotData()
+	 * built this snapshot. Allows to avoid re-computing static snapshots when
+	 * no transactions completed since the last GetMVCCSnapshotData().
 	 */
 	uint64		snapXactCompletionCount;
-} MVCCSnapshotData;
+
+	uint32		refcount;
+	dlist_node	node;			/* link in ValidSnapshots */
+} MVCCSnapshotSharedData;
 
 typedef struct MVCCSnapshotData *MVCCSnapshot;
 

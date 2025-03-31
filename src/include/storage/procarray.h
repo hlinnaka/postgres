@@ -44,7 +44,7 @@ extern void KnownAssignedTransactionIdsIdleMaintenance(void);
 extern int	GetMaxSnapshotXidCount(void);
 extern int	GetMaxSnapshotSubxidCount(void);
 
-extern MVCCSnapshot GetSnapshotData(MVCCSnapshot snapshot);
+extern MVCCSnapshotShared GetMVCCSnapshotData(void);
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
 										 VirtualTransactionId *sourcevxid);

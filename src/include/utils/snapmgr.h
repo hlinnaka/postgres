@@ -56,6 +56,13 @@ extern PGDLLIMPORT SnapshotData SnapshotToastData;
 	((snapshot)->snapshot_type == SNAPSHOT_MVCC || \
 	 (snapshot)->snapshot_type == SNAPSHOT_HISTORIC_MVCC)
 
+/* exported so that GetMVCCSnapshotData() can access these */
+extern MVCCSnapshotShared latestSnapshotShared;
+extern MVCCSnapshotShared spareSnapshotShared;
+
+extern MVCCSnapshotShared AllocMVCCSnapshotShared(void);
+extern void FreeMVCCSnapshotShared(MVCCSnapshotShared shared);
+
 extern Snapshot GetTransactionSnapshot(void);
 extern Snapshot GetLatestSnapshot(void);
 extern void SnapshotSetCommandId(CommandId curcid);
@@ -89,7 +96,7 @@ extern void WaitForOlderSnapshots(TransactionId limitXmin, bool progress);
 extern bool ThereAreNoPriorRegisteredSnapshots(void);
 extern bool HaveRegisteredOrActiveSnapshot(void);
 
-extern char *ExportSnapshot(MVCCSnapshot snapshot);
+extern char *ExportSnapshot(MVCCSnapshotShared snapshot);
 
 /*
  * These live in procarray.c because they're intimately linked to the
@@ -105,7 +112,7 @@ extern bool GlobalVisCheckRemovableFullXid(Relation rel, FullTransactionId fxid)
 /*
  * Utility functions for implementing visibility routines in table AMs.
  */
-extern bool XidInMVCCSnapshot(TransactionId xid, MVCCSnapshot snapshot);
+extern bool XidInMVCCSnapshot(TransactionId xid, MVCCSnapshotShared snapshot);
 
 /* Support for catalog timetravel for logical decoding */
 struct HTAB;

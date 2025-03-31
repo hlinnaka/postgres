@@ -737,7 +737,8 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	 * worker, which uses it to set es_snapshot.  Make sure we don't set
 	 * es_snapshot differently in the child.
 	 */
-	Assert(GetActiveSnapshot() == estate->es_snapshot);
+	Assert(((MVCCSnapshot) GetActiveSnapshot())->shared == ((MVCCSnapshot) estate->es_snapshot)->shared);
+	Assert(((MVCCSnapshot) GetActiveSnapshot())->curcid == ((MVCCSnapshot) estate->es_snapshot)->curcid);
 
 	/* Everyone's had a chance to ask for space, so now create the DSM. */
 	InitializeParallelDSM(pcxt);

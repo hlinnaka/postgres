@@ -389,6 +389,12 @@ SnapBuildBuildSnapshot(SnapBuild *builder)
  *
  * The snapshot will be usable directly in current transaction or exported
  * for loading in different transaction.
+ *
+ * XXX: The snapshot manager doesn't know anything about the returned
+ * snapshot.  It does not hold back MyProc->xmin, nor is it registered with
+ * any resource owner.  There's also no good way to free it, but leaking it is
+ * acceptable for the current usage where only one snapshot is build for the
+ * whole session.
  */
 MVCCSnapshot
 SnapBuildInitialSnapshot(SnapBuild *builder)
@@ -440,11 +446,14 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 	MyProc->xmin = historicsnap->xmin;
 
 	/* allocate in transaction context */
-	mvccsnap = palloc(sizeof(MVCCSnapshotData) + sizeof(TransactionId) * GetMaxSnapshotXidCount());
+	mvccsnap = palloc(sizeof(MVCCSnapshotData));
+	mvccsnap->kind = SNAPSHOT_STATIC;
+	mvccsnap->shared = AllocMVCCSnapshotShared();
+	mvccsnap->shared->refcount = 1;
 	mvccsnap->snapshot_type = SNAPSHOT_MVCC;
-	mvccsnap->xmin = historicsnap->xmin;
-	mvccsnap->xmax = historicsnap->xmax;
-	mvccsnap->xip = (TransactionId *) ((char *) mvccsnap + sizeof(MVCCSnapshotData));
+	mvccsnap->shared->xmin = historicsnap->xmin;
+	mvccsnap->shared->xmax = historicsnap->xmax;
+	mvccsnap->shared->xip = (TransactionId *) ((char *) mvccsnap->shared + sizeof(MVCCSnapshotData));
 
 	/*
 	 * snapbuild.c builds transactions in an "inverted" manner, which means it
@@ -470,23 +479,20 @@ SnapBuildInitialSnapshot(SnapBuild *builder)
 						(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 						 errmsg("initial slot snapshot too large")));
 
-			mvccsnap->xip[newxcnt++] = xid;
+			mvccsnap->shared->xip[newxcnt++] = xid;
 		}
 
 		TransactionIdAdvance(xid);
 	}
-	mvccsnap->xcnt = newxcnt;
+	mvccsnap->shared->xcnt = newxcnt;
 
 	/* Initialize remaining MVCCSnapshot fields */
-	mvccsnap->subxip = NULL;
-	mvccsnap->subxcnt = 0;
-	mvccsnap->suboverflowed = false;
-	mvccsnap->takenDuringRecovery = false;
-	mvccsnap->copied = true;
+	mvccsnap->shared->subxip = NULL;
+	mvccsnap->shared->subxcnt = 0;
+	mvccsnap->shared->suboverflowed = false;
+	mvccsnap->shared->takenDuringRecovery = false;
+	mvccsnap->shared->snapXactCompletionCount = 0;
 	mvccsnap->curcid = FirstCommandId;
-	mvccsnap->active_count = 0;
-	mvccsnap->regd_count = 0;
-	mvccsnap->snapXactCompletionCount = 0;
 
 	pfree(historicsnap);
 
@@ -528,13 +534,13 @@ SnapBuildExportSnapshot(SnapBuild *builder)
 	 * now that we've built a plain snapshot, make it active and use the
 	 * normal mechanisms for exporting it
 	 */
-	snapname = ExportSnapshot(snap);
+	snapname = ExportSnapshot(snap->shared);
 
 	ereport(LOG,
 			(errmsg_plural("exported logical decoding snapshot: \"%s\" with %u transaction ID",
 						   "exported logical decoding snapshot: \"%s\" with %u transaction IDs",
-						   snap->xcnt,
-						   snapname, snap->xcnt)));
+						   snap->shared->xcnt,
+						   snapname, snap->shared->xcnt)));
 	return snapname;
 }
 

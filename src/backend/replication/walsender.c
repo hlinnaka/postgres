@@ -2620,7 +2620,7 @@ ProcessStandbyHSFeedbackMessage(void)
 
 	/*
 	 * Set the WalSender's xmin equal to the standby's requested xmin, so that
-	 * the xmin will be taken into account by GetSnapshotData() /
+	 * the xmin will be taken into account by GetMVCCSnapshotData() /
 	 * ComputeXidHorizons().  This will hold back the removal of dead rows and
 	 * thereby prevent the generation of cleanup conflicts on the standby
 	 * server.

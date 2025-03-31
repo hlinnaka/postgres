@@ -606,7 +606,7 @@ heap_prepare_pagescan(TableScanDesc sscan)
 	 * tuple for visibility the hard way.
 	 */
 	all_visible = PageIsAllVisible(page) &&
-		(snapshot->snapshot_type != SNAPSHOT_MVCC || !snapshot->mvcc.takenDuringRecovery);
+		(snapshot->snapshot_type != SNAPSHOT_MVCC || !snapshot->mvcc.shared->takenDuringRecovery);
 	check_serializable =
 		CheckForSerializableConflictOutNeeded(scan->rs_base.rs_rd, snapshot);
 

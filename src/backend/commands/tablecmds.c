@@ -20797,7 +20797,7 @@ ATExecDetachPartitionFinalize(Relation rel, RangeVar *name)
 	 * all such queries are complete (otherwise we would present them with an
 	 * inconsistent view of catalogs).
 	 */
-	WaitForOlderSnapshots(snap->mvcc.xmin, false);
+	WaitForOlderSnapshots(snap->mvcc.shared->xmin, false);
 
 	DetachPartitionFinalize(rel, partRel, true, InvalidOid);
 

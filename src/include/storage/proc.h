@@ -324,7 +324,7 @@ extern PGDLLIMPORT PGPROC *MyProc;
  * Adding/Removing an entry into the procarray requires holding *both*
  * ProcArrayLock and XidGenLock in exclusive mode (in that order). Both are
  * needed because the dense arrays (see below) are accessed from
- * GetNewTransactionId() and GetSnapshotData(), and we don't want to add
+ * GetNewTransactionId() and GetMVCCSnapshotData(), and we don't want to add
  * further contention by both using the same lock. Adding/Removing a procarray
  * entry is much less frequent.
  *
