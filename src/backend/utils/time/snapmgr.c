@@ -67,32 +67,22 @@
  * In addition to snapshots pushed to the active snapshot stack, a snapshot
  * can be registered with a resource owner.
  *
- * If FirstXactSnapshotRegistered is set, we increment the static
- * CurrentSnapshotData's regd_count and list it in RegisteredSnapshots, but this reference is not
- * tracked by a resource owner. We used to use the TopTransactionResourceOwner
- * to track this snapshot reference, but that introduces logical circularity
- * and thus makes it impossible to clean up in a sane fashion.  It's better to
- * handle this reference as an internally-tracked registration, so that this
- * module is entirely lower-level than ResourceOwners.
+ * Xmin tracking
+ * -------------
  *
- * Likewise, any snapshots that have been exported by pg_export_snapshot
- * have regd_count = 1 and are listed in RegisteredSnapshots, but are not
- * tracked by any resource owner.
+ * All valid snapshots, whether they are "static", included the active stack,
+ * or registered with a resource owner, are tracked in a doubly-linked list,
+ * ValidSnapshots.  Any snapshots that have been exported by
+ * pg_export_snapshot() are also listed there.  (They have regd_count = 1,
+ * even though they are not tracked by any resource owner).
  *
- * Likewise, the CatalogSnapshot is listed in RegisteredSnapshots when it
- * is valid, but is not tracked by any resource owner.
- *
- * The same is true for historic snapshots used during logical decoding,
- * their lifetime is managed separately (as they live longer than one xact.c
- * transaction).
- *
- * These arrangements let us reset MyProc->xmin when there are no snapshots
+ * The list is in xmin order, so that the tail always contains the oldest
+ * snapshot.  That let us reset MyProc->xmin when there are no snapshots
  * referenced by this transaction, and advance it when the one with oldest
- * Xmin is no longer referenced.  For simplicity however, only registered
- * snapshots not active snapshots participate in tracking which one is oldest;
- * we don't try to change MyProc->xmin except when the active-snapshot
- * stack is empty.
+ * Xmin is no longer referenced.
  *
+ * The lifetime of historic snapshots used during logical decoding is managed
+ * separately (as they live longer than one xact.c transaction).
  *
  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -111,7 +101,6 @@
 #include "access/transam.h"
 #include "access/xact.h"
 #include "datatype/timestamp.h"
-#include "lib/pairingheap.h"
 #include "miscadmin.h"
 #include "port/pg_lfind.h"
 #include "storage/fd.h"
@@ -177,13 +166,10 @@ typedef struct ActiveSnapshotElt
 static ActiveSnapshotElt *ActiveSnapshot = NULL;
 
 /*
- * Currently registered Snapshots.  Ordered in a heap by xmin, so that we can
+ * Currently valid Snapshots.  Ordered in a heap by xmin, so that we can
  * quickly find the one with lowest xmin, to advance our MyProc->xmin.
  */
-static int	xmin_cmp(const pairingheap_node *a, const pairingheap_node *b,
-					 void *arg);
-
-static pairingheap RegisteredSnapshots = {&xmin_cmp, NULL, NULL};
+static dlist_head ValidSnapshots = DLIST_STATIC_INIT(ValidSnapshots);
 
 /* first GetTransactionSnapshot call in a transaction? */
 bool		FirstSnapshotSet = false;
@@ -213,6 +199,8 @@ static MVCCSnapshot CopyMVCCSnapshot(MVCCSnapshot snapshot);
 static void UnregisterSnapshotNoOwner(Snapshot snapshot);
 static void FreeMVCCSnapshot(MVCCSnapshot snapshot);
 static void SnapshotResetXmin(void);
+static void valid_snapshots_push_tail(MVCCSnapshot snapshot);
+static void valid_snapshots_push_out_of_order(MVCCSnapshot snapshot);
 
 /* ResourceOwner callbacks to track snapshot references */
 static void ResOwnerReleaseSnapshot(Datum res);
@@ -284,7 +272,7 @@ GetTransactionSnapshot(void)
 		 */
 		InvalidateCatalogSnapshot();
 
-		Assert(pairingheap_is_empty(&RegisteredSnapshots));
+		Assert(dlist_is_empty(&ValidSnapshots));
 		Assert(!FirstXactSnapshotRegistered);
 
 		if (IsInParallelMode())
@@ -308,12 +296,13 @@ GetTransactionSnapshot(void)
 				GetSnapshotData(&CurrentSnapshotData);
 
 			/* Mark it as "registered" */
-			CurrentSnapshotData.regd_count++;
 			FirstXactSnapshotRegistered = true;
-			pairingheap_add(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
 		}
 		else
+		{
 			GetSnapshotData(&CurrentSnapshotData);
+		}
+		valid_snapshots_push_tail(&CurrentSnapshotData);
 
 		FirstSnapshotSet = true;
 		return (Snapshot) &CurrentSnapshotData;
@@ -321,6 +310,7 @@ GetTransactionSnapshot(void)
 
 	if (IsolationUsesXactSnapshot())
 	{
+		Assert(FirstXactSnapshotRegistered);
 		Assert(CurrentSnapshotData.valid);
 		return (Snapshot) &CurrentSnapshotData;
 	}
@@ -328,7 +318,10 @@ GetTransactionSnapshot(void)
 	/* Don't allow catalog snapshot to be older than xact snapshot. */
 	InvalidateCatalogSnapshot();
 
+	if (CurrentSnapshotData.valid)
+		dlist_delete(&CurrentSnapshotData.node);
 	GetSnapshotData(&CurrentSnapshotData);
+	valid_snapshots_push_tail(&CurrentSnapshotData);
 
 	return (Snapshot) &CurrentSnapshotData;
 }
@@ -359,7 +352,10 @@ GetLatestSnapshot(void)
 	if (!FirstSnapshotSet)
 		return GetTransactionSnapshot();
 
+	if (SecondarySnapshotData.valid)
+		dlist_delete(&SecondarySnapshotData.node);
 	GetSnapshotData(&SecondarySnapshotData);
+	valid_snapshots_push_tail(&SecondarySnapshotData);
 
 	return (Snapshot) &SecondarySnapshotData;
 }
@@ -423,7 +419,7 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 		 * NB: it had better be impossible for this to throw error, since the
 		 * CatalogSnapshot pointer is already valid.
 		 */
-		pairingheap_add(&RegisteredSnapshots, &CatalogSnapshotData.ph_node);
+		valid_snapshots_push_tail(&CatalogSnapshotData);
 	}
 
 	return (Snapshot) &CatalogSnapshotData;
@@ -444,10 +440,21 @@ InvalidateCatalogSnapshot(void)
 {
 	if (CatalogSnapshotData.valid)
 	{
-		pairingheap_remove(&RegisteredSnapshots, &CatalogSnapshotData.ph_node);
+		dlist_delete(&CatalogSnapshotData.node);
 		CatalogSnapshotData.valid = false;
-		SnapshotResetXmin();
 	}
+	if (!FirstXactSnapshotRegistered && CurrentSnapshotData.valid)
+	{
+		dlist_delete(&CurrentSnapshotData.node);
+		CurrentSnapshotData.valid = false;
+	}
+	if (SecondarySnapshotData.valid)
+	{
+		dlist_delete(&SecondarySnapshotData.node);
+		SecondarySnapshotData.valid = false;
+	}
+
+	SnapshotResetXmin();
 }
 
 /*
@@ -464,8 +471,7 @@ void
 InvalidateCatalogSnapshotConditionally(void)
 {
 	if (CatalogSnapshotData.valid &&
-		ActiveSnapshot == NULL &&
-		pairingheap_is_singular(&RegisteredSnapshots))
+		dlist_head_node(&ValidSnapshots) == &CatalogSnapshotData.node)
 		InvalidateCatalogSnapshot();
 }
 
@@ -504,7 +510,6 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 	/* Better do this to ensure following Assert succeeds. */
 	InvalidateCatalogSnapshot();
 
-	Assert(pairingheap_is_empty(&RegisteredSnapshots));
 	Assert(!FirstXactSnapshotRegistered);
 	Assert(!HistoricSnapshotActive());
 
@@ -576,9 +581,8 @@ SetTransactionSnapshot(MVCCSnapshot sourcesnap, VirtualTransactionId *sourcevxid
 											   sourcepid);
 		/* Mark it as "registered" */
 		FirstXactSnapshotRegistered = true;
-		CurrentSnapshotData.regd_count++;
-		pairingheap_add(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
 	}
+	valid_snapshots_push_tail(&CurrentSnapshotData);
 
 	FirstSnapshotSet = true;
 }
@@ -699,7 +703,10 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 	 * better to be sure.
 	 */
 	if (!origsnap->copied)
+	{
 		newactive->as_snap = CopyMVCCSnapshot(origsnap);
+		dlist_insert_after(&origsnap->node, &newactive->as_snap->node);
+	}
 	else
 		newactive->as_snap = origsnap;
 
@@ -722,8 +729,13 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 void
 PushCopiedSnapshot(Snapshot snapshot)
 {
+	MVCCSnapshot copy;
+
 	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
-	PushActiveSnapshot((Snapshot) CopyMVCCSnapshot(&snapshot->mvcc));
+
+	copy = CopyMVCCSnapshot(&snapshot->mvcc);
+	dlist_insert_after(&snapshot->mvcc.node, &copy->node);
+	PushActiveSnapshot((Snapshot) copy);
 }
 
 /*
@@ -776,7 +788,10 @@ PopActiveSnapshot(void)
 
 	if (ActiveSnapshot->as_snap->active_count == 0 &&
 		ActiveSnapshot->as_snap->regd_count == 0)
+	{
+		dlist_delete(&ActiveSnapshot->as_snap->node);
 		FreeMVCCSnapshot(ActiveSnapshot->as_snap);
+	}
 
 	pfree(ActiveSnapshot);
 	ActiveSnapshot = newstack;
@@ -850,15 +865,16 @@ RegisterSnapshotOnOwner(Snapshot orig_snapshot, ResourceOwner owner)
 	Assert(snapshot->valid);
 
 	/* Static snapshot?  Create a persistent copy */
-	snapshot = snapshot->copied ? snapshot : CopyMVCCSnapshot(snapshot);
+	if (!snapshot->copied)
+	{
+		snapshot = CopyMVCCSnapshot(snapshot);
+		dlist_insert_after(&orig_snapshot->mvcc.node, &snapshot->node);
+	}
 
 	/* and tell resowner.c about it */
 	ResourceOwnerEnlarge(owner);
 	snapshot->regd_count++;
 	ResourceOwnerRememberSnapshot(owner, (Snapshot) snapshot);
-
-	if (snapshot->regd_count == 1)
-		pairingheap_add(&RegisteredSnapshots, &snapshot->ph_node);
 
 	return (Snapshot) snapshot;
 }
@@ -901,14 +917,12 @@ UnregisterSnapshotNoOwner(Snapshot snapshot)
 		MVCCSnapshot mvccsnap = &snapshot->mvcc;
 
 		Assert(mvccsnap->regd_count > 0);
-		Assert(!pairingheap_is_empty(&RegisteredSnapshots));
+		Assert(!dlist_is_empty(&ValidSnapshots));
 
 		mvccsnap->regd_count--;
-		if (mvccsnap->regd_count == 0)
-			pairingheap_remove(&RegisteredSnapshots, &mvccsnap->ph_node);
-
 		if (mvccsnap->regd_count == 0 && mvccsnap->active_count == 0)
 		{
+			dlist_delete(&mvccsnap->node);
 			FreeMVCCSnapshot(mvccsnap);
 			SnapshotResetXmin();
 		}
@@ -934,24 +948,6 @@ UnregisterSnapshotNoOwner(Snapshot snapshot)
 }
 
 /*
- * Comparison function for RegisteredSnapshots heap.  Snapshots are ordered
- * by xmin, so that the snapshot with smallest xmin is at the top.
- */
-static int
-xmin_cmp(const pairingheap_node *a, const pairingheap_node *b, void *arg)
-{
-	const MVCCSnapshotData *asnap = pairingheap_const_container(MVCCSnapshotData, ph_node, a);
-	const MVCCSnapshotData *bsnap = pairingheap_const_container(MVCCSnapshotData, ph_node, b);
-
-	if (TransactionIdPrecedes(asnap->xmin, bsnap->xmin))
-		return 1;
-	else if (TransactionIdFollows(asnap->xmin, bsnap->xmin))
-		return -1;
-	else
-		return 0;
-}
-
-/*
  * SnapshotResetXmin
  *
  * If there are no more snapshots, we can reset our PGPROC->xmin to
@@ -972,21 +968,27 @@ SnapshotResetXmin(void)
 	/*
 	 * Invalidate these static snapshots so that we can advance xmin.
 	 */
-	if (!FirstXactSnapshotRegistered)
+	if (!FirstXactSnapshotRegistered && CurrentSnapshotData.valid)
+	{
+		dlist_delete(&CurrentSnapshotData.node);
 		CurrentSnapshotData.valid = false;
-	SecondarySnapshotData.valid = false;
+	}
+	if (SecondarySnapshotData.valid)
+	{
+		dlist_delete(&SecondarySnapshotData.node);
+		SecondarySnapshotData.valid = false;
+	}
 
 	if (ActiveSnapshot != NULL)
 		return;
 
-	if (pairingheap_is_empty(&RegisteredSnapshots))
+	if (dlist_is_empty(&ValidSnapshots))
 	{
 		MyProc->xmin = TransactionXmin = InvalidTransactionId;
 		return;
 	}
 
-	minSnapshot = pairingheap_container(MVCCSnapshotData, ph_node,
-										pairingheap_first(&RegisteredSnapshots));
+	minSnapshot = dlist_head_element(MVCCSnapshotData, node, &ValidSnapshots);
 
 	if (TransactionIdPrecedes(MyProc->xmin, minSnapshot->xmin))
 		MyProc->xmin = TransactionXmin = minSnapshot->xmin;
@@ -1035,7 +1037,10 @@ AtSubAbort_Snapshot(int level)
 
 		if (ActiveSnapshot->as_snap->active_count == 0 &&
 			ActiveSnapshot->as_snap->regd_count == 0)
+		{
+			dlist_delete(&ActiveSnapshot->as_snap->node);
 			FreeMVCCSnapshot(ActiveSnapshot->as_snap);
+		}
 
 		/* and free the stack element */
 		pfree(ActiveSnapshot);
@@ -1054,23 +1059,6 @@ void
 AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 {
 	/*
-	 * In transaction-snapshot mode we must release our privately-managed
-	 * reference to the transaction snapshot.  We must remove it from
-	 * RegisteredSnapshots to keep the check below happy.  But we don't bother
-	 * to do FreeMVCCSnapshot, for two reasons: the memory will go away with
-	 * TopTransactionContext anyway, and if someone has left the snapshot
-	 * stacked as active, we don't want the code below to be chasing through a
-	 * dangling pointer.
-	 */
-	if (FirstXactSnapshotRegistered)
-	{
-		Assert(CurrentSnapshotData.regd_count > 0);
-		Assert(!pairingheap_is_empty(&RegisteredSnapshots));
-		pairingheap_remove(&RegisteredSnapshots, &CurrentSnapshotData.ph_node);
-		FirstXactSnapshotRegistered = false;
-	}
-
-	/*
 	 * If we exported any snapshots, clean them up.
 	 */
 	if (exportedSnapshots != NIL)
@@ -1082,8 +1070,8 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 		 * it's too late to abort the transaction, and (2) leaving a leaked
 		 * file around has little real consequence anyway.
 		 *
-		 * We also need to remove the snapshots from RegisteredSnapshots to
-		 * prevent a warning below.
+		 * We also need to remove the snapshots from ValidSnapshots to prevent
+		 * a warning below.
 		 *
 		 * As with the FirstXactSnapshot, we don't need to free resources of
 		 * the snapshot itself as it will go away with the memory context.
@@ -1096,22 +1084,35 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 				elog(WARNING, "could not unlink file \"%s\": %m",
 					 esnap->snapfile);
 
-			pairingheap_remove(&RegisteredSnapshots,
-							   &esnap->snapshot->ph_node);
+			dlist_delete(&esnap->snapshot->node);
 		}
 
 		exportedSnapshots = NIL;
 	}
 
-	/* Drop catalog snapshot if any */
-	InvalidateCatalogSnapshot();
+	/* Drop all static snapshot */
+	if (CatalogSnapshotData.valid)
+	{
+		dlist_delete(&CatalogSnapshotData.node);
+		CatalogSnapshotData.valid = false;
+	}
+	if (CurrentSnapshotData.valid)
+	{
+		dlist_delete(&CurrentSnapshotData.node);
+		CurrentSnapshotData.valid = false;
+	}
+	if (SecondarySnapshotData.valid)
+	{
+		dlist_delete(&SecondarySnapshotData.node);
+		SecondarySnapshotData.valid = false;
+	}
 
 	/* On commit, complain about leftover snapshots */
 	if (isCommit)
 	{
 		ActiveSnapshotElt *active;
 
-		if (!pairingheap_is_empty(&RegisteredSnapshots))
+		if (!dlist_is_empty(&ValidSnapshots))
 			elog(WARNING, "registered snapshots seem to remain after cleanup");
 
 		/* complain about unpopped active snapshots */
@@ -1124,11 +1125,12 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 	 * it'll go away with TopTransactionContext.
 	 */
 	ActiveSnapshot = NULL;
-	pairingheap_reset(&RegisteredSnapshots);
+	dlist_init(&ValidSnapshots);
 
 	CurrentSnapshotData.valid = false;
 	SecondarySnapshotData.valid = false;
 	FirstSnapshotSet = false;
+	FirstXactSnapshotRegistered = false;
 
 	/*
 	 * During normal commit processing, we call ProcArrayEndTransaction() to
@@ -1151,6 +1153,7 @@ AtEOXact_Snapshot(bool isCommit, bool resetXmin)
 char *
 ExportSnapshot(MVCCSnapshot snapshot)
 {
+	MVCCSnapshot orig_snapshot;
 	TransactionId topXid;
 	TransactionId *children;
 	ExportedSnapshot *esnap;
@@ -1213,7 +1216,8 @@ ExportSnapshot(MVCCSnapshot snapshot)
 	 * ensure that the snapshot's xmin is honored for the rest of the
 	 * transaction.
 	 */
-	snapshot = CopyMVCCSnapshot(snapshot);
+	orig_snapshot = snapshot;
+	snapshot = CopyMVCCSnapshot(orig_snapshot);
 
 	oldcxt = MemoryContextSwitchTo(TopTransactionContext);
 	esnap = (ExportedSnapshot *) palloc(sizeof(ExportedSnapshot));
@@ -1223,7 +1227,7 @@ ExportSnapshot(MVCCSnapshot snapshot)
 	MemoryContextSwitchTo(oldcxt);
 
 	snapshot->regd_count++;
-	pairingheap_add(&RegisteredSnapshots, &snapshot->ph_node);
+	dlist_insert_after(&orig_snapshot->node, &snapshot->node);
 
 	/*
 	 * Fill buf with a text serialization of the snapshot, plus identification
@@ -1653,7 +1657,7 @@ DeleteAllExportedSnapshotFiles(void)
 
 /*
  * ThereAreNoPriorRegisteredSnapshots
- *		Is the registered snapshot count less than or equal to one?
+ *		Are there any snapshots other than the current active snapshot?
  *
  * Don't use this to settle important decisions.  While zero registrations and
  * no ActiveSnapshot would confirm a certain idleness, the system makes no
@@ -1662,11 +1666,25 @@ DeleteAllExportedSnapshotFiles(void)
 bool
 ThereAreNoPriorRegisteredSnapshots(void)
 {
-	if (pairingheap_is_empty(&RegisteredSnapshots) ||
-		pairingheap_is_singular(&RegisteredSnapshots))
-		return true;
+	dlist_iter	iter;
 
-	return false;
+	dlist_foreach(iter, &ValidSnapshots)
+	{
+		MVCCSnapshot cur = dlist_container(MVCCSnapshotData, node, iter.cur);
+
+		if (FirstXactSnapshotRegistered)
+		{
+			Assert(CurrentSnapshotData.valid);
+			if (cur != &CurrentSnapshotData)
+				continue;
+		}
+		if (ActiveSnapshot && cur == ActiveSnapshot->as_snap)
+			continue;
+
+		return false;
+	}
+
+	return true;
 }
 
 /*
@@ -1684,15 +1702,18 @@ HaveRegisteredOrActiveSnapshot(void)
 		return true;
 
 	/*
-	 * The catalog snapshot is in RegisteredSnapshots when valid, but can be
+	 * The catalog snapshot is in ValidSnapshots when valid, but can be
 	 * removed at any time due to invalidation processing. If explicitly
-	 * registered more than one snapshot has to be in RegisteredSnapshots.
+	 * registered more than one snapshot has to be in ValidSnapshots.
 	 */
 	if (CatalogSnapshotData.valid &&
-		pairingheap_is_singular(&RegisteredSnapshots))
+		dlist_head_node(&ValidSnapshots) == &CatalogSnapshotData.node &&
+		dlist_tail_node(&ValidSnapshots) == &CatalogSnapshotData.node)
+	{
 		return false;
+	}
 
-	return !pairingheap_is_empty(&RegisteredSnapshots);
+	return !dlist_is_empty(&ValidSnapshots);
 }
 
 
@@ -1884,7 +1905,7 @@ RestoreSnapshot(char *start_address)
 	ResourceOwnerEnlarge(CurrentResourceOwner);
 	snapshot->regd_count++;
 	ResourceOwnerRememberSnapshot(CurrentResourceOwner, (Snapshot) snapshot);
-	pairingheap_add(&RegisteredSnapshots, &snapshot->ph_node);
+	valid_snapshots_push_out_of_order(snapshot);
 
 	return snapshot;
 }
@@ -2014,4 +2035,46 @@ static void
 ResOwnerReleaseSnapshot(Datum res)
 {
 	UnregisterSnapshotNoOwner((Snapshot) DatumGetPointer(res));
+}
+
+
+/* Helper functions to manipulate the ValidSnapshots list */
+
+/* dlist_push_tail, with assertion that the list stays ordered by xmin */
+static void
+valid_snapshots_push_tail(MVCCSnapshot snapshot)
+{
+#ifdef USE_ASSERT_CHECKING
+	if (!dlist_is_empty(&ValidSnapshots))
+	{
+		MVCCSnapshot tail = dlist_tail_element(MVCCSnapshotData, node, &ValidSnapshots);
+
+		Assert(TransactionIdFollowsOrEquals(snapshot->xmin, tail->xmin));
+	}
+#endif
+	dlist_push_tail(&ValidSnapshots, &snapshot->node);
+}
+
+/*
+ * Add an entry to the right position in the list, keeping it ordered by xmin.
+ *
+ * This is O(n), but that's OK because it's only used in rare occasions, when
+ * the list is small.
+ */
+static void
+valid_snapshots_push_out_of_order(MVCCSnapshot snapshot)
+{
+	dlist_iter	iter;
+
+	dlist_foreach(iter, &ValidSnapshots)
+	{
+		MVCCSnapshot cur = dlist_container(MVCCSnapshotData, node, iter.cur);
+
+		if (TransactionIdFollowsOrEquals(snapshot->xmin, cur->xmin))
+		{
+			dlist_insert_after(&cur->node, &snapshot->node);
+			return;
+		}
+	}
+	dlist_push_tail(&ValidSnapshots, &snapshot->node);
 }

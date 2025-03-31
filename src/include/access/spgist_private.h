@@ -17,6 +17,7 @@
 #include "access/itup.h"
 #include "access/spgist.h"
 #include "catalog/pg_am_d.h"
+#include "lib/pairingheap.h"
 #include "nodes/tidbitmap.h"
 #include "storage/buf.h"
 #include "utils/geo_decls.h"

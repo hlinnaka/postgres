@@ -13,7 +13,7 @@
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
-#include "lib/pairingheap.h"
+#include "lib/ilist.h"
 
 
 /*
@@ -169,8 +169,8 @@ typedef struct MVCCSnapshotData
 	 * Book-keeping information, used by the snapshot manager
 	 */
 	uint32		active_count;	/* refcount on ActiveSnapshot stack */
-	uint32		regd_count;		/* refcount on RegisteredSnapshots */
-	pairingheap_node ph_node;	/* link in the RegisteredSnapshots heap */
+	uint32		regd_count;		/* refcount of registrations in resowners */
+	dlist_node	node;			/* link in ValidSnapshots */
 
 	/*
 	 * The transaction completion count at the time GetSnapshotData() built
