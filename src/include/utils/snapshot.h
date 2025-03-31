@@ -129,6 +129,8 @@ typedef enum MVCCSnapshotKind
 	SNAPSHOT_REGISTERED,
 } MVCCSnapshotKind;
 
+struct inprogress_cache_radix_tree; /* private to snapmgr.c */
+
 /*
  * Struct representing a normal MVCC snapshot.
  *
@@ -193,6 +195,13 @@ typedef struct MVCCSnapshotSharedData
 	 * LSN are considered as visible.
 	 */
 	XLogRecPtr	snapshotCsn;
+
+	/*
+	 * Cache of XIDs known to be running or not according to the snapshot.
+	 * Used in snapshots taken during recovery.
+	 */
+	struct inprogress_cache_radix_tree *inprogress_cache;
+	MemoryContext inprogress_cache_cxt;
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 

@@ -114,6 +114,35 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+/*
+ * Define a radix tree implementation to cache CSN lookups in a snapshot.
+ *
+ * We need only one bit of information for each XID stored in the cache: was
+ * the XID running or not.  However, the radix tree implementation uses 8
+ * bytes for each entry (on 64-bit machines) even if the value type is smaller
+ * than that.  To reduce memory usage, we use uint64 as the value type, and
+ * store multiple XIDs in each value.
+ *
+ * The 64-bit value word holds two bits for each XID: whether the XID is
+ * present in the cache or not, and if it's present, whether it's considered
+ * as in-progress by the snapshot or not.  So each entry in the radix tree
+ * holds the status for 32 XIDs.
+ */
+#define RT_PREFIX inprogress_cache
+#define RT_SCOPE
+#define RT_DECLARE
+#define RT_DEFINE
+#define RT_VALUE_TYPE uint64
+#include "lib/radixtree.h"
+
+#define INPROGRESS_CACHE_BITS 2
+#define INPROGRESS_CACHE_XIDS_PER_WORD 32
+
+#define INPROGRESS_CACHE_XID_IS_CACHED(word, slotno) \
+	((((word) & (UINT64CONST(1) << (slotno)))) != 0)
+
+#define INPROGRESS_CACHE_XID_IS_IN_PROGRESS(word, slotno) \
+	((((word) & (UINT64CONST(1) << ((slotno) + 1)))) != 0)
 
 /*
  * CurrentSnapshot points to the only snapshot taken in transaction-snapshot
@@ -240,6 +269,7 @@ typedef struct SerializedSnapshotData
 	int32		subxcnt;
 	bool		suboverflowed;
 	bool		takenDuringRecovery;
+	XLogRecPtr	snapshotCsn;
 	CommandId	curcid;
 } SerializedSnapshotData;
 
@@ -1177,6 +1207,7 @@ ExportSnapshot(MVCCSnapshotShared snapshot)
 			appendStringInfo(&buf, "sxp:%u\n", children[i]);
 	}
 	appendStringInfo(&buf, "rec:%u\n", snapshot->takenDuringRecovery);
+	appendStringInfo(&buf, "snapshotcsn:%X/%X\n", LSN_FORMAT_ARGS(snapshot->snapshotCsn));
 
 	/*
 	 * Now write the text representation into a file.  We first write to a
@@ -1449,6 +1480,7 @@ ImportSnapshot(const char *idstr)
 	}
 
 	snapshot->takenDuringRecovery = parseIntFromText("rec:", &filebuf, path);
+	snapshot->snapshotCsn = parseIntFromText("snapshotcsn:", &filebuf, path);
 
 	snapshot->refcount = 1;
 	valid_snapshots_push_out_of_order(snapshot);
@@ -1702,6 +1734,7 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
 	serialized_snapshot.subxcnt = snapshot->shared->subxcnt;
 	serialized_snapshot.suboverflowed = snapshot->shared->suboverflowed;
 	serialized_snapshot.takenDuringRecovery = snapshot->shared->takenDuringRecovery;
+	serialized_snapshot.snapshotCsn = snapshot->shared->snapshotCsn;
 	serialized_snapshot.curcid = snapshot->curcid;
 
 	/*
@@ -1776,6 +1809,9 @@ RestoreSnapshot(char *start_address)
 	snapshot->shared->subxcnt = serialized_snapshot.subxcnt;
 	snapshot->shared->suboverflowed = serialized_snapshot.suboverflowed;
 	snapshot->shared->takenDuringRecovery = serialized_snapshot.takenDuringRecovery;
+	snapshot->shared->snapshotCsn = serialized_snapshot.snapshotCsn;
+	snapshot->shared->inprogress_cache = NULL;
+	snapshot->shared->inprogress_cache_cxt = NULL;
 	snapshot->shared->snapXactCompletionCount = 0;
 
 	snapshot->shared->refcount = 1;
@@ -1889,12 +1925,62 @@ XidInMVCCSnapshot(TransactionId xid, MVCCSnapshotShared snapshot)
 	}
 	else
 	{
-		XLogRecPtr	csn = CSNLogGetCSNByXid(xid);
+		XLogRecPtr	csn;
+		bool		inprogress;
+		uint64	   *cache_entry;
+		uint64		cache_word = 0;
 
-		if (csn != InvalidXLogRecPtr && csn <= snapshot->snapshotCsn)
-			return false;
+		/*
+		 * Calculate the word and bit slot for the XID in the cache. We use an
+		 * offset from xmax as the key instead of the XID directly, because
+		 * the radix tree can compact away leading zeros and is thus more
+		 * efficient with keys closer to 0.
+		 */
+		uint32		cache_idx = snapshot->xmax - xid;
+		uint64		wordno = cache_idx / INPROGRESS_CACHE_XIDS_PER_WORD;
+		uint64		slotno = (cache_idx % INPROGRESS_CACHE_XIDS_PER_WORD) * INPROGRESS_CACHE_BITS;
+
+		if (snapshot->inprogress_cache)
+		{
+			cache_entry = inprogress_cache_find(snapshot->inprogress_cache, wordno);
+			if (cache_entry)
+			{
+				cache_word = *cache_entry;
+				if (INPROGRESS_CACHE_XID_IS_CACHED(cache_word, slotno))
+					return INPROGRESS_CACHE_XID_IS_IN_PROGRESS(cache_word, slotno);
+			}
+		}
 		else
-			return true;
+		{
+			MemoryContext save_cxt;
+
+			save_cxt = MemoryContextSwitchTo(TopMemoryContext);
+
+			if (snapshot->inprogress_cache_cxt == NULL)
+				snapshot->inprogress_cache_cxt =
+					AllocSetContextCreate(TopMemoryContext,
+										  "snapshot inprogress cache context",
+										  ALLOCSET_SMALL_SIZES);
+			snapshot->inprogress_cache = inprogress_cache_create(snapshot->inprogress_cache_cxt);
+			cache_entry = NULL;
+			MemoryContextSwitchTo(save_cxt);
+		}
+
+		/* Not found in cache, look up the CSN */
+		csn = CSNLogGetCSNByXid(xid);
+		inprogress = (csn == InvalidXLogRecPtr || csn > snapshot->snapshotCsn);
+
+		/* Update the cache word, and store it back to the radix tree */
+		cache_word |= UINT64CONST(1) << slotno; /* cached */
+		if (inprogress)
+			cache_word |= UINT64CONST(1) << (slotno + 1);	/* in-progress */
+
+		if (cache_entry)
+			*cache_entry = cache_word;
+		else
+			inprogress_cache_set(snapshot->inprogress_cache, wordno, &cache_word);
+
+		return inprogress;
 	}
 
 	return false;
@@ -1944,6 +2030,9 @@ AllocMVCCSnapshotShared(void)
 
 	shared->snapXactCompletionCount = 0;
 	shared->refcount = 0;
+	shared->snapshotCsn = InvalidXLogRecPtr;
+	shared->inprogress_cache = NULL;
+	shared->inprogress_cache_cxt = NULL;
 
 	MemoryContextSwitchTo(save_cxt);
 
@@ -1972,8 +2061,22 @@ void
 FreeMVCCSnapshotShared(MVCCSnapshotShared shared)
 {
 	Assert(shared->refcount == 0);
+
+	if (shared->inprogress_cache)
+	{
+		inprogress_cache_free(shared->inprogress_cache);
+		shared->inprogress_cache = NULL;
+	}
+	if (shared->inprogress_cache_cxt)
+	{
+		MemoryContextDelete(shared->inprogress_cache_cxt);
+		shared->inprogress_cache_cxt = NULL;
+	}
+
 	if (spareSnapshotShared == NULL)
+	{
 		spareSnapshotShared = shared;
+	}
 	else
 		pfree(shared);
 }
