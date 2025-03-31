@@ -2135,6 +2135,7 @@ GetSnapshotDataReuse(MVCCSnapshot snapshot)
 	snapshot->active_count = 0;
 	snapshot->regd_count = 0;
 	snapshot->copied = false;
+	snapshot->valid = true;
 
 	return true;
 }
@@ -2514,6 +2515,7 @@ GetSnapshotData(MVCCSnapshot snapshot)
 	snapshot->active_count = 0;
 	snapshot->regd_count = 0;
 	snapshot->copied = false;
+	snapshot->valid = true;
 
 	return snapshot;
 }

@@ -161,6 +161,7 @@ typedef struct MVCCSnapshotData
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 	bool		copied;			/* false if it's a static snapshot */
+	bool		valid;			/* is this snapshot valid? */
 
 	CommandId	curcid;			/* in my xact, CID < curcid are visible */
 

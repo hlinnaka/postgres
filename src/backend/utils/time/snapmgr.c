@@ -447,6 +447,7 @@ InvalidateCatalogSnapshot(void)
 	{
 		pairingheap_remove(&RegisteredSnapshots, &CatalogSnapshot->ph_node);
 		CatalogSnapshot = NULL;
+		CatalogSnapshotData.valid = false;
 		SnapshotResetXmin();
 	}
 }
@@ -611,6 +612,7 @@ CopyMVCCSnapshot(MVCCSnapshot snapshot)
 	newsnap->regd_count = 0;
 	newsnap->active_count = 0;
 	newsnap->copied = true;
+	newsnap->valid = true;
 	newsnap->snapXactCompletionCount = 0;
 
 	/* setup XID array */
@@ -652,6 +654,7 @@ FreeMVCCSnapshot(MVCCSnapshot snapshot)
 	Assert(snapshot->regd_count == 0);
 	Assert(snapshot->active_count == 0);
 	Assert(snapshot->copied);
+	Assert(snapshot->valid);
 
 	pfree(snapshot);
 }
@@ -688,6 +691,7 @@ PushActiveSnapshotWithLevel(Snapshot snapshot, int snap_level)
 
 	Assert(snapshot->snapshot_type == SNAPSHOT_MVCC);
 	origsnap = &snapshot->mvcc;
+	Assert(origsnap->valid);
 
 	Assert(ActiveSnapshot == NULL || snap_level >= ActiveSnapshot->as_level);
 
@@ -847,6 +851,7 @@ RegisterSnapshotOnOwner(Snapshot orig_snapshot, ResourceOwner owner)
 
 	Assert(orig_snapshot->snapshot_type == SNAPSHOT_MVCC);
 	snapshot = &orig_snapshot->mvcc;
+	Assert(snapshot->valid);
 
 	/* Static snapshot?  Create a persistent copy */
 	snapshot = snapshot->copied ? snapshot : CopyMVCCSnapshot(snapshot);
@@ -967,6 +972,15 @@ static void
 SnapshotResetXmin(void)
 {
 	MVCCSnapshot minSnapshot;
+
+	/*
+	 * These static snapshots are not in the RegisteredSnapshots list, so we
+	 * might advance MyProc->xmin past their xmin. (Note that in case of
+	 * IsolationUsesXactSnapshot() == true, CurrentSnapshot points to the copy
+	 * in FirstSnapshot rather than CurrentSnapshotData.)
+	 */
+	CurrentSnapshotData.valid = false;
+	SecondarySnapshotData.valid = false;
 
 	if (ActiveSnapshot != NULL)
 		return;
@@ -1871,6 +1885,7 @@ RestoreSnapshot(char *start_address)
 	snapshot->regd_count = 0;
 	snapshot->active_count = 0;
 	snapshot->copied = true;
+	snapshot->valid = true;
 
 	return snapshot;
 }
