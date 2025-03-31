@@ -1823,7 +1823,7 @@ SerializeSnapshot(MVCCSnapshot snapshot, char *start_address)
  *		Restore a serialized snapshot from the specified address.
  *
  * The copy is palloc'd in TopTransactionContext and has initial refcounts set
- * to 0.  The returned snapshot has the copied flag set.
+ * to 0.  The returned snapshot is registered with the current resource owner.
  */
 MVCCSnapshot
 RestoreSnapshot(char *start_address)
@@ -1879,6 +1879,12 @@ RestoreSnapshot(char *start_address)
 	snapshot->active_count = 0;
 	snapshot->copied = true;
 	snapshot->valid = true;
+
+	/* and tell resowner.c about it, just like RegisterSnapshot() */
+	ResourceOwnerEnlarge(CurrentResourceOwner);
+	snapshot->regd_count++;
+	ResourceOwnerRememberSnapshot(CurrentResourceOwner, (Snapshot) snapshot);
+	pairingheap_add(&RegisteredSnapshots, &snapshot->ph_node);
 
 	return snapshot;
 }

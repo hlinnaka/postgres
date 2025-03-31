@@ -175,7 +175,6 @@ table_beginscan_parallel(Relation relation, ParallelTableScanDesc pscan)
 	{
 		/* Snapshot was serialized -- restore it */
 		snapshot = (Snapshot) RestoreSnapshot((char *) pscan + pscan->phs_snapshot_off);
-		snapshot = RegisterSnapshot(snapshot);
 		flags |= SO_TEMP_SNAPSHOT;
 	}
 	else

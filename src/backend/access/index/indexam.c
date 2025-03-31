@@ -592,7 +592,6 @@ index_beginscan_parallel(Relation heaprel, Relation indexrel,
 	Assert(RelFileLocatorEquals(indexrel->rd_locator, pscan->ps_indexlocator));
 
 	snapshot = (Snapshot) RestoreSnapshot(pscan->ps_snapshot_data);
-	snapshot = RegisterSnapshot(snapshot);
 	scan = index_beginscan_internal(indexrel, nkeys, norderbys, snapshot,
 									pscan, true);
 

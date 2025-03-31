@@ -1499,6 +1499,10 @@ ParallelWorkerMain(Datum main_arg)
 							   fps->parallel_leader_pgproc);
 	PushActiveSnapshot(asnapshot);
 
+	UnregisterSnapshot(asnapshot);
+	if (tsnapshot != asnapshot)
+		UnregisterSnapshot(tsnapshot);
+
 	/*
 	 * We've changed which tuples we can see, and must therefore invalidate
 	 * system caches.
