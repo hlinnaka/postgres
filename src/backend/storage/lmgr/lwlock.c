@@ -140,6 +140,7 @@ static const char *const BuiltinTrancheNames[] = {
 	[LWTRANCHE_XACT_BUFFER] = "XactBuffer",
 	[LWTRANCHE_COMMITTS_BUFFER] = "CommitTsBuffer",
 	[LWTRANCHE_SUBTRANS_BUFFER] = "SubtransBuffer",
+	[LWTRANCHE_CSN_LOG_BUFFER] = "CsnLogBuffer",
 	[LWTRANCHE_MULTIXACTOFFSET_BUFFER] = "MultiXactOffsetBuffer",
 	[LWTRANCHE_MULTIXACTMEMBER_BUFFER] = "MultiXactMemberBuffer",
 	[LWTRANCHE_NOTIFY_BUFFER] = "NotifyBuffer",
@@ -178,6 +179,7 @@ static const char *const BuiltinTrancheNames[] = {
 	[LWTRANCHE_XACT_SLRU] = "XactSLRU",
 	[LWTRANCHE_PARALLEL_VACUUM_DSA] = "ParallelVacuumDSA",
 	[LWTRANCHE_AIO_URING_COMPLETION] = "AioUringCompletion",
+	[LWTRANCHE_CSN_LOG_SLRU] = "CsnLogSLRU",
 };
 
 StaticAssertDecl(lengthof(BuiltinTrancheNames) ==

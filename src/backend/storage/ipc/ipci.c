@@ -16,6 +16,7 @@
 
 #include "access/clog.h"
 #include "access/commit_ts.h"
+#include "access/csn_log.h"
 #include "access/multixact.h"
 #include "access/nbtree.h"
 #include "access/subtrans.h"
@@ -122,6 +123,7 @@ CalculateShmemSize(int *num_semaphores)
 	size = add_size(size, XLOGShmemSize());
 	size = add_size(size, XLogRecoveryShmemSize());
 	size = add_size(size, CLOGShmemSize());
+	size = add_size(size, CSNLogShmemSize());
 	size = add_size(size, CommitTsShmemSize());
 	size = add_size(size, SUBTRANSShmemSize());
 	size = add_size(size, TwoPhaseShmemSize());
@@ -287,6 +289,7 @@ CreateOrAttachShmemStructs(void)
 	XLogPrefetchShmemInit();
 	XLogRecoveryShmemInit();
 	CLOGShmemInit();
+	CSNLogShmemInit();
 	CommitTsShmemInit();
 	SUBTRANSShmemInit();
 	MultiXactShmemInit();

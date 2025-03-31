@@ -13,6 +13,7 @@
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
+#include "access/xlogdefs.h"
 #include "lib/ilist.h"
 
 
@@ -185,6 +186,13 @@ typedef struct MVCCSnapshotSharedData
 	TransactionId *subxip;
 	int32		subxcnt;		/* # of xact ids in subxip[] */
 	bool		suboverflowed;	/* has the subxip array overflowed? */
+
+	/*
+	 * MVCC snapshots taken during recovery use this CSN instead of the xip
+	 * and subxip arrays. Any transactions that committed at or before this
+	 * LSN are considered as visible.
+	 */
+	XLogRecPtr	snapshotCsn;
 
 	bool		takenDuringRecovery;	/* recovery-shaped snapshot? */
 
