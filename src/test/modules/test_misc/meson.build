@@ -9,6 +9,7 @@ tests += {
        'enable_injection_points': get_option('injection_points') ? 'yes' : 'no',
     },
     'tests': [
+      't/000_csn_perf.pl',
       't/001_constraint_validation.pl',
       't/002_tablespace.pl',
       't/003_check_guc.pl',
