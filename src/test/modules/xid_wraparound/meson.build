@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2025, PostgreSQL Global Development Group
 
 xid_wraparound_sources = files(
+  'multixid_wraparound.c',
   'xid_wraparound.c',
 )
 
