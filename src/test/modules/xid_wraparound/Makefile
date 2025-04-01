@@ -3,6 +3,7 @@
 MODULE_big = xid_wraparound
 OBJS = \
 	$(WIN32RES) \
+	multixid_wraparound.o \
 	xid_wraparound.o
 PGFILEDESC = "xid_wraparound - tests for XID wraparound"
 
