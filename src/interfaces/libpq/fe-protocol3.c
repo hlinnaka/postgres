@@ -1444,6 +1444,17 @@ pqGetNegotiateProtocolVersion3(PGconn *conn)
 		goto failure;
 	}
 
+	if (their_version < conn->min_pversion)
+	{
+		libpq_append_conn_error(conn, "server only supports protocol version %d.%d, but min_protocol_version was set to %d.%d",
+								PG_PROTOCOL_MAJOR(their_version),
+								PG_PROTOCOL_MINOR(their_version),
+								PG_PROTOCOL_MAJOR(conn->min_pversion),
+								PG_PROTOCOL_MINOR(conn->min_pversion));
+
+		goto failure;
+	}
+
 	/* the version is acceptable */
 	conn->pversion = their_version;
 
