@@ -8230,6 +8230,14 @@ pqParseProtocolVersion(const char *value, ProtocolVersion *result, PGconn *conn,
 		return true;
 	}
 
+	/* 3.1 never existed, we went straight from 3.0 to 3.2 */
+
+	if (strcmp(value, "3.2") == 0)
+	{
+		*result = PG_PROTOCOL(3, 2);
+		return true;
+	}
+
 	libpq_append_conn_error(conn, "invalid %s value: \"%s\"",
 							context, value);
 	return false;

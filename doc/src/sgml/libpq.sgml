@@ -2158,10 +2158,11 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
 
        <para>
         The current supported values are
-        <literal>3.0</literal>
+        <literal>3.0</literal>,
+        <literal>3.2</literal>,
         and <literal>latest</literal>. The <literal>latest</literal> value is
         equivalent to the latest protocol version that is supported by the used
-        libpq version, which currently is <literal>3.0</literal>.
+        libpq version, which currently is <literal>3.2</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -2184,10 +2185,11 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
 
        <para>
         The current supported values are
-        <literal>3.0</literal>
+        <literal>3.0</literal>,
+        <literal>3.2</literal>,
         and <literal>latest</literal>. The <literal>latest</literal> value is
-        equivalent to the latest protocol version that is supported by the
-        libpq version used, which is currently <literal>3.0</literal>.
+        equivalent to the latest protocol version that is supported by the used
+        libpq version, which currently is <literal>3.2</literal>.
        </para>
       </listitem>
      </varlistentry>
