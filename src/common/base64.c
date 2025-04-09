@@ -46,11 +46,11 @@ static const int8 b64lookup[128] = {
  * for safety.
  */
 int
-pg_b64_encode(const char *src, int len, char *dst, int dstlen)
+pg_b64_encode(const void *src, int len, char *dst, int dstlen)
 {
 	char	   *p;
 	const char *s,
-			   *end = src + len;
+			   *end = (const char *) src + len;
 	int			pos = 2;
 	uint32		buf = 0;
 
@@ -113,7 +113,7 @@ error:
  * buffer zeroed for safety.
  */
 int
-pg_b64_decode(const char *src, int len, char *dst, int dstlen)
+pg_b64_decode(const char *src, int len, void *dst, int dstlen)
 {
 	const char *srcend = src + len,
 			   *s = src;
@@ -172,21 +172,21 @@ pg_b64_decode(const char *src, int len, char *dst, int dstlen)
 			 * Leave if there is an overflow in the area allocated for the
 			 * decoded string.
 			 */
-			if ((p - dst + 1) > dstlen)
+			if ((p - (char *) dst + 1) > dstlen)
 				goto error;
 			*p++ = (buf >> 16) & 255;
 
 			if (end == 0 || end > 1)
 			{
 				/* overflow check */
-				if ((p - dst + 1) > dstlen)
+				if ((p - (char *) dst + 1) > dstlen)
 					goto error;
 				*p++ = (buf >> 8) & 255;
 			}
 			if (end == 0 || end > 2)
 			{
 				/* overflow check */
-				if ((p - dst + 1) > dstlen)
+				if ((p - (char *) dst + 1) > dstlen)
 					goto error;
 				*p++ = buf & 255;
 			}
@@ -204,8 +204,8 @@ pg_b64_decode(const char *src, int len, char *dst, int dstlen)
 		goto error;
 	}
 
-	Assert((p - dst) <= dstlen);
-	return p - dst;
+	Assert((p - (char *) dst) <= dstlen);
+	return p - (char *) dst;
 
 error:
 	memset(dst, 0, dstlen);
