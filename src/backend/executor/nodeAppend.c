@@ -1079,7 +1079,7 @@ ExecAppendAsyncEventWait(AppendState *node)
 	 * extensions too.
 	 */
 	AddWaitEventToSet(node->as_eventset, WL_INTERRUPT, PGINVALID_SOCKET,
-					  1 << INTERRUPT_GENERAL, NULL);
+					  INTERRUPT_GENERAL, NULL);
 
 	/* Return at most EVENT_BUFFER_SIZE events in one call. */
 	if (nevents > EVENT_BUFFER_SIZE)

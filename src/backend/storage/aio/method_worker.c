@@ -561,7 +561,7 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 		}
 		else
 		{
-			WaitInterrupt(1 << INTERRUPT_GENERAL,
+			WaitInterrupt(INTERRUPT_GENERAL,
 						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
 						  WAIT_EVENT_IO_WORKER_MAIN);
 			ClearInterrupt(INTERRUPT_GENERAL);
