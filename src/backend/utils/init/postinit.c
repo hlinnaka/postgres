@@ -1391,11 +1391,7 @@ StatementTimeoutHandler(void)
 static void
 LockTimeoutHandler(void)
 {
-#ifdef HAVE_SETSID
-	/* try to signal whole process group */
-	kill(-MyProcPid, SIGINT);
-#endif
-	kill(MyProcPid, SIGINT);
+	RaiseInterrupt(INTERRUPT_QUERY_CANCEL);
 }
 
 static void

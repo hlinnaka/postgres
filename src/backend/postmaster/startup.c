@@ -66,12 +66,6 @@ static pg_global volatile sig_atomic_t in_restore_command = false;
 static pg_global TimestampTz startup_progress_phase_start_time;
 
 /*
- * Indicates whether the startup progress interval mentioned by the user is
- * elapsed or not. TRUE if timeout occurred, FALSE otherwise.
- */
-static pg_global volatile sig_atomic_t startup_progress_timer_expired = false;
-
-/*
  * Time between progress updates for long-running startup operations.
  */
 sighup_guc int			log_startup_progress_interval = 10000;	/* 10 sec */
@@ -318,7 +312,7 @@ ResetPromoteSignaled(void)
 void
 startup_progress_timeout_handler(void)
 {
-	startup_progress_timer_expired = true;
+	RaiseInterrupt(INTERRUPT_STARTUP_PROGRESS_TIMER_EXPIRED);
 }
 
 void
@@ -329,7 +323,7 @@ disable_startup_progress_timeout(void)
 		return;
 
 	disable_timeout(STARTUP_PROGRESS_TIMEOUT, false);
-	startup_progress_timer_expired = false;
+	ClearInterrupt(INTERRUPT_STARTUP_PROGRESS_TIMER_EXPIRED);
 }
 
 /*
@@ -379,7 +373,7 @@ has_startup_progress_timeout_expired(long *secs, int *usecs)
 	TimestampTz now;
 
 	/* No timeout has occurred. */
-	if (!startup_progress_timer_expired)
+	if (!ConsumeInterrupt(INTERRUPT_STARTUP_PROGRESS_TIMER_EXPIRED))
 		return false;
 
 	/* Calculate the elapsed time. */
@@ -388,7 +382,6 @@ has_startup_progress_timeout_expired(long *secs, int *usecs)
 
 	*secs = seconds;
 	*usecs = useconds;
-	startup_progress_timer_expired = false;
 
 	return true;
 }

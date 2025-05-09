@@ -214,22 +214,28 @@ typedef enum InterruptType
 	INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT = 1 << 21,
 	INTERRUPT_CLIENT_CHECK_TIMEOUT = 1 << 22,
 
+	/*
+	 * Indicates whether the startup progress interval mentioned by the user is
+	 * elapsed or not. TRUE if timeout occurred, FALSE otherwise.
+	 */
+	INTERRUPT_STARTUP_PROGRESS_TIMER_EXPIRED = 1 << 23,
+
 	/* Raised synchronously when the client connection is lost */
-	INTERRUPT_CLIENT_CONNECTION_LOST = 1 << 23,
+	INTERRUPT_CLIENT_CONNECTION_LOST = 1 << 24,
 
 	/* Ask backend to log the memory contexts */
-	INTERRUPT_LOG_MEMORY_CONTEXT = 1 << 24,
+	INTERRUPT_LOG_MEMORY_CONTEXT = 1 << 25,
 
-	INTERRUPT_GET_MEMORY_CONTEXT = 1 << 24,
+	INTERRUPT_GET_MEMORY_CONTEXT = 1 << 26,
 
 	/* Message from a cooperating parallel backend */
-	INTERRUPT_PARALLEL_MESSAGE = 1 << 26,
+	INTERRUPT_PARALLEL_MESSAGE = 1 << 27,
 
 	/* Message from a parallel apply worker */
-	INTERRUPT_PARALLEL_APPLY_MESSAGE = 1 << 27,
+	INTERRUPT_PARALLEL_APPLY_MESSAGE = 1 << 28,
 
 	/* procsignal global barrier interrupt  */
-	INTERRUPT_BARRIER = 1 << 28,
+	INTERRUPT_BARRIER = 1 << 29,
 
 	/*---- end of interrupts handled by CHECK_FOR_INTERRUPTS() ----*/
 
