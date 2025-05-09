@@ -77,6 +77,7 @@
 #include "storage/waiteventset.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "utils/timeout.h"
 #include "utils/wait_event.h"
 
 /*
@@ -1149,6 +1150,10 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 	pgwin32_dispatch_queued_signals();
 #endif
 
+	/* Similar hack to always handle timer interrupt */
+	if (IsMultiThreaded)
+		handle_sig_alarm(0, 0);
+
 	/*
 	 * We will change the 'attention_mask' in MyPendingInterrupts for the
 	 * sleep, which means that CHECK_FOR_INTERRUPTS() won't work correctly.
@@ -1246,6 +1251,10 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 
 			rc = WaitEventSetWaitBlock(set, cur_timeout,
 									   occurred_events, nevents - returned_events);
+
+			/* hack to always handle timer interrupt */
+			if (IsMultiThreaded)
+				handle_sig_alarm(0, 0);
 
 			if (rc == -1)
 				break;			/* timeout occurred */
@@ -2192,6 +2201,13 @@ ResOwnerReleaseWaitEventSet(Datum res)
 void
 WakeupMyProc(void)
 {
+	if (IsMultiThreaded)
+	{
+		if (waiting)
+			sendPipeWakeupByte(thread_wakeup_writefds[MyPMChildSlot]);
+		return;
+	}
+
 #ifndef WIN32
 #if defined(WAIT_USE_SELF_PIPE)
 	if (waiting)

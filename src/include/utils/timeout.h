@@ -77,6 +77,8 @@ extern void InitializeTimeouts(void);
 extern TimeoutId RegisterTimeout(TimeoutId id, timeout_handler_proc handler);
 extern void reschedule_timeouts(void);
 
+extern void handle_sig_alarm(SIGNAL_ARGS);
+
 /* timeout operation */
 extern void enable_timeout_after(TimeoutId id, int delay_ms);
 extern void enable_timeout_every(TimeoutId id, TimestampTz fin_time,
