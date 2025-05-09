@@ -1378,11 +1378,10 @@ StatementTimeoutHandler(void)
 	if (ClientAuthInProgress)
 		sig = SIGTERM;
 
-#ifdef HAVE_SETSID
-	/* try to signal whole process group */
-	kill(-MyProcPid, sig);
-#endif
-	kill(MyProcPid, sig);
+	if (sig == SIGINT)
+		RaiseInterrupt(INTERRUPT_QUERY_CANCEL);
+	else
+		RaiseInterrupt(INTERRUPT_DIE);
 }
 
 /*

@@ -78,6 +78,7 @@
 #include "storage/waiteventset.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "utils/timeout.h"
 
 /*
  * Select the fd readiness primitive to use. Normally the "most modern"
@@ -1145,6 +1146,10 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 	pgwin32_dispatch_queued_signals();
 #endif
 
+	/* Similar hack to always handle timer interrupt */
+	if (IsMultiThreaded)
+		handle_sig_alarm(0);
+
 	/*
 	 * Atomically check if the interrupt is already pending and advertise that
 	 * we are about to start sleeping. If it was already pending, avoid
@@ -1227,6 +1232,10 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 
 			rc = WaitEventSetWaitBlock(set, cur_timeout,
 									   occurred_events, nevents - returned_events);
+
+			/* hack to always handle timer interrupt */
+			if (IsMultiThreaded)
+				handle_sig_alarm(0);
 
 			if (rc == -1)
 				break;				/* timeout occurred */
@@ -2125,6 +2134,13 @@ ResOwnerReleaseWaitEventSet(Datum res)
 void
 WakeupMyProc(void)
 {
+	if (IsMultiThreaded)
+	{
+		if (waiting)
+			sendPipeWakeupByte(thread_wakeup_writefds[MyPMChildSlot]);
+		return;
+	}
+
 #ifndef WIN32
 #if defined(WAIT_USE_SELF_PIPE)
 	if (waiting)

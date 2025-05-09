@@ -15,9 +15,12 @@
 #include "postgres.h"
 
 #include <sys/time.h>
+#include <pthread.h>
 
 #include "miscadmin.h"
 #include "storage/interrupt.h"
+#include "storage/ipc.h"
+#include "storage/proc.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
@@ -78,6 +81,7 @@ static session_local volatile sig_atomic_t alarm_enabled = false;
 static session_local volatile sig_atomic_t signal_pending = false;
 static session_local volatile TimestampTz signal_due_at = 0;
 
+static void thread_setitimer(struct timespec *abstime);
 
 /*****************************************************************************
  * Internal helper functions
@@ -336,19 +340,158 @@ schedule_alarm(TimestampTz now)
 		signal_pending = true;
 
 		/* Set the alarm timer */
-		if (setitimer(ITIMER_REAL, &timeval, NULL) != 0)
+		if (IsMultiThreaded)
 		{
-			/*
-			 * Clearing signal_pending here is a bit pro forma, but not
-			 * entirely so, since something in the FATAL exit path could try
-			 * to use timeout facilities.
-			 */
-			signal_pending = false;
-			elog(FATAL, "could not enable SIGALRM timer: %m");
+			struct timespec abstime;
+
+			clock_gettime(CLOCK_REALTIME, &abstime);
+			abstime.tv_sec += secs;
+			abstime.tv_nsec += usecs * 1000;
+			if (abstime.tv_nsec > 1000000000)
+			{
+				abstime.tv_sec += 1;
+				abstime.tv_nsec -= 1000000000;
+			}
+
+			thread_setitimer(&abstime);
+		}
+		else
+		{
+			if (setitimer(ITIMER_REAL, &timeval, NULL) != 0)
+			{
+				/*
+				 * Clearing signal_pending here is a bit pro forma, but not
+				 * entirely so, since something in the FATAL exit path could try
+				 * to use timeout facilities.
+				 */
+				signal_pending = false;
+				elog(FATAL, "could not enable SIGALRM timer: %m");
+			}
 		}
 	}
 }
 
+typedef struct timer_thread_comm {
+	pthread_mutex_t mutex;
+	pthread_cond_t cv;
+	PGPROC	   *proc;
+	struct timespec wakeup_at;
+	bool		armed;
+	bool		gone;
+} timer_thread_comm;
+
+static session_local bool timer_thread_launched = false;
+static session_local timer_thread_comm *thread_comm;
+
+static void *
+timer_thread_main(void *arg)
+{
+	timer_thread_comm *thread_comm = arg;
+
+	pthread_mutex_lock(&thread_comm->mutex);
+
+	for (;;)
+	{
+		if (thread_comm->gone)
+			break;
+
+		/* FIXME: check return code */
+		if (!thread_comm->armed)
+		{
+			pthread_cond_wait(&thread_comm->cv, &thread_comm->mutex);
+		}
+		else
+		{
+			struct timespec wakeup_at = thread_comm->wakeup_at;
+			int			rc;
+
+			rc = pthread_cond_timedwait(&thread_comm->cv, &thread_comm->mutex, &wakeup_at);
+			if (rc == ETIMEDOUT && thread_comm->armed)
+			{
+				thread_comm->armed = false;
+				WakeupOtherProc(thread_comm->proc);
+			}
+		}
+	}
+
+	pthread_mutex_unlock(&thread_comm->mutex);
+	pthread_mutex_destroy(&thread_comm->mutex);
+	pthread_cond_destroy(&thread_comm->cv);
+	free(thread_comm);
+	return NULL;
+}
+
+static void
+timer_on_exit(int code, Datum arg)
+{
+	if (thread_comm != NULL)
+	{
+		pthread_mutex_lock(&thread_comm->mutex);
+		thread_comm->gone = true;
+		pthread_mutex_unlock(&thread_comm->mutex);
+		thread_comm = NULL;
+	}
+}
+
+static void
+thread_setitimer(struct timespec *nearest_timeout)
+{
+	pthread_t thread_id;
+
+	if (MyProc == NULL)
+	{
+		elog(WARNING, "todo: timers don't work before MyProc is assigned");
+		return;
+	}
+
+	if (proc_exit_inprogress)
+	{
+		elog(WARNING, "cannot set timer while exiting");
+		return;
+	}
+
+	if (!timer_thread_launched)
+	{
+		thread_comm = malloc(sizeof(timer_thread_comm));
+		if (thread_comm == NULL)
+			elog(ERROR, "out of memory");
+		if (pthread_mutex_init(&thread_comm->mutex, NULL) != 0)
+		{
+			free(thread_comm);
+			elog(ERROR, "could not initialize timer thread mutex");
+		}
+		if (pthread_cond_init(&thread_comm->cv, NULL) != 0)
+		{
+			pthread_mutex_destroy(&thread_comm->mutex);
+			free(thread_comm);
+			elog(ERROR, "could not initialize timer thread condition variable");
+		}
+		thread_comm->proc = MyProc;
+		thread_comm->gone = false;
+		thread_comm->wakeup_at = *nearest_timeout;
+		thread_comm->armed = true;
+
+		on_proc_exit(timer_on_exit, (Datum) 0);
+
+		if (pthread_create(&thread_id, NULL, timer_thread_main, thread_comm) != 0)
+		{
+			pthread_cond_destroy(&thread_comm->cv);
+			pthread_mutex_destroy(&thread_comm->mutex);
+			free(thread_comm);
+			thread_comm = NULL;
+			elog(FATAL, "could not launch timer thread");
+		}
+		timer_thread_launched = true;
+	}
+	else
+	{
+		pthread_mutex_lock(&thread_comm->mutex);
+		thread_comm->wakeup_at = *nearest_timeout;
+		thread_comm->armed = true;
+		pthread_mutex_unlock(&thread_comm->mutex);
+		pthread_cond_signal(&thread_comm->cv);
+	}
+}
 
 /*****************************************************************************
  * Signal handler
@@ -360,7 +503,7 @@ schedule_alarm(TimestampTz now)
  * Process any active timeout reasons and then reschedule the interrupt
  * as needed.
  */
-static void
+void
 handle_sig_alarm(SIGNAL_ARGS)
 {
 	/*
