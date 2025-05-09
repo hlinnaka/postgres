@@ -62,7 +62,7 @@
 
 
 /* GUC variables */
-int	suset_guc SessionReplicationRole = SESSION_REPLICATION_ROLE_ORIGIN;
+suset_guc int SessionReplicationRole = SESSION_REPLICATION_ROLE_ORIGIN;
 
 /* How many levels deep into trigger execution are we? */
 static session_local int	MyTriggerDepth = 0;

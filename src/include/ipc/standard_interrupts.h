@@ -103,11 +103,17 @@ typedef uint64 InterruptMask;
 #define INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT UINT64_BIT(9)
 #define INTERRUPT_CLIENT_CHECK_TIMEOUT			UINT64_BIT(10)
 
+/*
+ * Indicates whether the startup progress interval mentioned by the user is
+ * elapsed or not. TRUE if timeout occurred, FALSE otherwise.
+ */
+#define INTERRUPT_STARTUP_PROGRESS_TIMER_EXPIRED	UINT64_BIT(11)
+
 /* Raised by timer while idle, to send a stats update */
-#define INTERRUPT_IDLE_STATS_TIMEOUT			UINT64_BIT(11)
+#define INTERRUPT_IDLE_STATS_TIMEOUT			UINT64_BIT(12)
 
 /* Raised synchronously when the client connection is lost */
-#define INTERRUPT_CLIENT_CONNECTION_LOST		 UINT64_BIT(12)
+#define INTERRUPT_CLIENT_CONNECTION_LOST		 UINT64_BIT(13)
 
 /*
  * INTERRUPT_ASYNC_NOTIFY is sent to notify backends that have registered to
@@ -116,7 +122,7 @@ typedef uint64 InterruptMask;
  * client or while doing so, but only when there is no transaction in
  * progress.
  */
-#define INTERRUPT_ASYNC_NOTIFY					UINT64_BIT(13)
+#define INTERRUPT_ASYNC_NOTIFY					UINT64_BIT(14)
 
 /*
  * Because backends sitting idle will not be reading sinval events, we need a
@@ -128,10 +134,10 @@ typedef uint64 InterruptMask;
  * The interrupt is processed whenever starting to read from the client, or
  * when interrupted while doing so.
  */
-#define INTERRUPT_SINVAL_CATCHUP				UINT64_BIT(14)
+#define INTERRUPT_SINVAL_CATCHUP				UINT64_BIT(15)
 
 /* Message from a cooperating parallel backend or apply worker */
-#define INTERRUPT_PARALLEL_MESSAGE				UINT64_BIT(15)
+#define INTERRUPT_PARALLEL_MESSAGE				UINT64_BIT(16)
 
 
 /***********************************************************************
@@ -142,17 +148,17 @@ typedef uint64 InterruptMask;
  ***********************************************************************/
 
 /* ask walsenders to prepare for shutdown  */
-#define INTERRUPT_WALSND_INIT_STOPPING			UINT64_BIT(16)
+#define INTERRUPT_WALSND_INIT_STOPPING			UINT64_BIT(17)
 
 /* TODO: document the difference with INTERRUPT_WALSND_INIT_STOPPING */
-#define INTERRUPT_WALSND_STOP					UINT64_BIT(17)
+#define INTERRUPT_WALSND_STOP					UINT64_BIT(18)
 
 /*
  * INTERRUPT_WAL_ARRIVED is used to wake up the startup process, to tell it
  * that it should continue WAL replay.  It's sent by WAL receiver when more
  * WAL arrives, or when promotion is requested.
  */
-#define INTERRUPT_WAL_ARRIVED					UINT64_BIT(18)
+#define INTERRUPT_WAL_ARRIVED					UINT64_BIT(19)
 
 /*
  * Wake up startup process to check for the promotion signal file
@@ -160,23 +166,23 @@ typedef uint64 InterruptMask;
  * Also used to request a slotsync worker or some other backend syncing
  * replication slots to stop syncing.
  */
-#define INTERRUPT_CHECK_PROMOTE					UINT64_BIT(19)
+#define INTERRUPT_CHECK_PROMOTE					UINT64_BIT(20)
 
 /* sent to logical replication launcher, when a subscription changes */
-#define INTERRUPT_SUBSCRIPTION_CHANGE			UINT64_BIT(20)
+#define INTERRUPT_SUBSCRIPTION_CHANGE			UINT64_BIT(21)
 
 /* Graceful shutdown request for a parallel apply worker */
-#define INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER UINT64_BIT(21)
+#define INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER UINT64_BIT(22)
 
 /* Request checkpointer to perform one last checkpoint, then shut down */
-#define INTERRUPT_SHUTDOWN_XLOG					UINT64_BIT(22)
+#define INTERRUPT_SHUTDOWN_XLOG					UINT64_BIT(23)
 
-#define INTERRUPT_SHUTDOWN_PGARCH				UINT64_BIT(23)
+#define INTERRUPT_SHUTDOWN_PGARCH				UINT64_BIT(24)
 
 /*
  * This is sent to the autovacuum launcher when an autovacuum worker exits
  */
-#define INTERRUPT_AUTOVACUUM_WORKER_FINISHED 	UINT64_BIT(24)
+#define INTERRUPT_AUTOVACUUM_WORKER_FINISHED 	UINT64_BIT(25)
 
 
 /***********************************************************************
@@ -185,7 +191,7 @@ typedef uint64 InterruptMask;
  * The remaining bits are handed out by RequestAddinInterrupt, for
  * extensions
  ***********************************************************************/
-#define BEGIN_ADDIN_INTERRUPTS 25
+#define BEGIN_ADDIN_INTERRUPTS 26
 #define END_ADDIN_INTERRUPTS 64
 
 
