@@ -44,6 +44,7 @@ OBJS = \
 	noblock.o \
 	path.o \
 	pg_bitutils.o \
+	pg_getopt_ctx.o \
 	pg_localeconv_r.o \
 	pg_numa.o \
 	pg_popcount_aarch64.o \
