@@ -1550,9 +1550,8 @@ getBackendKeyData(PGconn *conn, int msgLength)
 	conn->be_cancel_key = malloc(cancel_key_len);
 	if (conn->be_cancel_key == NULL)
 	{
-		libpq_append_conn_error(conn, "out of memory");
-		/* discard the message */
-		return EOF;
+		/* continue without cancel key */
+		return 0;
 	}
 	if (pqGetnchar(conn->be_cancel_key, cancel_key_len, conn))
 	{
@@ -1588,12 +1587,17 @@ getNotify(PGconn *conn)
 		return EOF;
 	/* must save name while getting extra string */
 	svname = strdup(conn->workBuffer.data);
-	if (!svname)
-		return EOF;
 	if (pqGets(&conn->workBuffer, conn))
 	{
-		free(svname);
+		if (svname)
+			free(svname);
 		return EOF;
+	}
+
+	if (!svname)
+	{
+		/* out of memory; silently ignore the notification */
+		return 0;
 	}
 
 	/*
