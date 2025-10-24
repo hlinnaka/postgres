@@ -57,6 +57,7 @@
  */
 
 /*							yyyymmddN */
-#define CATALOG_VERSION_NO	202512061
+// FIXME: bump it
+#define CATALOG_VERSION_NO	999999999
 
 #endif
