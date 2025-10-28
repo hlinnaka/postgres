@@ -25,6 +25,7 @@ tests += {
     'tests': [
       't/001_basic.pl',
       't/002_corrupted.pl',
+      't/003_mxoff.pl',
     ],
   },
 }
