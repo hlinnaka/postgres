@@ -140,14 +140,6 @@ typedef struct MultiXactStateData
 	MultiXactId oldestMultiXactId;
 	Oid			oldestMultiXactDB;
 
-	/*
-	 * Oldest multixact offset that is potentially referenced by a multixact
-	 * referenced by a relation.  We don't always know this value, so there's
-	 * a flag here to indicate whether or not we currently do.
-	 */
-	MultiXactOffset oldestOffset;
-	bool		oldestOffsetKnown;
-
 	/* support for anti-wraparound measures */
 	MultiXactId multiVacLimit;
 	MultiXactId multiWarnLimit;
@@ -2371,10 +2363,7 @@ SetOffsetVacuumLimit(bool is_startup)
 	MultiXactId oldestMultiXactId;
 	MultiXactId nextMXact;
 	MultiXactOffset oldestOffset = 0;	/* placate compiler */
-	MultiXactOffset prevOldestOffset;
 	MultiXactOffset nextOffset;
-	bool		oldestOffsetKnown = false;
-	bool		prevOldestOffsetKnown;
 
 	/*
 	 * NB: Have to prevent concurrent truncation, we might otherwise try to
@@ -2387,8 +2376,6 @@ SetOffsetVacuumLimit(bool is_startup)
 	oldestMultiXactId = MultiXactState->oldestMultiXactId;
 	nextMXact = MultiXactState->nextMXact;
 	nextOffset = MultiXactState->nextOffset;
-	prevOldestOffsetKnown = MultiXactState->oldestOffsetKnown;
-	prevOldestOffset = MultiXactState->oldestOffset;
 	Assert(MultiXactState->finishedStartup);
 	LWLockRelease(MultiXactGenLock);
 
@@ -2406,57 +2393,20 @@ SetOffsetVacuumLimit(bool is_startup)
 		 * offset.
 		 */
 		oldestOffset = nextOffset;
-		oldestOffsetKnown = true;
 	}
-	else
+	else if (!find_multixact_start(oldestMultiXactId, &oldestOffset))
 	{
-		/*
-		 * Figure out where the oldest existing multixact's offsets are
-		 * stored. Due to bugs in early release of PostgreSQL 9.3.X and 9.4.X,
-		 * the supposedly-earliest multixact might not really exist.  We are
-		 * careful not to fail in that case.
-		 */
-		oldestOffsetKnown =
-			find_multixact_start(oldestMultiXactId, &oldestOffset);
-
-		if (!oldestOffsetKnown)
-			ereport(LOG,
-					(errmsg("oldest checkpointed MultiXact %u does not exist on disk",
-							oldestMultiXactId)));
+		ereport(LOG,
+				(errmsg("oldest checkpointed MultiXact %u does not exist on disk",
+						oldestMultiXactId)));
 	}
 
 	LWLockRelease(MultiXactTruncationLock);
 
 	/*
-	 * If we can, compute limits (and install them MultiXactState) to prevent
-	 * overrun of old data in the members SLRU area. We can only do so if the
-	 * oldest offset is known though.
-	 *
-	 * FIXME: Is !oldestOffsetKnown possible anymore? At least update the comment:
-	 * we won't overrun members anymore.
-	 */
-	if (prevOldestOffsetKnown)
-	{
-		/*
-		 * If we failed to get the oldest offset this time, but we have a
-		 * value from a previous pass through this function, use the old
-		 * values rather than automatically forcing an autovacuum cycle again.
-		 */
-		oldestOffset = prevOldestOffset;
-		oldestOffsetKnown = true;
-	}
-
-	/* Install the computed values */
-	LWLockAcquire(MultiXactGenLock, LW_EXCLUSIVE);
-	MultiXactState->oldestOffset = oldestOffset;
-	MultiXactState->oldestOffsetKnown = oldestOffsetKnown;
-	LWLockRelease(MultiXactGenLock);
-
-	/*
 	 * Do we need autovacuum?	If we're not sure, assume yes.
 	 */
-	return !oldestOffsetKnown ||
-		(nextOffset - oldestOffset > MULTIXACT_MEMBER_AUTOVAC_THRESHOLD);
+	return nextOffset - oldestOffset > MULTIXACT_MEMBER_AUTOVAC_THRESHOLD;
 }
 
 /*
@@ -2500,47 +2450,6 @@ find_multixact_start(MultiXactId multi, MultiXactOffset *result)
 	LWLockRelease(SimpleLruGetBankLock(MultiXactOffsetCtl, pageno));
 
 	*result = offset;
-	return true;
-}
-
-/*
- * GetMultiXactInfo
- *
- * Returns information about the current MultiXact state, as of:
- * multixacts: Number of MultiXacts (nextMultiXactId - oldestMultiXactId)
- * members: Number of member entries (nextOffset - oldestOffset)
- * oldestMultiXactId: Oldest MultiXact ID still in use
- * oldestOffset: Oldest offset still in use
- *
- * Returns false if unable to determine, the oldest offset being unknown.
- */
-bool
-GetMultiXactInfo(uint32 *multixacts, MultiXactOffset *members,
-				 MultiXactId *oldestMultiXactId, MultiXactOffset *oldestOffset)
-{
-	MultiXactOffset nextOffset;
-	MultiXactId nextMultiXactId;
-	bool		oldestOffsetKnown;
-
-	LWLockAcquire(MultiXactGenLock, LW_SHARED);
-	nextOffset = MultiXactState->nextOffset;
-	*oldestMultiXactId = MultiXactState->oldestMultiXactId;
-	nextMultiXactId = MultiXactState->nextMXact;
-	*oldestOffset = MultiXactState->oldestOffset;
-	oldestOffsetKnown = MultiXactState->oldestOffsetKnown;
-	LWLockRelease(MultiXactGenLock);
-
-	if (!oldestOffsetKnown)
-	{
-		*members = 0;
-		*multixacts = 0;
-		*oldestMultiXactId = InvalidMultiXactId;
-		*oldestOffset = 0;
-		return false;
-	}
-
-	*members = nextOffset - *oldestOffset;
-	*multixacts = nextMultiXactId - *oldestMultiXactId;
 	return true;
 }
 
