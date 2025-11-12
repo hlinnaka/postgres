@@ -1,4 +1,4 @@
-Parsed test spec with 3 sessions
+Parsed test spec with 4 sessions
 
 starting permutation: listenc notify1 notify2 notify3 notifyf
 step listenc: LISTEN c1; LISTEN c2;
@@ -103,6 +103,37 @@ step lcommit: COMMIT;
 step l2commit: COMMIT;
 listener2: NOTIFY "c1" with payload "" from notifier
 step l2stop: UNLISTEN *;
+
+starting permutation: llisten n1begins n1select n1insert notify1 n2begins n2select n2insert n2notify1 n1commit n2commit notify1 lcheck
+step llisten: LISTEN c1; LISTEN c2;
+step n1begins: BEGIN ISOLATION LEVEL SERIALIZABLE;
+step n1select: SELECT * FROM t1;
+a
+-
+(0 rows)
+
+step n1insert: INSERT INTO t1 DEFAULT VALUES;
+step notify1: NOTIFY c1;
+step n2begins: BEGIN ISOLATION LEVEL SERIALIZABLE;
+step n2select: SELECT * FROM t1;
+a
+-
+(0 rows)
+
+step n2insert: INSERT INTO t1 DEFAULT VALUES;
+step n2notify1: NOTIFY c1, 'n2_payload';
+step n1commit: COMMIT;
+step n2commit: COMMIT;
+ERROR:  could not serialize access due to read/write dependencies among transactions
+step notify1: NOTIFY c1;
+step lcheck: SELECT 1 AS x;
+x
+-
+1
+(1 row)
+
+listener: NOTIFY "c1" with payload "" from notifier
+listener: NOTIFY "c1" with payload "" from notifier
 
 starting permutation: llisten lbegin usage bignotify usage
 step llisten: LISTEN c1; LISTEN c2;

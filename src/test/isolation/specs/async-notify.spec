@@ -5,6 +5,10 @@
 # Note we assume that each step is delivered to the backend as a single Query
 # message so it will run as one transaction.
 
+# t1 table is used for serializable conflict
+setup { CREATE TABLE t1 (a bigserial); }
+teardown { DROP TABLE t1; }
+
 session notifier
 step listenc	{ LISTEN c1; LISTEN c2; }
 step notify1	{ NOTIFY c1; }
@@ -33,7 +37,20 @@ step notifys1	{
 }
 step usage		{ SELECT pg_notification_queue_usage() > 0 AS nonzero; }
 step bignotify	{ SELECT count(pg_notify('c1', s::text)) FROM generate_series(1, 1000) s; }
+step n1begins   { BEGIN ISOLATION LEVEL SERIALIZABLE; }
+step n1select   { SELECT * FROM t1; }
+step n1insert   { INSERT INTO t1 DEFAULT VALUES; }
+step n1commit   { COMMIT; }
 teardown		{ UNLISTEN *; }
+
+# notifier2 session is used to reproduce serializable conflict with notifier
+
+session notifier2
+step n2begins    { BEGIN ISOLATION LEVEL SERIALIZABLE; }
+step n2select    { SELECT * FROM t1; }
+step n2insert    { INSERT INTO t1 DEFAULT VALUES; }
+step n2commit    { COMMIT; }
+step n2notify1   { NOTIFY c1, 'n2_payload';  }
 
 # The listener session is used for cross-backend notify checks.
 
@@ -72,6 +89,14 @@ permutation listenc llisten notify1 notify2 notify3 notifyf lcheck
 # Check for bug when initial listen is only action in a serializable xact,
 # and notify queue is not empty
 permutation l2listen l2begin notify1 lbegins llisten lcommit l2commit l2stop
+
+# Check that listeners ignore notifications from a transaction that
+# aborts at a late stage, after it has already added the notifications
+# to the listen/notify queue. To construct that scenario, we use the
+# fact that serializable conflicts are checked after the notifications
+# are added to the queue.
+
+permutation llisten n1begins n1select n1insert notify1 n2begins n2select n2insert n2notify1 n1commit n2commit notify1 lcheck
 
 # Verify that pg_notification_queue_usage correctly reports a non-zero result,
 # after submitting notifications while another connection is listening for
