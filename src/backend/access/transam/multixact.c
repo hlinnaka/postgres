@@ -1825,48 +1825,6 @@ BootStrapMultiXact(void)
 }
 
 /*
- * MaybeExtendOffsetSlru
- *		Extend the offsets SLRU area, if necessary
- *
- * After a binary upgrade from <= 9.2, the pg_multixact/offsets SLRU area might
- * contain files that are shorter than necessary; this would occur if the old
- * installation had used multixacts beyond the first page (files cannot be
- * copied, because the on-disk representation is different).  pg_upgrade would
- * update pg_control to set the next offset value to be at that position, so
- * that tuples marked as locked by such MultiXacts would be seen as visible
- * without having to consult multixact.  However, trying to create and use a
- * new MultiXactId would result in an error because the page on which the new
- * value would reside does not exist.  This routine is in charge of creating
- * such pages.
- */
-static void
-MaybeExtendOffsetSlru(void)
-{
-	int64		pageno;
-	LWLock	   *lock;
-
-	pageno = MultiXactIdToOffsetPage(MultiXactState->nextMXact);
-	lock = SimpleLruGetBankLock(MultiXactOffsetCtl, pageno);
-
-	LWLockAcquire(lock, LW_EXCLUSIVE);
-
-	if (!SimpleLruDoesPhysicalPageExist(MultiXactOffsetCtl, pageno))
-	{
-		int			slotno;
-
-		/*
-		 * Fortunately for us, SimpleLruWritePage is already prepared to deal
-		 * with creating a new segment file even if the page we're writing is
-		 * not the first in it, so this is enough.
-		 */
-		slotno = SimpleLruZeroPage(MultiXactOffsetCtl, pageno);
-		SimpleLruWritePage(MultiXactOffsetCtl, slotno);
-	}
-
-	LWLockRelease(lock);
-}
-
-/*
  * This must be called ONCE during postmaster or standalone-backend startup.
  *
  * StartupXLOG has already established nextMXact/nextOffset by calling
@@ -2058,20 +2016,6 @@ MultiXactSetNextMXact(MultiXactId nextMulti,
 	MultiXactState->nextMXact = nextMulti;
 	MultiXactState->nextOffset = nextMultiOffset;
 	LWLockRelease(MultiXactGenLock);
-
-	/*
-	 * During a binary upgrade, make sure that the offsets SLRU is large
-	 * enough to contain the next value that would be created.
-	 *
-	 * We need to do this pretty early during the first startup in binary
-	 * upgrade mode: before StartupMultiXact() in fact, because this routine
-	 * is called even before that by StartupXLOG().  And we can't do it
-	 * earlier than at this point, because during that first call of this
-	 * routine we determine the MultiXactState->nextMXact value that
-	 * MaybeExtendOffsetSlru needs.
-	 */
-	if (IsBinaryUpgrade)
-		MaybeExtendOffsetSlru();
 }
 
 /*
