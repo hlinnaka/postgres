@@ -1146,9 +1146,9 @@ vacuum_get_cutoffs(Relation rel, const VacuumParams params,
 	/*
 	 * Also compute the multixact age for which freezing is urgent.  This is
 	 * normally autovacuum_multixact_freeze_max_age, but may be less if we are
-	 * short of multixact member space.
+	 * short of multixact member space. XXX update comment
 	 */
-	effective_multixact_freeze_max_age = autovacuum_multixact_freeze_max_age;
+	effective_multixact_freeze_max_age = MultiXactMemberFreezeThreshold();
 
 	/*
 	 * Almost ready to set freeze output parameters; check if OldestXmin or
@@ -1971,7 +1971,7 @@ vac_truncate_clog(TransactionId frozenXID,
 	 * signaling twice?
 	 */
 	SetTransactionIdLimit(frozenXID, oldestxid_datoid);
-	SetMultiXactIdLimit(minMulti, minmulti_datoid, false);
+	SetMultiXactIdLimit(minMulti, minmulti_datoid);
 
 	LWLockRelease(WrapLimitsVacuumLock);
 }

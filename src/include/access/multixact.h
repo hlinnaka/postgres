@@ -126,8 +126,7 @@ extern void BootStrapMultiXact(void);
 extern void StartupMultiXact(void);
 extern void TrimMultiXact(void);
 extern void SetMultiXactIdLimit(MultiXactId oldest_datminmxid,
-								Oid oldest_datoid,
-								bool is_startup);
+								Oid oldest_datoid);
 extern void MultiXactGetCheckptMulti(bool is_shutdown,
 									 MultiXactId *nextMulti,
 									 MultiXactOffset *nextMultiOffset,
@@ -142,6 +141,7 @@ extern void MultiXactSetNextMXact(MultiXactId nextMulti,
 extern void MultiXactAdvanceNextMXact(MultiXactId minMulti,
 									  MultiXactOffset minMultiOffset);
 extern void MultiXactAdvanceOldest(MultiXactId oldestMulti, Oid oldestMultiDB);
+extern int	MultiXactMemberFreezeThreshold(void);
 
 extern void multixact_twophase_recover(FullTransactionId fxid, uint16 info,
 									   void *recdata, uint32 len);
