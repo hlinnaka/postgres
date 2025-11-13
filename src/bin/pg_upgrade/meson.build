@@ -52,6 +52,7 @@ tests += {
       't/006_transfer_modes.pl',
       't/007_multixact_conversion.pl',
       't/008_multi_wrap.pl',
+      't/009_mxoff_orig.pl',
     ],
     'test_kwargs': {'priority': 40}, # pg_upgrade tests are slow
   },
