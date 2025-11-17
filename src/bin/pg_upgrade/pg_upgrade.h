@@ -115,6 +115,13 @@ extern char *output_files[];
 #define MULTIXACT_FORMATCHANGE_CAT_VER 201301231
 
 /*
+ * MultiXactOffset was changed from 32-bit to 64-bit in version 19, at this
+ * catalog version.  pg_multixact files need to be converted when upgrading
+ * across this version.
+ */
+#define MULTIXACTOFFSET_FORMATCHANGE_CAT_VER 999999999
+
+/*
  * large object chunk size added to pg_controldata,
  * commit 5f93c37805e7485488480916b4585e098d3cc883
  */
