@@ -103,7 +103,7 @@ command_fails_like(
 	'fails with incorrect -e option');
 command_fails_like(
 	[ 'pg_resetwal', '-e' => '-1', $node->data_dir ],
-	qr/must not be -1/,
+	qr/error: invalid argument for option -e/,
 	'fails with -e value -1');
 # -l
 command_fails_like(
@@ -145,7 +145,7 @@ command_fails_like(
 	'fails with incorrect -O option');
 command_fails_like(
 	[ 'pg_resetwal', '-O' => '-1', $node->data_dir ],
-	qr/must be between 0 and 4294967295/,
+	qr/error: invalid argument for option -O/,
 	'fails with -O value -1');
 # --wal-segsize
 command_fails_like(
@@ -174,6 +174,21 @@ command_fails_like(
 	[ 'pg_resetwal', '-x' => '1', $node->data_dir ],
 	qr/must be greater than/,
 	'fails with -x value too small');
+
+# Check out of range values with -x. These are forbidden for all other
+# 32-bit values too, but we use just -x to exercise the parsing.
+command_fails_like(
+	[ 'pg_resetwal', '-x' => '-1', $node->data_dir ],
+	qr/error: invalid argument for option -x/,
+	'fails with -x value -1');
+command_fails_like(
+	[ 'pg_resetwal', '-x' => '-100', $node->data_dir ],
+	qr/error: invalid argument for option -x/,
+	'fails with negative -x value');
+command_fails_like(
+	[ 'pg_resetwal', '-x' => '10000000000', $node->data_dir ],
+	qr/error: invalid argument for option -x/,
+	'fails with -x value too large');
 
 # --char-signedness
 command_fails_like(
