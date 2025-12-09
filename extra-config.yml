@@ -1,0 +1,2 @@
+cirrus_community_vm_template: &cirrus_community_vm_template
+  use_compute_credits: $CIRRUS_USER_COLLABORATOR == 'true'
