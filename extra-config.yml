@@ -1,2 +1,38 @@
 cirrus_community_vm_template: &cirrus_community_vm_template
   use_compute_credits: $CIRRUS_USER_COLLABORATOR == 'true'
+
+# Check that code follows formatting standards
+task:
+  name: FormattingCheck
+
+  env:
+    CPUS: 2
+    IMAGE_FAMILY: pg-ci-trixie
+
+  <<: *linux_task_template
+
+  depends_on: SanityCheck
+  #only_if: $CI_FORMATTINGCHECK_ENABLED
+  allow_failures: true
+
+  create_user_script: |
+    useradd -m postgres
+    chown -R postgres:postgres .
+
+  # Configure and build pg_bsd_indent
+  configure_script: |
+    su postgres <<-EOF
+      meson setup --auto-features=disabled build
+    EOF
+
+  build_pg_bsd_indent_script: |
+    su postgres <<-EOF
+      ninja -C build src/tools/pg_bsd_indent/pg_bsd_indent
+    EOF
+
+  # Check C code formatting with pgindent
+  check_pgindent_script: |
+    su postgres <<-EOF
+      export PATH="$(pwd)/build/src/tools/pg_bsd_indent:\$PATH"
+      src/tools/pgindent/pgindent --check --diff src contrib
+    EOF
