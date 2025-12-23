@@ -12,6 +12,7 @@ task:
   <<: *linux_task_template
 
   depends_on: SanityCheck
+  only_if: $BRANCH == "master" # (6)
   #only_if: $CI_FORMATTINGCHECK_ENABLED
   allow_failures: true
 
