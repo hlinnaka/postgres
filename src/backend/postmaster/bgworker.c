@@ -781,7 +781,6 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGUSR2, SIG_IGN);
-	pqsignal(SIGCHLD, SIG_DFL);
 
 	/*
 	 * If an exception is encountered, processing resumes here.

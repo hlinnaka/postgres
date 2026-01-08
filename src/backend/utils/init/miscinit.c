@@ -143,6 +143,15 @@ InitPostmasterChild(void)
 #endif
 
 	/*
+	 * Reset signals that are used by postmaster but not by child processes.
+	 *
+	 * Currently just SIGCHLD.  The handlers for other signals are overridden
+	 * later, depending on the child process type.
+	 */
+	pqsignal(SIGCHLD, SIG_DFL); /* system() requires this to be SIG_DFL rather
+								 * than SIG_IGN on some platforms */
+
+	/*
 	 * Every postmaster child process is expected to respond promptly to
 	 * SIGQUIT at all times.  Therefore we centrally remove SIGQUIT from
 	 * BlockSig and install a suitable signal handler.  (Client-facing
@@ -153,6 +162,11 @@ InitPostmasterChild(void)
 
 	sigdelset(&BlockSig, SIGQUIT);
 	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+
+	/*
+	 * It is up to the *Main() function to set signal handlers appropriate for
+	 * the child process and unblock the rest of the signals.
+	 */
 
 	/* Request a signal if the postmaster dies, if possible. */
 	PostmasterDeathSignalInit();
