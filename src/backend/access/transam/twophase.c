@@ -437,7 +437,6 @@ MarkAsPreparingGuts(GlobalTransaction gxact, FullTransactionId fxid,
 					Oid databaseid)
 {
 	PGPROC	   *proc;
-	int			i;
 	TransactionId xid = XidFromFullTransactionId(fxid);
 
 	Assert(LWLockHeldByMeInMode(TwoPhaseStateLock, LW_EXCLUSIVE));
@@ -476,8 +475,6 @@ MarkAsPreparingGuts(GlobalTransaction gxact, FullTransactionId fxid,
 	proc->waitLock = NULL;
 	proc->waitProcLock = NULL;
 	pg_atomic_init_u64(&proc->waitStart, 0);
-	for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-		dlist_init(&proc->myProcLocks[i]);
 	/* subxid data must be filled later by GXactLoadSubxactData */
 	proc->subxidStatus.overflowed = false;
 	proc->subxidStatus.count = 0;

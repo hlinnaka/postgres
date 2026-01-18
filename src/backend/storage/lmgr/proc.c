@@ -194,8 +194,7 @@ void
 InitProcGlobal(void)
 {
 	PGPROC	   *procs;
-	int			i,
-				j;
+	int			i;
 	bool		found;
 	uint32		TotalProcs = MaxBackends + NUM_AUXILIARY_PROCS + max_prepared_xacts;
 
@@ -355,10 +354,6 @@ InitProcGlobal(void)
 			proc->procgloballist = &ProcGlobal->walsenderFreeProcs;
 		}
 
-		/* Initialize myProcLocks[] shared memory queues. */
-		for (j = 0; j < NUM_LOCK_PARTITIONS; j++)
-			dlist_init(&(proc->myProcLocks[j]));
-
 		/* Initialize lockGroupMembers list. */
 		dlist_init(&proc->lockGroupMembers);
 
@@ -499,8 +494,8 @@ InitProcess(void)
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 #ifdef USE_ASSERT_CHECKING
 	/* Last process should have released all locks. */
-	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
-		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	//for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+	//	Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
 	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
 		Assert(MyProc->fpLockBits[g] == 0);
 #endif
@@ -693,8 +688,8 @@ InitAuxiliaryProcess(void)
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 #ifdef USE_ASSERT_CHECKING
 	/* Last process should have released all locks. */
-	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
-		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	//for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+	//	Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
 	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
 		Assert(MyProc->fpLockBits[g] == 0);
 #endif
@@ -942,10 +937,8 @@ ProcKill(int code, Datum arg)
 	/* All locks should be released before exiting. */
 	LockAssertNoneHeld(false);
 	DumpLocks(MyProc);
-	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
-	{
-		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
-	}
+	//for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+	//	Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
 	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
 		Assert(MyProc->fpLockBits[g] == 0);
 #endif

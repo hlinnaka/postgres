@@ -1392,9 +1392,8 @@ SetupLockInTable(LockMethod lockMethodTable, PGPROC *proc,
 		proclock->groupLeader = proc->lockGroupLeader != NULL ?
 			proc->lockGroupLeader : proc;
 		proclock->holdMask = 0;
-		/* Add proclock to appropriate lists */
+		/* Add proclock to appropriate list */
 		dlist_push_tail(&lock->procLocks, &proclock->lockLink);
-		dlist_push_tail(&proc->myProcLocks[partition], &proclock->procLink);
 		PROCLOCK_PRINT("LockAcquire: new", proclock);
 	}
 	else
@@ -3378,14 +3377,16 @@ PostPrepare_Locks(FullTransactionId fxid, HTAB *sessionandxactlocks)
 	for (partition = 0; partition < NUM_LOCK_PARTITIONS; partition++)
 	{
 		LWLock	   *partitionLock;
-		dlist_head *procLocks = &(MyProc->myProcLocks[partition]);
+		dlist_head *procLocks = NULL; // FIXME = &(MyProc->myProcLocks[partition]);
 		dlist_mutable_iter proclock_iter;
 
 		partitionLock = LockHashPartitionLockByIndex(partition);
 
 		/*
 		 * If the proclock list for this partition is empty, we can skip
-		 * acquiring the partition lock.
+		 * acquiring the partition lock.  (We got rid of any fast-path locks
+		 * during AtPrepare_Locks, so there cannot be any case where another
+		 * backend is adding something to our lists now.)
 		 */
 		if (dlist_is_empty(procLocks))
 			continue;			/* needn't examine this partition */
@@ -3428,14 +3429,12 @@ PostPrepare_Locks(FullTransactionId fxid, HTAB *sessionandxactlocks)
 			 * the proclock would then be in the wrong hash chain.  Instead
 			 * use hash_update_hash_key.  (We used to create a new hash entry,
 			 * but that risks out-of-memory failure if other processes are
-			 * busy making proclocks too.)	We must unlink the proclock from
-			 * our procLink chain and put it into the new proc's chain, too.
+			 * busy making proclocks too.)
 			 *
 			 * Note: the updated proclock hash key will still belong to the
 			 * same hash partition, cf proclock_hash().  So the partition lock
 			 * we already hold is sufficient for this.
 			 */
-			dlist_delete(&proclock->procLink);
 
 			/*
 			 * Create the new hash key for the proclock.
@@ -3459,9 +3458,6 @@ PostPrepare_Locks(FullTransactionId fxid, HTAB *sessionandxactlocks)
 									  proclock,
 									  &proclocktag))
 				elog(PANIC, "duplicate entry found while reassigning a prepared transaction's locks");
-
-			/* Re-link into the new proc's proclock list */
-			dlist_push_tail(&newproc->myProcLocks[partition], &proclock->procLink);
 
 			PROCLOCK_PRINT("PostPrepare_Locks: updated", proclock);
 		}						/* loop over PROCLOCKs within this partition */
@@ -4201,10 +4197,8 @@ lock_twophase_recover(FullTransactionId fxid, uint16 info,
 		Assert(proc->lockGroupLeader == NULL);
 		proclock->groupLeader = proc;
 		proclock->holdMask = 0;
-		/* Add proclock to appropriate lists */
+		/* Add proclock to appropriate list */
 		dlist_push_tail(&lock->procLocks, &proclock->lockLink);
-		dlist_push_tail(&proc->myProcLocks[partition],
-						&proclock->procLink);
 		PROCLOCK_PRINT("lock_twophase_recover: new", proclock);
 	}
 	else

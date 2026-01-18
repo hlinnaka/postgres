@@ -162,8 +162,7 @@ typedef enum
  * so that the prepared transactions appear to be still running and are
  * correctly shown as holding locks.  A prepared transaction PGPROC can be
  * distinguished from a real one at need by the fact that it has pid == 0.
- * The semaphore and lock-activity fields in a prepared-xact PGPROC are unused,
- * but its myProcLocks[] lists are valid.
+ * The semaphore and lock-activity fields in a prepared-xact PGPROC are unused.
  *
  * We allow many fields of this struct to be accessed without locks, such as
  * delayChkptFlags and isRegularBackend. However, keep in mind that writing
@@ -281,13 +280,6 @@ struct PGPROC
 	XLogRecPtr	waitLSN;		/* waiting for this LSN or higher */
 	int			syncRepState;	/* wait state for sync rep */
 	dlist_node	syncRepLinks;	/* list link if process is in syncrep queue */
-
-	/*
-	 * All PROCLOCK objects for locks held or awaited by this backend are
-	 * linked into one of these lists, according to the partition number of
-	 * their lock.
-	 */
-	dlist_head	myProcLocks[NUM_LOCK_PARTITIONS];
 
 	XidCacheStatus subxidStatus;	/* mirrored with
 									 * ProcGlobal->subxidStates[i] */
