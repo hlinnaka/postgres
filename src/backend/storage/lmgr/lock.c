@@ -161,6 +161,16 @@ typedef struct TwoPhaseLockRecord
 	LOCKMODE	lockmode;
 } TwoPhaseLockRecord;
 
+/*
+ * Used by for a hash table entry type in AtPrepare_Locks() to communicate the
+ * session/xact lock status of each held lock for use in PostPrepare_Locks().
+ */
+typedef struct PerLockTagEntry
+{
+	LOCKTAG		lock;			/* identifies the lockable object */
+	bool		sessLock;		/* is any lockmode held at session level? */
+	bool		xactLock;		/* is any lockmode held at xact level? */
+} PerLockTagEntry;
 
 /*
  * Count of the number of fast path lock slots we believe to be used.  This
@@ -3335,16 +3345,9 @@ LockRefindAndRelease(LockMethod lockMethodTable, PGPROC *proc,
  * we can't implement this check by examining LOCALLOCK entries in isolation.
  * We must build a transient hashtable that is indexed by locktag only.
  */
-static void
+static HTAB *
 CheckForSessionAndXactLocks(void)
 {
-	typedef struct
-	{
-		LOCKTAG		lock;		/* identifies the lockable object */
-		bool		sessLock;	/* is any lockmode held at session level? */
-		bool		xactLock;	/* is any lockmode held at xact level? */
-	} PerLockTagEntry;
-
 	HASHCTL		hash_ctl;
 	HTAB	   *lockhtab;
 	HASH_SEQ_STATUS status;
@@ -3408,14 +3411,18 @@ CheckForSessionAndXactLocks(void)
 					 errmsg("cannot PREPARE while holding both session-level and transaction-level locks on the same object")));
 	}
 
-	/* Success, so clean up */
-	hash_destroy(lockhtab);
+	return lockhtab;
 }
 
 /*
  * AtPrepare_Locks
  *		Do the preparatory work for a PREPARE: make 2PC state file records
  *		for all locks currently held.
+ *
+ * Returns a hash table of PerLockTagEntry structs with an entry for each
+ * lock held by this backend marking if the lock is held at the session or
+ * xact level, or both.  It is up to the calling function to call
+ * hash_destroy() on this table to free the memory used by it.
  *
  * Session-level locks are ignored, as are VXID locks.
  *
@@ -3424,14 +3431,15 @@ CheckForSessionAndXactLocks(void)
  * Fast-path locks are an exception, however: we move any such locks to
  * the main table before allowing PREPARE TRANSACTION to succeed.
  */
-void
+HTAB *
 AtPrepare_Locks(void)
 {
 	HASH_SEQ_STATUS status;
 	LOCALLOCK  *locallock;
+	HTAB	   *sessionandxactlocks;
 
 	/* First, verify there aren't locks of both xact and session level */
-	CheckForSessionAndXactLocks();
+	sessionandxactlocks = CheckForSessionAndXactLocks();
 
 	/* Now do the per-locallock cleanup work */
 	hash_seq_init(&status, LockMethodLocalHash);
@@ -3504,6 +3512,8 @@ AtPrepare_Locks(void)
 		RegisterTwoPhaseRecord(TWOPHASE_RM_LOCK_ID, 0,
 							   &record, sizeof(TwoPhaseLockRecord));
 	}
+
+	return sessionandxactlocks;
 }
 
 /*
@@ -3518,11 +3528,11 @@ AtPrepare_Locks(void)
  * pointers in the transaction's resource owner.  This is OK at the
  * moment since resowner.c doesn't try to free locks retail at a toplevel
  * transaction commit or abort.  We could alternatively zero out nLocks
- * and leave the LOCALLOCK entries to be garbage-collected by LockReleaseAll,
- * but that probably costs more cycles.
+ * and leave the LOCALLOCK entries to be garbage-collected by
+ * ResourceOwnerRelease, but that probably costs more cycles.
  */
 void
-PostPrepare_Locks(FullTransactionId fxid)
+PostPrepare_Locks(FullTransactionId fxid, HTAB *sessionandxactlocks)
 {
 	PGPROC	   *newproc = TwoPhaseGetDummyProc(fxid, false);
 	HASH_SEQ_STATUS status;
@@ -3593,10 +3603,6 @@ PostPrepare_Locks(FullTransactionId fxid)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("cannot PREPARE while holding both session-level and transaction-level locks on the same object")));
 
-		/* Mark the proclock to show we need to release this lockmode */
-		if (locallock->nLocks > 0)
-			locallock->proclock->releaseMask |= LOCKBIT_ON(locallock->tag.mode);
-
 		/* And remove the locallock hashtable entry */
 		RemoveLocalLock(locallock);
 	}
@@ -3614,11 +3620,7 @@ PostPrepare_Locks(FullTransactionId fxid)
 
 		/*
 		 * If the proclock list for this partition is empty, we can skip
-		 * acquiring the partition lock.  This optimization is safer than the
-		 * situation in LockReleaseAll, because we got rid of any fast-path
-		 * locks during AtPrepare_Locks, so there cannot be any case where
-		 * another backend is adding something to our lists now.  For safety,
-		 * though, we code this the same way as in LockReleaseAll.
+		 * acquiring the partition lock.
 		 */
 		if (dlist_is_empty(procLocks))
 			continue;			/* needn't examine this partition */
@@ -3627,6 +3629,8 @@ PostPrepare_Locks(FullTransactionId fxid)
 
 		dlist_foreach_modify(proclock_iter, procLocks)
 		{
+			PerLockTagEntry *locktagentry;
+
 			proclock = dlist_container(PROCLOCK, procLink, proclock_iter.cur);
 
 			Assert(proclock->tag.myProc == MyProc);
@@ -3644,13 +3648,14 @@ PostPrepare_Locks(FullTransactionId fxid)
 			Assert(lock->nGranted <= lock->nRequested);
 			Assert((proclock->holdMask & ~lock->grantMask) == 0);
 
-			/* Ignore it if nothing to release (must be a session lock) */
-			if (proclock->releaseMask == 0)
-				continue;
+			locktagentry = hash_search(sessionandxactlocks,
+									   &lock->tag,
+									   HASH_FIND,
+									   NULL);
 
-			/* Else we should be releasing all locks */
-			if (proclock->releaseMask != proclock->holdMask)
-				elog(PANIC, "we seem to have dropped a bit somewhere");
+			/* skip session locks */
+			if (locktagentry != NULL && locktagentry->sessLock)
+				continue;
 
 			/*
 			 * We cannot simply modify proclock->tag.myProc to reassign

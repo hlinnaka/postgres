@@ -588,8 +588,8 @@ extern bool LockHasWaiters(const LOCKTAG *locktag,
 						   LOCKMODE lockmode, bool sessionLock);
 extern VirtualTransactionId *GetLockConflicts(const LOCKTAG *locktag,
 											  LOCKMODE lockmode, int *countp);
-extern void AtPrepare_Locks(void);
-extern void PostPrepare_Locks(FullTransactionId fxid);
+extern HTAB *AtPrepare_Locks(void);
+extern void PostPrepare_Locks(FullTransactionId fxid, HTAB *sessionandxactlocks);
 extern bool LockCheckConflicts(LockMethod lockMethodTable,
 							   LOCKMODE lockmode,
 							   LOCK *lock, PROCLOCK *proclock);
