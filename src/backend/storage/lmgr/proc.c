@@ -498,13 +498,11 @@ InitProcess(void)
 	MyProc->waitProcLock = NULL;
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 #ifdef USE_ASSERT_CHECKING
-	{
-		int			i;
-
-		/* Last process should have released all locks. */
-		for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-			Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
-	}
+	/* Last process should have released all locks. */
+	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
+		Assert(MyProc->fpLockBits[g] == 0);
 #endif
 	MyProc->recoveryConflictPending = false;
 
@@ -694,13 +692,11 @@ InitAuxiliaryProcess(void)
 	MyProc->waitProcLock = NULL;
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 #ifdef USE_ASSERT_CHECKING
-	{
-		int			i;
-
-		/* Last process should have released all locks. */
-		for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-			Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
-	}
+	/* Last process should have released all locks. */
+	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
+		Assert(MyProc->fpLockBits[g] == 0);
 #endif
 
 	/*
@@ -936,13 +932,11 @@ ProcKill(int code, Datum arg)
 	SyncRepCleanupAtProcExit();
 
 #ifdef USE_ASSERT_CHECKING
-	{
-		int			i;
-
-		/* Last process should have released all locks. */
-		for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-			Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
-	}
+	/* All locks should be released before exiting. */
+	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
+		Assert(MyProc->fpLockBits[g] == 0);
 #endif
 
 	/*
