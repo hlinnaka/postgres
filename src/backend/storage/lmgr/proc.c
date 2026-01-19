@@ -940,8 +940,12 @@ ProcKill(int code, Datum arg)
 
 #ifdef USE_ASSERT_CHECKING
 	/* All locks should be released before exiting. */
+	LockAssertNoneHeld(false);
+	DumpLocks(MyProc);
 	for (int i = 0; i < NUM_LOCK_PARTITIONS; i++)
+	{
 		Assert(dlist_is_empty(&(MyProc->myProcLocks[i])));
+	}
 	for (uint32 g = 0; g < FastPathLockGroupsPerBackend; g++)
 		Assert(MyProc->fpLockBits[g] == 0);
 #endif
