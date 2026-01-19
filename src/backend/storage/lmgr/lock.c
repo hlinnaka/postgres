@@ -322,6 +322,8 @@ static HTAB *LockMethodLockHash;
 static HTAB *LockMethodProcLockHash;
 static HTAB *LockMethodLocalHash;
 
+/* A memory context for storing LOCALLOCKOWNER structs */
+static MemoryContext LocalLockOwnerContext;
 
 /* private state for error cleanup */
 static LOCALLOCK *StrongLockInProgress;
@@ -416,8 +418,8 @@ static void BeginStrongLockAcquire(LOCALLOCK *locallock, uint32 fasthashcode);
 static void FinishStrongLockAcquire(void);
 static ProcWaitStatus WaitOnLock(LOCALLOCK *locallock, ResourceOwner owner);
 static void waitonlock_error_callback(void *arg);
-static void ReleaseLockIfHeld(LOCALLOCK *locallock, bool sessionLock);
-static void LockReassignOwner(LOCALLOCK *locallock, ResourceOwner parent);
+static void ReleaseLockIfHeld(LOCALLOCKOWNER *locallockowner, bool sessionLock);
+static void LockReassignOwner(LOCALLOCKOWNER *locallockowner, ResourceOwner parent);
 static bool UnGrantLock(LOCK *lock, LOCKMODE lockmode,
 						PROCLOCK *proclock, LockMethod lockMethodTable);
 static void CleanUpLock(LOCK *lock, PROCLOCK *proclock,
@@ -517,6 +519,17 @@ InitLockManagerAccess(void)
 									  16,
 									  &info,
 									  HASH_ELEM | HASH_BLOBS);
+
+	/*
+	 * Create a slab context for storing LOCALLOCKOWNERs.  Slab seems like a
+	 * good context type for this as it will manage fragmentation better than
+	 * aset.c contexts and it will free() excess memory rather than maintain
+	 * excessively long freelists after a large surge in locking requirements.
+	 */
+	LocalLockOwnerContext = SlabContextCreate(TopMemoryContext,
+											  "LOCALLOCKOWNER context",
+											  SLAB_DEFAULT_BLOCK_SIZE,
+											  sizeof(LOCALLOCKOWNER));
 }
 
 
@@ -906,25 +919,7 @@ LockAcquireExtended(const LOCKTAG *locktag,
 		locallock->nLocks = 0;
 		locallock->holdsStrongLockCount = false;
 		locallock->lockCleared = false;
-		locallock->numLockOwners = 0;
-		locallock->maxLockOwners = 8;
-		locallock->lockOwners = NULL;	/* in case next line fails */
-		locallock->lockOwners = (LOCALLOCKOWNER *)
-			MemoryContextAlloc(TopMemoryContext,
-							   locallock->maxLockOwners * sizeof(LOCALLOCKOWNER));
-	}
-	else
-	{
-		/* Make sure there will be room to remember the lock */
-		if (locallock->numLockOwners >= locallock->maxLockOwners)
-		{
-			int			newsize = locallock->maxLockOwners * 2;
-
-			locallock->lockOwners = (LOCALLOCKOWNER *)
-				repalloc(locallock->lockOwners,
-						 newsize * sizeof(LOCALLOCKOWNER));
-			locallock->maxLockOwners = newsize;
-		}
+		dlist_init(&locallock->locallockowners);
 	}
 	hashcode = locallock->hashcode;
 
@@ -1475,17 +1470,18 @@ CheckAndSetLockHeld(LOCALLOCK *locallock, bool acquired)
 static void
 RemoveLocalLock(LOCALLOCK *locallock)
 {
-	int			i;
+	dlist_mutable_iter iter;
 
-	for (i = locallock->numLockOwners - 1; i >= 0; i--)
+	dlist_foreach_modify(iter, &locallock->locallockowners)
 	{
-		if (locallock->lockOwners[i].owner != NULL)
-			ResourceOwnerForgetLock(locallock->lockOwners[i].owner, locallock);
+		LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+		dlist_delete(&locallockowner->locallock_node);
+		if (locallockowner->owner != NULL)
+			ResourceOwnerForgetLock(locallockowner);
+		pfree(locallockowner);
 	}
-	locallock->numLockOwners = 0;
-	if (locallock->lockOwners != NULL)
-		pfree(locallock->lockOwners);
-	locallock->lockOwners = NULL;
+	Assert(dlist_is_empty(&locallock->locallockowners));
 
 	if (locallock->holdsStrongLockCount)
 	{
@@ -1791,26 +1787,38 @@ CleanUpLock(LOCK *lock, PROCLOCK *proclock,
 static void
 GrantLockLocal(LOCALLOCK *locallock, ResourceOwner owner)
 {
-	LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
-	int			i;
+	LOCALLOCKOWNER *locallockowner;
+	dlist_iter	iter;
 
-	Assert(locallock->numLockOwners < locallock->maxLockOwners);
 	/* Count the total */
 	locallock->nLocks++;
 	/* Count the per-owner lock */
-	for (i = 0; i < locallock->numLockOwners; i++)
+	dlist_foreach(iter, &locallock->locallockowners)
 	{
-		if (lockOwners[i].owner == owner)
+		locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+		if (locallockowner->owner == owner)
 		{
-			lockOwners[i].nLocks++;
+			locallockowner->nLocks++;
 			return;
 		}
 	}
-	lockOwners[i].owner = owner;
-	lockOwners[i].nLocks = 1;
-	locallock->numLockOwners++;
+	locallockowner = MemoryContextAlloc(LocalLockOwnerContext, sizeof(LOCALLOCKOWNER));
+	locallockowner->owner = owner;
+	locallockowner->nLocks = 1;
+	locallockowner->locallock = locallock;
+
+	dlist_push_tail(&locallock->locallockowners, &locallockowner->locallock_node);
+
 	if (owner != NULL)
-		ResourceOwnerRememberLock(owner, locallock);
+		ResourceOwnerRememberLock(owner, locallockowner);
+	else
+	{
+		/* session lock */
+		LOCKMETHODID lockmethodid = LOCALLOCK_LOCKMETHOD(*locallockowner->locallock);
+
+		Assert(lockmethodid > 0 && lockmethodid <= 2);
+	}
 
 	/* Indicate that the lock is acquired for certain types of locks. */
 	CheckAndSetLockHeld(locallock, true);
@@ -2148,9 +2156,9 @@ LockRelease(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 	 * Decrease the count for the resource owner.
 	 */
 	{
-		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
 		ResourceOwner owner;
-		int			i;
+		dlist_mutable_iter iter;
+		bool		found = false;
 
 		/* Identify owner for lock */
 		if (sessionLock)
@@ -2158,24 +2166,25 @@ LockRelease(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 		else
 			owner = CurrentResourceOwner;
 
-		for (i = locallock->numLockOwners - 1; i >= 0; i--)
+		dlist_foreach_modify(iter, &locallock->locallockowners)
 		{
-			if (lockOwners[i].owner == owner)
+			LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+			if (locallockowner->owner == owner)
 			{
-				Assert(lockOwners[i].nLocks > 0);
-				if (--lockOwners[i].nLocks == 0)
+				Assert(locallockowner->nLocks > 0);
+				if (--locallockowner->nLocks == 0)
 				{
+					dlist_delete(&locallockowner->locallock_node);
 					if (owner != NULL)
-						ResourceOwnerForgetLock(owner, locallock);
-					/* compact out unused slot */
-					locallock->numLockOwners--;
-					if (i < locallock->numLockOwners)
-						lockOwners[i] = lockOwners[locallock->numLockOwners];
+						ResourceOwnerForgetLock(locallockowner);
+					pfree(locallockowner);
 				}
+				found = true;
 				break;
 			}
 		}
-		if (i < 0)
+		if (!found)
 		{
 			/* don't release a lock belonging to another owner */
 			elog(WARNING, "you don't own a lock of type %s",
@@ -2368,29 +2377,30 @@ LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
 		 */
 		if (!allLocks)
 		{
-			LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
+			dlist_mutable_iter iter;
+			int			session_locks = 0;
 
-			/* If session lock is above array position 0, move it down to 0 */
-			for (i = 0; i < locallock->numLockOwners; i++)
+			dlist_foreach_modify(iter, &locallock->locallockowners)
 			{
-				if (lockOwners[i].owner == NULL)
-					lockOwners[0] = lockOwners[i];
+				LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+				if (locallockowner->owner != NULL)
+				{
+					dlist_delete(&locallockowner->locallock_node);
+					ResourceOwnerForgetLock(locallockowner);
+					pfree(locallockowner);
+				}
 				else
-					ResourceOwnerForgetLock(lockOwners[i].owner, locallock);
+					session_locks += locallockowner->nLocks;
 			}
 
-			if (locallock->numLockOwners > 0 &&
-				lockOwners[0].owner == NULL &&
-				lockOwners[0].nLocks > 0)
+			/* Fix the locallock to show just the session locks */
+			locallock->nLocks = session_locks;
+			if (session_locks > 0)
 			{
-				/* Fix the locallock to show just the session locks */
-				locallock->nLocks = lockOwners[0].nLocks;
-				locallock->numLockOwners = 1;
 				/* We aren't deleting this locallock, so done */
 				continue;
 			}
-			else
-				locallock->numLockOwners = 0;
 		}
 
 #ifdef USE_ASSERT_CHECKING
@@ -2590,52 +2600,41 @@ LockReleaseSession(LOCKMETHODID lockmethodid)
 
 	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
 	{
+		dlist_mutable_iter iter;
+
 		/* Ignore items that are not of the specified lock method */
 		if (LOCALLOCK_LOCKMETHOD(*locallock) != lockmethodid)
 			continue;
 
-		ReleaseLockIfHeld(locallock, true);
+		dlist_foreach_modify(iter, &locallock->locallockowners)
+		{
+			LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+			if (locallockowner->owner == NULL)
+				ReleaseLockIfHeld(locallockowner, true);
+		}
 	}
 }
 
 /*
  * LockReleaseCurrentOwner
- *		Release all locks belonging to CurrentResourceOwner
- *
- * If the caller knows what those locks are, it can pass them as an array.
- * That speeds up the call significantly, when a lot of locks are held.
- * Otherwise, pass NULL for locallocks, and we'll traverse through our hash
- * table to find them.
+ *		Release all locks belonging to 'owner'
  */
 void
-LockReleaseCurrentOwner(LOCALLOCK **locallocks, int nlocks)
+LockReleaseCurrentOwner(struct ResourceOwnerData *owner, LOCALLOCKOWNER *locallockowner)
 {
-	if (locallocks == NULL)
-	{
-		HASH_SEQ_STATUS status;
-		LOCALLOCK  *locallock;
+	Assert(locallockowner->owner == owner);
 
-		hash_seq_init(&status, LockMethodLocalHash);
-
-		while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
-			ReleaseLockIfHeld(locallock, false);
-	}
-	else
-	{
-		int			i;
-
-		for (i = nlocks - 1; i >= 0; i--)
-			ReleaseLockIfHeld(locallocks[i], false);
-	}
+	ReleaseLockIfHeld(locallockowner, false);
 }
 
 /*
  * ReleaseLockIfHeld
- *		Release any session-level locks on this lockable object if sessionLock
- *		is true; else, release any locks held by CurrentResourceOwner.
+ *		Release any session-level locks on this 'locallockowner' if sessionLock
+ *		is true; else, release any locks held by 'locallockowner'.
  *
  * It is tempting to pass this a ResourceOwner pointer (or NULL for session
- * locks), but without refactoring LockRelease() we cannot support releasing
+ * locks), but without refactoring LockRelease() we cannot support releasing XXX
  * locks belonging to resource owners other than CurrentResourceOwner.
  * If we were to refactor, it'd be a good idea to fix it so we don't have to
  * do a hashtable lookup of the locallock, too.  However, currently this
@@ -2643,52 +2642,39 @@ LockReleaseCurrentOwner(LOCALLOCK **locallocks, int nlocks)
  * convenience.
  */
 static void
-ReleaseLockIfHeld(LOCALLOCK *locallock, bool sessionLock)
+ReleaseLockIfHeld(LOCALLOCKOWNER *locallockowner, bool sessionLock)
 {
-	ResourceOwner owner;
-	LOCALLOCKOWNER *lockOwners;
-	int			i;
+	LOCALLOCK  *locallock = locallockowner->locallock;
 
-	/* Identify owner for lock (must match LockRelease!) */
+	/* release all references to the lock by this resource owner */
 	if (sessionLock)
-		owner = NULL;
+		Assert(locallockowner->owner == NULL);
 	else
-		owner = CurrentResourceOwner;
+		Assert(locallockowner->owner != NULL);
 
-	/* Scan to see if there are any locks belonging to the target owner */
-	lockOwners = locallock->lockOwners;
-	for (i = locallock->numLockOwners - 1; i >= 0; i--)
+	if (locallockowner->nLocks < locallock->nLocks)
 	{
-		if (lockOwners[i].owner == owner)
-		{
-			Assert(lockOwners[i].nLocks > 0);
-			if (lockOwners[i].nLocks < locallock->nLocks)
-			{
-				/*
-				 * We will still hold this lock after forgetting this
-				 * ResourceOwner.
-				 */
-				locallock->nLocks -= lockOwners[i].nLocks;
-				/* compact out unused slot */
-				locallock->numLockOwners--;
-				if (owner != NULL)
-					ResourceOwnerForgetLock(owner, locallock);
-				if (i < locallock->numLockOwners)
-					lockOwners[i] = lockOwners[locallock->numLockOwners];
-			}
-			else
-			{
-				Assert(lockOwners[i].nLocks == locallock->nLocks);
-				/* We want to call LockRelease just once */
-				lockOwners[i].nLocks = 1;
-				locallock->nLocks = 1;
-				if (!LockRelease(&locallock->tag.lock,
-								 locallock->tag.mode,
-								 sessionLock))
-					elog(WARNING, "ReleaseLockIfHeld: failed??");
-			}
-			break;
-		}
+		/*
+		 * We will still hold this lock after forgetting this ResourceOwner.
+		 */
+		locallock->nLocks -= locallockowner->nLocks;
+
+		dlist_delete(&locallockowner->locallock_node);
+		if (locallockowner->owner)
+			ResourceOwnerForgetLock(locallockowner);
+		pfree(locallockowner);
+	}
+	else
+	{
+		Assert(locallockowner->nLocks == locallock->nLocks);
+		/* We want to call LockRelease just once */
+		locallockowner->nLocks = 1;
+		locallock->nLocks = 1;
+
+		if (!LockRelease(&locallock->tag.lock,
+						 locallock->tag.mode,
+						 sessionLock))
+			elog(WARNING, "ReleaseLockIfHeld: failed??");
 	}
 }
 
@@ -2696,82 +2682,47 @@ ReleaseLockIfHeld(LOCALLOCK *locallock, bool sessionLock)
  * LockReassignCurrentOwner
  *		Reassign all locks belonging to CurrentResourceOwner to belong
  *		to its parent resource owner.
- *
- * If the caller knows what those locks are, it can pass them as an array.
- * That speeds up the call significantly, when a lot of locks are held
- * (e.g pg_dump with a large schema).  Otherwise, pass NULL for locallocks,
- * and we'll traverse through our hash table to find them.
  */
 void
-LockReassignCurrentOwner(LOCALLOCK **locallocks, int nlocks)
+LockReassignCurrentOwner(LOCALLOCKOWNER *locallockowner)
 {
 	ResourceOwner parent = ResourceOwnerGetParent(CurrentResourceOwner);
 
-	Assert(parent != NULL);
-
-	if (locallocks == NULL)
-	{
-		HASH_SEQ_STATUS status;
-		LOCALLOCK  *locallock;
-
-		hash_seq_init(&status, LockMethodLocalHash);
-
-		while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
-			LockReassignOwner(locallock, parent);
-	}
-	else
-	{
-		int			i;
-
-		for (i = nlocks - 1; i >= 0; i--)
-			LockReassignOwner(locallocks[i], parent);
-	}
+	LockReassignOwner(locallockowner, parent);
 }
 
 /*
- * Subroutine of LockReassignCurrentOwner. Reassigns a given lock belonging to
- * CurrentResourceOwner to its parent.
+ * Subroutine of LockReassignCurrentOwner. Reassigns the given
+ *'locallockowner' to 'parent'.
  */
 static void
-LockReassignOwner(LOCALLOCK *locallock, ResourceOwner parent)
+LockReassignOwner(LOCALLOCKOWNER *locallockowner, ResourceOwner parent)
 {
-	LOCALLOCKOWNER *lockOwners;
-	int			i;
-	int			ic = -1;
-	int			ip = -1;
+	LOCALLOCK  *locallock = locallockowner->locallock;
+	dlist_iter	iter;
 
-	/*
-	 * Scan to see if there are any locks belonging to current owner or its
-	 * parent
-	 */
-	lockOwners = locallock->lockOwners;
-	for (i = locallock->numLockOwners - 1; i >= 0; i--)
+	ResourceOwnerForgetLock(locallockowner);
+
+	dlist_foreach(iter, &locallock->locallockowners)
 	{
-		if (lockOwners[i].owner == CurrentResourceOwner)
-			ic = i;
-		else if (lockOwners[i].owner == parent)
-			ip = i;
+		LOCALLOCKOWNER *parentlocalowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+		Assert(parentlocalowner->locallock == locallock);
+
+		if (parentlocalowner->owner != parent)
+			continue;
+
+		parentlocalowner->nLocks += locallockowner->nLocks;
+
+		locallockowner->nLocks = 0;
+		dlist_delete(&locallockowner->locallock_node);
+		pfree(locallockowner);
+		return;
 	}
 
-	if (ic < 0)
-		return;					/* no current locks */
-
-	if (ip < 0)
-	{
-		/* Parent has no slot, so just give it the child's slot */
-		lockOwners[ic].owner = parent;
-		ResourceOwnerRememberLock(parent, locallock);
-	}
-	else
-	{
-		/* Merge child's count with parent's */
-		lockOwners[ip].nLocks += lockOwners[ic].nLocks;
-		/* compact out unused slot */
-		locallock->numLockOwners--;
-		if (ic < locallock->numLockOwners)
-			lockOwners[ic] = lockOwners[locallock->numLockOwners];
-	}
-	ResourceOwnerForgetLock(CurrentResourceOwner, locallock);
+	/* reassign locallockowner to parent resowner */
+	locallockowner->owner = parent;
+	ResourceOwnerRememberLock(parent, locallockowner);
 }
 
 /*
@@ -3414,10 +3365,9 @@ CheckForSessionAndXactLocks(void)
 
 	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
 	{
-		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
+		dlist_iter	iter;
 		PerLockTagEntry *hentry;
 		bool		found;
-		int			i;
 
 		/*
 		 * Ignore VXID locks.  We don't want those to be held by prepared
@@ -3438,9 +3388,11 @@ CheckForSessionAndXactLocks(void)
 			hentry->sessLock = hentry->xactLock = false;
 
 		/* Scan to see if we hold lock at session or xact level or both */
-		for (i = locallock->numLockOwners - 1; i >= 0; i--)
+		dlist_foreach(iter, &locallock->locallockowners)
 		{
-			if (lockOwners[i].owner == NULL)
+			LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+			if (locallockowner->owner == NULL)
 				hentry->sessLock = true;
 			else
 				hentry->xactLock = true;
@@ -3487,10 +3439,9 @@ AtPrepare_Locks(void)
 	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
 	{
 		TwoPhaseLockRecord record;
-		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
+		dlist_iter	iter;
 		bool		haveSessionLock;
 		bool		haveXactLock;
-		int			i;
 
 		/*
 		 * Ignore VXID locks.  We don't want those to be held by prepared
@@ -3505,9 +3456,11 @@ AtPrepare_Locks(void)
 
 		/* Scan to see whether we hold it at session or transaction level */
 		haveSessionLock = haveXactLock = false;
-		for (i = locallock->numLockOwners - 1; i >= 0; i--)
+		dlist_foreach(iter, &locallock->locallockowners)
 		{
-			if (lockOwners[i].owner == NULL)
+			LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+			if (locallockowner->owner == NULL)
 				haveSessionLock = true;
 			else
 				haveXactLock = true;
@@ -3599,10 +3552,9 @@ PostPrepare_Locks(FullTransactionId fxid)
 
 	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
 	{
-		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
+		dlist_iter	iter;
 		bool		haveSessionLock;
 		bool		haveXactLock;
-		int			i;
 
 		if (locallock->proclock == NULL || locallock->lock == NULL)
 		{
@@ -3621,9 +3573,11 @@ PostPrepare_Locks(FullTransactionId fxid)
 
 		/* Scan to see whether we hold it at session or transaction level */
 		haveSessionLock = haveXactLock = false;
-		for (i = locallock->numLockOwners - 1; i >= 0; i--)
+		dlist_foreach(iter, &locallock->locallockowners)
 		{
-			if (lockOwners[i].owner == NULL)
+			LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, locallock_node, iter.cur);
+
+			if (locallockowner->owner == NULL)
 				haveSessionLock = true;
 			else
 				haveXactLock = true;

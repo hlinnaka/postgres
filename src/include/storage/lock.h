@@ -422,6 +422,13 @@ typedef struct LOCALLOCKOWNER
 	 * Must use a forward struct reference to avoid circularity.
 	 */
 	struct ResourceOwnerData *owner;
+
+	dlist_node	resowner_node;	/* dlist link for ResourceOwner.locks */
+
+	dlist_node	locallock_node; /* dlist link for LOCALLOCK.locallockowners */
+
+	struct LOCALLOCK *locallock;	/* pointer to the corresponding LOCALLOCK */
+
 	int64		nLocks;			/* # of times held by this owner */
 } LOCALLOCKOWNER;
 
@@ -435,9 +442,9 @@ typedef struct LOCALLOCK
 	LOCK	   *lock;			/* associated LOCK object, if any */
 	PROCLOCK   *proclock;		/* associated PROCLOCK object, if any */
 	int64		nLocks;			/* total number of times lock is held */
-	int			numLockOwners;	/* # of relevant ResourceOwners */
-	int			maxLockOwners;	/* allocated size of array */
-	LOCALLOCKOWNER *lockOwners; /* dynamically resizable array */
+
+	dlist_head	locallockowners;	/* dlist of LOCALLOCKOWNER */
+
 	bool		holdsStrongLockCount;	/* bumped FastPathStrongRelationLocks */
 	bool		lockCleared;	/* we read all sinval msgs for lock */
 } LOCALLOCK;
@@ -570,8 +577,8 @@ extern bool LockRelease(const LOCKTAG *locktag,
 						LOCKMODE lockmode, bool sessionLock);
 extern void LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks);
 extern void LockReleaseSession(LOCKMETHODID lockmethodid);
-extern void LockReleaseCurrentOwner(LOCALLOCK **locallocks, int nlocks);
-extern void LockReassignCurrentOwner(LOCALLOCK **locallocks, int nlocks);
+extern void LockReleaseCurrentOwner(struct ResourceOwnerData *owner, LOCALLOCKOWNER *locallockowner);
+extern void LockReassignCurrentOwner(LOCALLOCKOWNER *locallockowner);
 extern bool LockHeldByMe(const LOCKTAG *locktag,
 						 LOCKMODE lockmode, bool orstronger);
 #ifdef USE_ASSERT_CHECKING

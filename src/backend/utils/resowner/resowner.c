@@ -26,12 +26,11 @@
  * release-priority of each resource, and release them in that order.
  *
  * Local lock references are special, they are not stored in the array or
- * the hash table.  Instead, each resource owner has a separate small cache
+ * the hash table.  Instead, each resource owner has a separate linked list
  * of locks it owns.  The lock manager has the same information in its local
- * lock hash table, and we fall back on that if the cache overflows, but
- * traversing the hash table is slower when there are a lot of locks
- * belonging to other resource owners.  This is to speed up bulk releasing
- * or reassigning locks from a resource owner to its parent.
+ * lock hash table, but traversing the hash table is slower when there are a
+ * lot of locks belonging to other resource owners.  This is to speed up
+ * bulk releasing or reassigning locks from a resource owner to its parent.
  *
  *
  * Portions Copyright (c) 1996-2026, PostgreSQL Global Development Group
@@ -95,18 +94,6 @@ StaticAssertDecl(RESOWNER_HASH_MAX_ITEMS(RESOWNER_HASH_INIT_SIZE) >= RESOWNER_AR
 				 "initial hash size too small compared to array size");
 
 /*
- * MAX_RESOWNER_LOCKS is the size of the per-resource owner locks cache. It's
- * chosen based on some testing with pg_dump with a large schema. When the
- * tests were done (on 9.2), resource owners in a pg_dump run contained up
- * to 9 locks, regardless of the schema size, except for the top resource
- * owner which contained much more (overflowing the cache). 15 seems like a
- * nice round number that's somewhat higher than what pg_dump needs. Note that
- * making this number larger is not free - the bigger the cache, the slower
- * it is to release locks (in retail), when a resource owner holds many locks.
- */
-#define MAX_RESOWNER_LOCKS 15
-
-/*
  * ResourceOwner objects look like this
  */
 struct ResourceOwnerData
@@ -127,10 +114,9 @@ struct ResourceOwnerData
 	bool		sorted;			/* are 'hash' and 'arr' sorted by priority? */
 
 	/*
-	 * Number of items in the locks cache, array, and hash table respectively.
-	 * (These are packed together to avoid padding in the struct.)
+	 * Number of items in the array and hash table respectively. (These are
+	 * packed together to avoid padding in the struct.)
 	 */
-	uint8		nlocks;			/* number of owned locks */
 	uint8		narr;			/* how many items are stored in the array */
 	uint32		nhash;			/* how many items are stored in the hash */
 
@@ -155,8 +141,7 @@ struct ResourceOwnerData
 	uint32		capacity;		/* allocated length of hash[] */
 	uint32		grow_at;		/* grow hash when reach this */
 
-	/* The local locks cache. */
-	LOCALLOCK  *locks[MAX_RESOWNER_LOCKS];	/* list of owned locks */
+	dlist_head	locks;			/* dlist of owned locks */
 
 	/*
 	 * AIO handles need be registered in critical sections and therefore
@@ -422,6 +407,7 @@ ResourceOwnerCreate(ResourceOwner parent, const char *name)
 	owner = (ResourceOwner) MemoryContextAllocZero(TopMemoryContext,
 												   sizeof(struct ResourceOwnerData));
 	owner->name = name;
+	dlist_init(&owner->locks);
 
 	if (parent)
 	{
@@ -742,8 +728,19 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 	}
 	else if (phase == RESOURCE_RELEASE_LOCKS)
 	{
+		dlist_mutable_iter iter;
+
 		if (isTopLevel)
 		{
+			dlist_foreach_modify(iter, &owner->locks)
+			{
+				LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, resowner_node, iter.cur);
+
+				LockReleaseCurrentOwner(owner, locallockowner);
+			}
+
+			Assert(dlist_is_empty(&owner->locks));
+
 			/*
 			 * For a top-level xact we are going to release all locks (or at
 			 * least all non-session locks), so just do a single lmgr call at
@@ -762,30 +759,30 @@ ResourceOwnerReleaseInternal(ResourceOwner owner,
 			 * subtransaction, we do NOT release its locks yet, but transfer
 			 * them to the parent.
 			 */
-			LOCALLOCK **locks;
-			int			nlocks;
-
-			Assert(owner->parent != NULL);
-
-			/*
-			 * Pass the list of locks owned by this resource owner to the lock
-			 * manager, unless it has overflowed.
-			 */
-			if (owner->nlocks > MAX_RESOWNER_LOCKS)
-			{
-				locks = NULL;
-				nlocks = 0;
-			}
-			else
-			{
-				locks = owner->locks;
-				nlocks = owner->nlocks;
-			}
-
 			if (isCommit)
-				LockReassignCurrentOwner(locks, nlocks);
+			{
+				dlist_foreach_modify(iter, &owner->locks)
+				{
+					LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER,
+																	 resowner_node,
+																	 iter.cur);
+
+					LockReassignCurrentOwner(locallockowner);
+				}
+
+				Assert(dlist_is_empty(&owner->locks));
+			}
 			else
-				LockReleaseCurrentOwner(locks, nlocks);
+			{
+				dlist_foreach_modify(iter, &owner->locks)
+				{
+					LOCALLOCKOWNER *locallockowner = dlist_container(LOCALLOCKOWNER, resowner_node, iter.cur);
+
+					LockReleaseCurrentOwner(owner, locallockowner);
+				}
+
+				Assert(dlist_is_empty(&owner->locks));
+			}
 		}
 	}
 	else if (phase == RESOURCE_RELEASE_AFTER_LOCKS)
@@ -873,7 +870,7 @@ ResourceOwnerDelete(ResourceOwner owner)
 	/* And it better not own any resources, either */
 	Assert(owner->narr == 0);
 	Assert(owner->nhash == 0);
-	Assert(owner->nlocks == 0 || owner->nlocks == MAX_RESOWNER_LOCKS + 1);
+	Assert(dlist_is_empty(&owner->locks));
 
 	/*
 	 * Delete children.  The recursive call will delink the child from me, so
@@ -1047,54 +1044,59 @@ ReleaseAuxProcessResourcesCallback(int code, Datum arg)
 
 /*
  * Remember that a Local Lock is owned by a ResourceOwner
- *
- * This is different from the generic ResourceOwnerRemember in that the list of
- * locks is only a lossy cache.  It can hold up to MAX_RESOWNER_LOCKS entries,
- * and when it overflows, we stop tracking locks.  The point of only remembering
- * only up to MAX_RESOWNER_LOCKS entries is that if a lot of locks are held,
- * ResourceOwnerForgetLock doesn't need to scan through a large array to find
- * the entry.
  */
 void
-ResourceOwnerRememberLock(ResourceOwner owner, LOCALLOCK *locallock)
+ResourceOwnerRememberLock(ResourceOwner owner, LOCALLOCKOWNER *locallockowner)
 {
-	Assert(locallock != NULL);
+	Assert(owner != NULL);
+	Assert(locallockowner != NULL);
 
-	if (owner->nlocks > MAX_RESOWNER_LOCKS)
-		return;					/* we have already overflowed */
-
-	if (owner->nlocks < MAX_RESOWNER_LOCKS)
-		owner->locks[owner->nlocks] = locallock;
-	else
+#ifdef USE_ASSERT_CHECKING
 	{
-		/* overflowed */
+		dlist_iter	iter;
+
+		dlist_foreach(iter, &owner->locks)
+		{
+			LOCALLOCKOWNER *i = dlist_container(LOCALLOCKOWNER, resowner_node, iter.cur);
+
+			Assert(i->locallock != locallockowner->locallock);
+		}
 	}
-	owner->nlocks++;
+#endif
+
+	dlist_push_tail(&owner->locks, &locallockowner->resowner_node);
 }
 
 /*
- * Forget that a Local Lock is owned by a ResourceOwner
+ * Forget that a Local Lock is owned by the given LOCALLOCKOWNER.
  */
 void
-ResourceOwnerForgetLock(ResourceOwner owner, LOCALLOCK *locallock)
+ResourceOwnerForgetLock(LOCALLOCKOWNER *locallockowner)
 {
-	int			i;
+#ifdef USE_ASSERT_CHECKING
+	ResourceOwner owner;
 
-	if (owner->nlocks > MAX_RESOWNER_LOCKS)
-		return;					/* we have overflowed */
+	Assert(locallockowner != NULL);
 
-	Assert(owner->nlocks > 0);
-	for (i = owner->nlocks - 1; i >= 0; i--)
+	owner = locallockowner->owner;
+
 	{
-		if (locallock == owner->locks[i])
+		dlist_iter	iter;
+		bool		found = false;
+
+		dlist_foreach(iter, &owner->locks)
 		{
-			owner->locks[i] = owner->locks[owner->nlocks - 1];
-			owner->nlocks--;
-			return;
+			if (locallockowner == dlist_container(LOCALLOCKOWNER, resowner_node, iter.cur))
+			{
+				Assert(!found);
+				found = true;
+			}
 		}
+
+		Assert(found);
 	}
-	elog(ERROR, "lock reference %p is not owned by resource owner %s",
-		 locallock, owner->name);
+#endif
+	dlist_delete(&locallockowner->resowner_node);
 }
 
 void
