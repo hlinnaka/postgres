@@ -895,10 +895,17 @@ ProcReleaseLocks(bool isCommit)
 		return;
 	/* If waiting, get off wait queue (should only be needed after error) */
 	LockErrorCleanup();
-	/* Release standard locks, including session-level if aborting */
-	LockReleaseAll(DEFAULT_LOCKMETHOD, !isCommit);
-	/* Release transaction-level advisory locks */
-	LockReleaseAll(USER_LOCKMETHOD, false);
+
+	VirtualXactLockTableCleanup();
+
+	/* Release session-level locks if aborting */
+	if (!isCommit)
+		LockReleaseSession(DEFAULT_LOCKMETHOD);
+
+#ifdef USE_ASSERT_CHECKING
+	/* Ensure all locks were released */
+	LockAssertNoneHeld(isCommit);
+#endif
 }
 
 

@@ -71,7 +71,12 @@ DiscardAll(bool isTopLevel)
 	ResetAllOptions();
 	DropAllPreparedStatements();
 	Async_UnlistenAll();
-	LockReleaseAll(USER_LOCKMETHOD, true);
+	LockReleaseSession(USER_LOCKMETHOD);
+
+#ifdef USE_ASSERT_CHECKING
+	LockAssertNoneHeld(false);
+#endif
+
 	ResetPlanCache();
 	ResetTempTableNamespace();
 	ResetSequenceCaches();

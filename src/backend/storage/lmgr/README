@@ -182,12 +182,6 @@ holdMask -
     subset of the PGPROC object's heldLocks mask (if the PGPROC is
     currently waiting for another lock mode on this lock).
 
-releaseMask -
-    A bitmask for the lock modes due to be released during LockReleaseAll.
-    This must be a subset of the holdMask.  Note that it is modified without
-    taking the partition LWLock, and therefore it is unsafe for any
-    backend except the one owning the PROCLOCK to examine/change it.
-
 lockLink -
     List link for shared memory queue of all the PROCLOCK objects for the
     same LOCK.

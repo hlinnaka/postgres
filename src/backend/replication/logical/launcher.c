@@ -914,7 +914,11 @@ logicalrep_worker_onexit(int code, Datum arg)
 	 * The locks will be acquired once the worker is initialized.
 	 */
 	if (!InitializingApplyWorker)
-		LockReleaseAll(DEFAULT_LOCKMETHOD, true);
+		LockReleaseSession(DEFAULT_LOCKMETHOD);
+
+#ifdef USE_ASSERT_CHECKING
+	LockAssertNoneHeld(false);
+#endif
 
 	ApplyLauncherWakeup();
 }

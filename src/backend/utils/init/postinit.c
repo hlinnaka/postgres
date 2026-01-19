@@ -1344,10 +1344,10 @@ ShutdownPostgres(int code, Datum arg)
 	AbortOutOfAnyTransaction();
 
 	/*
-	 * User locks are not released by transaction end, so be sure to release
-	 * them explicitly.
+	 * Session locks are not released by transaction end, so be sure to
+	 * release them explicitly.
 	 */
-	LockReleaseAll(USER_LOCKMETHOD, true);
+	LockReleaseSession(USER_LOCKMETHOD);
 }
 
 

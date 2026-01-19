@@ -25,6 +25,7 @@
 #include "storage/procnumber.h"
 #include "storage/shmem.h"
 #include "utils/timestamp.h"
+#include "lib/ilist.h"
 
 /* struct PGPROC is declared in proc.h, but must forward-reference it */
 typedef struct PGPROC PGPROC;
@@ -351,10 +352,6 @@ typedef struct LOCK
  * Otherwise, proclock objects whose holdMasks are zero are recycled
  * as soon as convenient.
  *
- * releaseMask is workspace for LockReleaseAll(): it shows the locks due
- * to be released during the current call.  This must only be examined or
- * set by the backend owning the PROCLOCK.
- *
  * Each PROCLOCK object is linked into lists for both the associated LOCK
  * object and the owning PGPROC object.  Note that the PROCLOCK is entered
  * into these lists as soon as it is created, even if no lock has yet been
@@ -376,7 +373,6 @@ typedef struct PROCLOCK
 	/* data */
 	PGPROC	   *groupLeader;	/* proc's lock group leader, or proc itself */
 	LOCKMASK	holdMask;		/* bitmask for lock types currently held */
-	LOCKMASK	releaseMask;	/* bitmask for lock types to be released */
 	dlist_node	lockLink;		/* list link in LOCK's list of proclocks */
 	dlist_node	procLink;		/* list link in PGPROC's list of proclocks */
 } PROCLOCK;
@@ -575,7 +571,11 @@ extern void AbortStrongLockAcquire(void);
 extern void MarkLockClear(LOCALLOCK *locallock);
 extern bool LockRelease(const LOCKTAG *locktag,
 						LOCKMODE lockmode, bool sessionLock);
-extern void LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks);
+
+#ifdef USE_ASSERT_CHECKING
+extern void LockAssertNoneHeld(bool isCommit);
+#endif
+
 extern void LockReleaseSession(LOCKMETHODID lockmethodid);
 extern void LockReleaseCurrentOwner(struct ResourceOwnerData *owner, LOCALLOCKOWNER *locallockowner);
 extern void LockReassignCurrentOwner(LOCALLOCKOWNER *locallockowner);
