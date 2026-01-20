@@ -254,6 +254,8 @@ typedef struct BackgroundWorker
    <literal>WL_POSTMASTER_DEATH</literal> flag is set when calling that function, and
    verify the return code for a prompt exit in the emergency case that
    <command>postgres</command> itself has terminated.
+
+   TODO document that: you should call CHECK_FOR_INTERRUPTS(), to react promptly to terminate request (SIGTERM)
   </para>
 
   <para>
