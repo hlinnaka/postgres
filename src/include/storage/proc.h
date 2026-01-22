@@ -236,6 +236,15 @@ struct PGPROC
 	bool		isRegularBackend;	/* true if it's a regular backend. */
 
 	/*
+	 * While in hot standby mode, shows that a conflict signal has been sent
+	 * for the current transaction. Set/cleared while holding ProcArrayLock,
+	 * though not required. Accessed without lock, if needed.
+	 *
+	 * This is a bitmask of RecoveryConflictReasons
+	 */
+	pg_atomic_uint32 pendingRecoveryConflicts;
+
+	/*
 	 * Info about LWLock the process is currently waiting for, if any.
 	 *
 	 * This is currently used both for lwlocks and buffer content locks, which
