@@ -4,7 +4,7 @@
  *	  single-reader, single-writer shared memory message queue
  *
  * Both the sender and the receiver must have a PGPROC; their respective
- * process latches are used for synchronization.  Only the sender may send,
+ * process interrupts are used for synchronization.  Only the sender may send,
  * and only the receiver may receive.  This is intended to allow a user
  * backend to communicate with worker backends that it has registered.
  *
@@ -18,6 +18,7 @@
 
 #include "postgres.h"
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/pg_bitutils.h"
@@ -44,10 +45,11 @@
  *
  * mq_detached needs no locking.  It can be set by either the sender or the
  * receiver, but only ever from false to true, so redundant writes don't
- * matter.  It is important that if we set mq_detached and then set the
- * counterparty's latch, the counterparty must be certain to see the change
- * after waking up.  Since SetLatch begins with a memory barrier and ResetLatch
- * ends with one, this should be OK.
+ * matter.  It is important that if we set mq_detached and then send the
+ * interrupt to the counterparty, the counterparty must be certain to see the
+ * change after waking up.  Since SendInterrupt begins with a memory barrier
+ * and ClearInterrupt ends with one, this should be OK.
+ * XXX: No explicit memory barriers in SendInterrupt/ClearInterrupt, do we need to add some?
  *
  * mq_ring_size and mq_ring_offset never change after initialization, and
  * can therefore be read without the lock.
@@ -112,7 +114,7 @@ struct shm_mq
  * yet updated in the shared memory.  We will not update it until the written
  * data is 1/4th of the ring size or the tuple queue is full.  This will
  * prevent frequent CPU cache misses, and it will also avoid frequent
- * SetLatch() calls, which are quite expensive.
+ * SendInterrupt() calls, which are quite expensive.
  *
  * mqh_partial_bytes, mqh_expected_bytes, and mqh_length_word_complete
  * are used to track the state of non-blocking operations.  When the caller
@@ -214,7 +216,7 @@ shm_mq_set_receiver(shm_mq *mq, PGPROC *proc)
 	SpinLockRelease(&mq->mq_mutex);
 
 	if (sender != NULL)
-		SetLatch(&sender->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(sender));
 }
 
 /*
@@ -232,7 +234,7 @@ shm_mq_set_sender(shm_mq *mq, PGPROC *proc)
 	SpinLockRelease(&mq->mq_mutex);
 
 	if (receiver != NULL)
-		SetLatch(&receiver->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(receiver));
 }
 
 /*
@@ -341,16 +343,15 @@ shm_mq_send(shm_mq_handle *mqh, Size nbytes, const void *data, bool nowait,
  * Write a message into a shared message queue, gathered from multiple
  * addresses.
  *
- * When nowait = false, we'll wait on our process latch when the ring buffer
- * fills up, and then continue writing once the receiver has drained some data.
- * The process latch is reset after each wait.
+ * When nowait = false, we'll wait when the ring buffer fills up, and then
+ * continue writing once the receiver has drained some data.
  *
- * When nowait = true, we do not manipulate the state of the process latch;
- * instead, if the buffer becomes full, we return SHM_MQ_WOULD_BLOCK.  In
- * this case, the caller should call this function again, with the same
- * arguments, each time the process latch is set.  (Once begun, the sending
- * of a message cannot be aborted except by detaching from the queue; changing
- * the length or payload will corrupt the queue.)
+ * When nowait = true, if the buffer becomes full, we return
+ * SHM_MQ_WOULD_BLOCK.  In this case, the caller should call this function
+ * again, with the same arguments, each time the INTERRUPT_WAIT_WAKEUP
+ * interrupt is set.  (Once begun, the sending of a message cannot be aborted
+ * except by detaching from the queue; changing the length or payload will
+ * corrupt the queue.)
  *
  * When force_flush = true, we immediately update the shm_mq's mq_bytes_written
  * and notify the receiver (if it is already attached).  Otherwise, we don't
@@ -539,7 +540,7 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait,
 	{
 		shm_mq_inc_bytes_written(mq, mqh->mqh_send_pending);
 		if (receiver != NULL)
-			SetLatch(&receiver->procLatch);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(receiver));
 		mqh->mqh_send_pending = 0;
 	}
 
@@ -557,16 +558,15 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait,
  * while still allowing longer messages.  In either case, the return value
  * remains valid until the next receive operation is performed on the queue.
  *
- * When nowait = false, we'll wait on our process latch when the ring buffer
- * is empty and we have not yet received a full message.  The sender will
- * set our process latch after more data has been written, and we'll resume
- * processing.  Each call will therefore return a complete message
- * (unless the sender detaches the queue).
+ * When nowait = false, we'll when the ring buffer is empty and we have not
+ * yet received a full message.  The sender will send us INTERRUPT_WAIT_WAKEUP
+ * after more data has been written, and we'll resume processing.  Each call
+ * will therefore return a complete message (unless the sender detaches the
+ * queue).
  *
- * When nowait = true, we do not manipulate the state of the process latch;
- * instead, whenever the buffer is empty and we need to read from it, we
- * return SHM_MQ_WOULD_BLOCK.  In this case, the caller should call this
- * function again after the process latch has been set.
+ * When nowait = true, we do not wait when the buffer is empty and return
+ * SHM_MQ_WOULD_BLOCK instead.  In this case, the caller should call this
+ * function again after INTERRUPT_WAIT_WAKEUP has been set.
  */
 shm_mq_result
 shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
@@ -619,8 +619,8 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 	 * If we've consumed an amount of data greater than 1/4th of the ring
 	 * size, mark it consumed in shared memory.  We try to avoid doing this
 	 * unnecessarily when only a small amount of data has been consumed,
-	 * because SetLatch() is fairly expensive and we don't want to do it too
-	 * often.
+	 * because SendInterrupt() is fairly expensive and we don't want to do it
+	 * too often.
 	 */
 	if (mqh->mqh_consume_pending > mq->mq_ring_size / 4)
 	{
@@ -895,7 +895,7 @@ shm_mq_detach_internal(shm_mq *mq)
 	SpinLockRelease(&mq->mq_mutex);
 
 	if (victim != NULL)
-		SetLatch(&victim->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(victim));
 }
 
 /*
@@ -993,7 +993,7 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 			 * Therefore, we can read it without acquiring the spinlock.
 			 */
 			Assert(mqh->mqh_counterparty_attached);
-			SetLatch(&mq->mq_receiver->procLatch);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(mq->mq_receiver));
 
 			/*
 			 * We have just updated the mqh_send_pending bytes in the shared
@@ -1001,7 +1001,7 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 			 */
 			mqh->mqh_send_pending = 0;
 
-			/* Skip manipulation of our latch if nowait = true. */
+			/* Skip waiting if nowait = true. */
 			if (nowait)
 			{
 				*bytes_written = sent;
@@ -1009,17 +1009,18 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 			}
 
 			/*
-			 * Wait for our latch to be set.  It might already be set for some
+			 * Wait for the interrupt.  It might already be set for some
 			 * unrelated reason, but that'll just result in one extra trip
-			 * through the loop.  It's worth it to avoid resetting the latch
-			 * at top of loop, because setting an already-set latch is much
-			 * cheaper than setting one that has been reset.
+			 * through the loop.  It's worth it to avoid clearing the
+			 * interrupt at top of loop, because setting an already-set
+			 * interrupt is much cheaper than setting one that has been reset.
 			 */
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 WAIT_EVENT_MESSAGE_QUEUE_SEND);
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 WAIT_EVENT_MESSAGE_QUEUE_SEND);
 
-			/* Reset the latch so we don't spin. */
-			ResetLatch(MyLatch);
+			/* Clear the interrupt so we don't spin. */
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 			/* An interrupt may have occurred while we were waiting. */
 			CHECK_FOR_INTERRUPTS();
@@ -1054,7 +1055,7 @@ shm_mq_send_bytes(shm_mq_handle *mqh, Size nbytes, const void *data,
 
 			/*
 			 * For efficiency, we don't update the bytes written in the shared
-			 * memory and also don't set the reader's latch here.  Refer to
+			 * memory and also don't send the reader interrupt here.  Refer to
 			 * the comments atop the shm_mq_handle structure for more
 			 * information.
 			 */
@@ -1150,25 +1151,29 @@ shm_mq_receive_bytes(shm_mq_handle *mqh, Size bytes_needed, bool nowait,
 			mqh->mqh_consume_pending = 0;
 		}
 
-		/* Skip manipulation of our latch if nowait = true. */
+		/* Skip waiting if nowait = true. */
 		if (nowait)
 			return SHM_MQ_WOULD_BLOCK;
 
 		/*
-		 * Wait for our latch to be set.  It might already be set for some
+		 * Wait for the interrupt to be set.  It might already be set for some
 		 * unrelated reason, but that'll just result in one extra trip through
-		 * the loop.  It's worth it to avoid resetting the latch at top of
-		 * loop, because setting an already-set latch is much cheaper than
-		 * setting one that has been reset.
+		 * the loop.  It's worth it to avoid clearing the interrupt at top of
+		 * loop, because setting an already-set interrupt is much cheaper than
+		 * setting one that has been cleared.
 		 */
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_MESSAGE_QUEUE_RECEIVE);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 WAIT_EVENT_MESSAGE_QUEUE_RECEIVE);
 
-		/* Reset the latch so we don't spin. */
-		ResetLatch(MyLatch);
-
-		/* An interrupt may have occurred while we were waiting. */
+		/*
+		 * Handle standard interrupts that may have occurred while we were
+		 * waiting.
+		 */
 		CHECK_FOR_INTERRUPTS();
+
+		/* Clear the interrupt so we don't spin. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 }
 
@@ -1250,14 +1255,18 @@ shm_mq_wait_internal(shm_mq *mq, PGPROC **ptr, BackgroundWorkerHandle *handle)
 		}
 
 		/* Wait to be signaled. */
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_MESSAGE_QUEUE_INTERNAL);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 WAIT_EVENT_MESSAGE_QUEUE_INTERNAL);
 
-		/* Reset the latch so we don't spin. */
-		ResetLatch(MyLatch);
-
-		/* An interrupt may have occurred while we were waiting. */
+		/*
+		 * Handle standard interrupts that may have occurred while we were
+		 * waiting.
+		 */
 		CHECK_FOR_INTERRUPTS();
+
+		/* Clear the interrupt so we don't spin. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	return result;
@@ -1293,7 +1302,7 @@ shm_mq_inc_bytes_read(shm_mq *mq, Size n)
 	 */
 	sender = mq->mq_sender;
 	Assert(sender != NULL);
-	SetLatch(&sender->procLatch);
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(sender));
 }
 
 /*

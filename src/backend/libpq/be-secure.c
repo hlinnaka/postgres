@@ -27,8 +27,8 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
-#include "miscadmin.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
 #include "utils/wait_event.h"
@@ -174,15 +174,15 @@ secure_close(Port *port)
 
 /*
  *	Read data from a secure connection.
+ *
+ * In blocking mode, will process any interrupts that arrive while we're
+ * waiting.
  */
 ssize_t
 secure_read(Port *port, void *ptr, size_t len)
 {
 	ssize_t		n;
 	int			waitfor;
-
-	/* Deal with any already-pending interrupt condition. */
-	ProcessClientReadInterrupt(false);
 
 retry:
 #ifdef USE_SSL
@@ -213,7 +213,8 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, CheckForInterruptsMask);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_READ);
@@ -228,23 +229,22 @@ retry:
 		 * new connections can be accepted.  Exiting clears the deck for a
 		 * postmaster restart.
 		 *
-		 * (Note that we only make this check when we would otherwise sleep on
-		 * our latch.  We might still continue running for a while if the
-		 * postmaster is killed in mid-query, or even through multiple queries
-		 * if we never have to wait for read.  We don't want to burn too many
-		 * cycles checking for this very rare condition, and this should cause
-		 * us to exit quickly in most cases.)
+		 * (Note that we only make this check when we would otherwise sleep
+		 * waiting for interrupt.  We might still continue running for a while
+		 * if the postmaster is killed in mid-query, or even through multiple
+		 * queries if we never have to wait for read.  We don't want to burn
+		 * too many cycles checking for this very rare condition, and this
+		 * should cause us to exit quickly in most cases.)
 		 */
 		if (event.events & WL_POSTMASTER_DEATH)
 			ereport(FATAL,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
-		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		/* Handle interrupts. */
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
-			ProcessClientReadInterrupt(true);
+			CHECK_FOR_INTERRUPTS();
 
 			/*
 			 * We'll retry the read. Most likely it will return immediately
@@ -254,12 +254,6 @@ retry:
 		}
 		goto retry;
 	}
-
-	/*
-	 * Process interrupts that happened during a successful (or non-blocking,
-	 * or hard-failed) read.
-	 */
-	ProcessClientReadInterrupt(false);
 
 	return n;
 }
@@ -284,7 +278,8 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 
 	/*
 	 * Try to read from the socket without blocking. If it succeeds we're
-	 * done, otherwise we'll wait for the socket using the latch mechanism.
+	 * done, otherwise we'll wait for the socket using the interrupt
+	 * mechanism.
 	 */
 #ifdef WIN32
 	pgwin32_noblock = true;
@@ -300,15 +295,15 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 
 /*
  *	Write data to a secure connection.
+ *
+ * In blocking mode, will process any interrupts that arrive while we're
+ * waiting.
  */
 ssize_t
 secure_write(Port *port, const void *ptr, size_t len)
 {
 	ssize_t		n;
 	int			waitfor;
-
-	/* Deal with any already-pending interrupt condition. */
-	ProcessClientWriteInterrupt(false);
 
 retry:
 	waitfor = 0;
@@ -338,7 +333,8 @@ retry:
 
 		Assert(waitfor);
 
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, NULL);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetSocketPos, waitfor, 0);
+		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetInterruptPos, WL_INTERRUPT, CheckForInterruptsMask);
 
 		WaitEventSetWait(FeBeWaitSet, -1 /* no timeout */ , &event, 1,
 						 WAIT_EVENT_CLIENT_WRITE);
@@ -349,11 +345,10 @@ retry:
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("terminating connection due to unexpected postmaster exit")));
 
-		/* Handle interrupt. */
-		if (event.events & WL_LATCH_SET)
+		/* Handle interrupts. */
+		if (event.events & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
-			ProcessClientWriteInterrupt(true);
+			CHECK_FOR_INTERRUPTS();
 
 			/*
 			 * We'll retry the write. Most likely it will return immediately
@@ -363,12 +358,6 @@ retry:
 		}
 		goto retry;
 	}
-
-	/*
-	 * Process interrupts that happened during a successful (or non-blocking,
-	 * or hard-failed) write.
-	 */
-	ProcessClientWriteInterrupt(false);
 
 	return n;
 }

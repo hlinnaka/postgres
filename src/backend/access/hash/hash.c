@@ -26,7 +26,7 @@
 #include "access/xloginsert.h"
 #include "commands/progress.h"
 #include "commands/vacuum.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "optimizer/plancat.h"
 #include "pgstat.h"

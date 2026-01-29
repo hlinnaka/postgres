@@ -34,7 +34,7 @@
 #include "executor/executor.h"
 #include "executor/nodeGather.h"
 #include "executor/tqueue.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "optimizer/optimizer.h"
 #include "utils/wait_event.h"
 
@@ -382,9 +382,11 @@ gather_readnext(GatherState *gatherstate)
 				return NULL;
 
 			/* Nothing to do except wait for developments. */
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 WAIT_EVENT_EXECUTE_GATHER);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 WAIT_EVENT_EXECUTE_GATHER);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			nvisited = 0;
 		}
 	}

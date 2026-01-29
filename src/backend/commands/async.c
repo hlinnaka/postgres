@@ -36,7 +36,7 @@
  *	  is no need for WAL support or fsync'ing.
  *
  * 3. Every backend that is listening on at least one channel registers by
- *	  entering its PID into the array in AsyncQueueControl. It then scans all
+ *	  entering itself into the array in AsyncQueueControl. It then scans all
  *	  incoming notifications in the central queue and first compares the
  *	  database OID of the notification with its own database OID and then
  *	  compares the notified channel with the list of channels that it listens
@@ -68,8 +68,8 @@
  *	  make any required updates to the effective listen state (see below).
  *	  Then we signal any backends that may be interested in our messages
  *	  (including our own backend, if listening).  This is done by
- *	  SignalBackends(), which sends a PROCSIG_NOTIFY_INTERRUPT signal to
- *	  each relevant backend, as described below.
+ *	  SignalBackends(), which sends INTERRUPT_ASYNC_NOTIFY to each relevant
+ *	  backend, as described below.
  *
  *	  Finally, after we are out of the transaction altogether and about to go
  *	  idle, we scan the queue for messages that need to be sent to our
@@ -82,13 +82,11 @@
  *	  frontend until the command is done; but notifies to other backends
  *	  should go out immediately after each commit.
  *
- * 5. Upon receipt of a PROCSIG_NOTIFY_INTERRUPT signal, the signal handler
- *	  sets the process's latch, which triggers the event to be processed
- *	  immediately if this backend is idle (i.e., it is waiting for a frontend
+ * 5. The INTERRUPT_ASYNC_NOTIFY interrupt is processed immediately in the
+ *	  listening backend if it is idle (i.e., it is waiting for a frontend
  *	  command and is not within a transaction block. C.f.
- *	  ProcessClientReadInterrupt()).  Otherwise the handler may only set a
- *	  flag, which will cause the processing to occur just before we next go
- *	  idle.
+ *	  main loop in PostgresBackend()).  Otherwise the interrupt is processed
+ *	  later, just before we next go idle.
  *
  *	  Inbound-notify processing consists of reading all of the notifications
  *	  that have arrived since scanning last time. We read every notification
@@ -126,9 +124,8 @@
  *
  *	  SignalBackends() consults the shared global channel table to identify
  *	  listeners for the channels that the current transaction sent
- *	  notification(s) to.  Each selected backend is marked as having a wakeup
- *	  pending to avoid duplicate signals, and a PROCSIG_NOTIFY_INTERRUPT
- *	  signal is sent to it.
+ *	  notification(s) to.  INTERRUPT_ASYNC_NOTIFY is sent to each selected
+ *	  backend.
  *
  * 8. While writing notifications, PreCommit_Notify() records the queue head
  *	  position both before and after the write.  Because all writers serialize
@@ -160,7 +157,6 @@
 
 #include <limits.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include "access/parallel.h"
 #include "access/slru.h"
@@ -170,6 +166,7 @@
 #include "commands/async.h"
 #include "common/hashfn.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "lib/dshash.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -177,7 +174,6 @@
 #include "storage/dsm_registry.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
-#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 #include "utils/dsa.h"
@@ -288,7 +284,8 @@ typedef struct QueueBackendStatus
 	Oid			dboid;			/* backend's database OID, or InvalidOid */
 	ProcNumber	nextListener;	/* id of next listener, or INVALID_PROC_NUMBER */
 	QueuePosition pos;			/* backend has read queue up to here */
-	bool		wakeupPending;	/* signal sent to backend, not yet processed */
+	bool		wakeupPending;	/* interrupt sent to backend, not yet
+								 * processed */
 	bool		isAdvancing;	/* backend is advancing its position */
 } QueueBackendStatus;
 
@@ -318,7 +315,7 @@ typedef struct QueueBackendStatus
  * globalChannelTable partition locks.
  *
  * Each backend uses the backend[] array entry with index equal to its
- * ProcNumber.  We rely on this to make SendProcSignal fast.
+ * ProcNumber.  We rely on this for sending interrupts.
  *
  * The backend[] array entries for actively-listening backends are threaded
  * together using firstListener and the nextListener links, so that we can
@@ -527,15 +524,6 @@ typedef struct ChannelName
 	char		channel[NAMEDATALEN];	/* hash key */
 } ChannelName;
 
-/*
- * Inbound notifications are initially processed by HandleNotifyInterrupt(),
- * called from inside a signal handler. That just sets the
- * notifyInterruptPending flag and sets the process
- * latch. ProcessNotifyInterrupt() will then be called whenever it's safe to
- * actually deal with the interrupt.
- */
-volatile sig_atomic_t notifyInterruptPending = false;
-
 /* True if we've registered an on_shmem_exit cleanup */
 static bool unlistenExitRegistered = false;
 
@@ -552,11 +540,10 @@ static QueuePosition queueHeadBeforeWrite;
 static QueuePosition queueHeadAfterWrite;
 
 /*
- * Workspace arrays for SignalBackends.  These are preallocated in
+ * Workspace array for SignalBackends.  This is preallocated in
  * PreCommit_Notify to avoid needing memory allocation after committing to
  * clog.
  */
-static int32 *signalPids = NULL;
 static ProcNumber *signalProcnos = NULL;
 
 /* have we advanced to a page that's a multiple of QUEUE_CLEANUP_DELAY? */
@@ -1265,10 +1252,6 @@ PreCommit_Notify(void)
 		}
 
 		/* Preallocate workspace that will be needed by SignalBackends() */
-		if (signalPids == NULL)
-			signalPids = MemoryContextAlloc(TopMemoryContext,
-											MaxBackends * sizeof(int32));
-
 		if (signalProcnos == NULL)
 			signalProcnos = MemoryContextAlloc(TopMemoryContext,
 											   MaxBackends * sizeof(ProcNumber));
@@ -1360,7 +1343,7 @@ PreCommit_Notify(void)
  *
  *		Apply pending listen/unlisten changes and clear transaction-local state.
  *
- *		If we issued any notifications in the transaction, send signals to
+ *		If we issued any notifications in the transaction, send interrupts to
  *		listening backends (possibly including ourselves) to process them.
  *		Also, if we filled enough queue pages with new notifies, try to
  *		advance the queue tail pointer.
@@ -1386,9 +1369,9 @@ AtCommit_Notify(void)
 		asyncQueueUnregister();
 
 	/*
-	 * Send signals to listening backends.  We need do this only if there are
-	 * pending notifies, which were previously added to the shared queue by
-	 * PreCommit_Notify().
+	 * Send interrupts to listening backends.  We need do this only if there
+	 * are pending notifies, which were previously added to the shared queue
+	 * by PreCommit_Notify().
 	 */
 	if (pendingNotifies != NULL)
 		SignalBackends();
@@ -1618,7 +1601,7 @@ PrepareTableEntriesForListen(const char *channel)
  *
  * Prepare an UNLISTEN by recording it in pendingListenActions, but only if
  * we're currently listening (committed or staged).  We don't touch
- * globalChannelTable yet - the listener keeps receiving signals until
+ * globalChannelTable yet - the listener keeps receiving notifications until
  * commit, when the entry is removed.
  */
 static void
@@ -1638,7 +1621,7 @@ PrepareTableEntriesForUnlisten(const char *channel)
 	/*
 	 * Record in local pending hash that we want to UNLISTEN, overwriting any
 	 * earlier attempt to LISTEN.  Don't touch localChannelTable or
-	 * globalChannelTable yet - we keep receiving signals until commit.
+	 * globalChannelTable yet - we keep receiving notifications until commit.
 	 */
 	pending = (PendingListenEntry *)
 		hash_search(pendingListenActions, channel, HASH_ENTER, NULL);
@@ -2242,14 +2225,14 @@ asyncQueueFillWarning(void)
 }
 
 /*
- * Send signals to listening backends.
+ * Send interrupts to listening backends.
  *
  * Normally we signal only backends that are interested in the notifies that
  * we just sent.  However, that will leave idle listeners falling further and
  * further behind.  Waken them anyway if they're far enough behind, so they'll
  * advance their queue position pointers, allowing the global tail to advance.
  *
- * Since we know the ProcNumber and the Pid the signaling is quite cheap.
+ * Since we know the ProcNumber the signaling is quite cheap.
  *
  * This is called during CommitTransaction(), so it's important for it
  * to have very low probability of failure.
@@ -2262,13 +2245,13 @@ SignalBackends(void)
 	/* Can't get here without PreCommit_Notify having made the global table */
 	Assert(globalChannelTable != NULL);
 
-	/* It should have set up these arrays, too */
-	Assert(signalPids != NULL && signalProcnos != NULL);
+	/* It should have set up this array, too */
+	Assert(signalProcnos != NULL);
 
 	/*
 	 * Identify backends that we need to signal.  We don't want to send
 	 * signals while holding the NotifyQueueLock, so this part just builds a
-	 * list of target PIDs in signalPids[] and signalProcnos[].
+	 * list of target backends in signalProcnos[].
 	 */
 	count = 0;
 
@@ -2293,7 +2276,6 @@ SignalBackends(void)
 		for (int j = 0; j < entry->numListeners; j++)
 		{
 			ProcNumber	i;
-			int32		pid;
 			QueuePosition pos;
 
 			if (!listeners[j].listening)
@@ -2304,16 +2286,14 @@ SignalBackends(void)
 			if (QUEUE_BACKEND_WAKEUP_PENDING(i))
 				continue;		/* already signaled, no need to repeat */
 
-			pid = QUEUE_BACKEND_PID(i);
 			pos = QUEUE_BACKEND_POS(i);
 
 			if (QUEUE_POS_EQUAL(pos, QUEUE_HEAD))
 				continue;		/* it's fully caught up already */
 
-			Assert(pid != InvalidPid);
+			Assert(i != INVALID_PROC_NUMBER);
 
 			QUEUE_BACKEND_WAKEUP_PENDING(i) = true;
-			signalPids[count] = pid;
 			signalProcnos[count] = i;
 			count++;
 		}
@@ -2330,7 +2310,6 @@ SignalBackends(void)
 	 */
 	for (ProcNumber i = QUEUE_FIRST_LISTENER; i != INVALID_PROC_NUMBER; i = QUEUE_NEXT_LISTENER(i))
 	{
-		int32		pid;
 		QueuePosition pos;
 
 		if (QUEUE_BACKEND_WAKEUP_PENDING(i))
@@ -2340,7 +2319,6 @@ SignalBackends(void)
 		if (QUEUE_BACKEND_IS_ADVANCING(i))
 			continue;
 
-		pid = QUEUE_BACKEND_PID(i);
 		pos = QUEUE_BACKEND_POS(i);
 
 		/*
@@ -2360,10 +2338,7 @@ SignalBackends(void)
 									QUEUE_POS_PAGE(pos)) >= QUEUE_CLEANUP_DELAY)
 		{
 			/* It's idle and far behind, so wake it up */
-			Assert(pid != InvalidPid);
-
 			QUEUE_BACKEND_WAKEUP_PENDING(i) = true;
-			signalPids[count] = pid;
 			signalProcnos[count] = i;
 			count++;
 		}
@@ -2371,29 +2346,20 @@ SignalBackends(void)
 
 	LWLockRelease(NotifyQueueLock);
 
-	/* Now send signals */
+	/* Now send the interrupts */
 	for (int i = 0; i < count; i++)
 	{
-		int32		pid = signalPids[i];
+		ProcNumber	procno = signalProcnos[i];
 
 		/*
-		 * If we are signaling our own process, no need to involve the kernel;
-		 * just set the flag directly.
+		 * Note: it's unlikely but certainly possible that the backend exited
+		 * since we released NotifyQueueLock. We'll send the interrupt to
+		 * wrong backend in that case, but that's harmless.
 		 */
-		if (pid == MyProcPid)
-		{
-			notifyInterruptPending = true;
-			continue;
-		}
-
-		/*
-		 * Note: assuming things aren't broken, a signal failure here could
-		 * only occur if the target backend exited since we released
-		 * NotifyQueueLock; which is unlikely but certainly possible. So we
-		 * just log a low-level debug message if it happens.
-		 */
-		if (SendProcSignal(pid, PROCSIG_NOTIFY_INTERRUPT, signalProcnos[i]) < 0)
-			elog(DEBUG3, "could not signal backend with PID %d: %m", pid);
+		if (procno == MyProcNumber)
+			RaiseInterrupt(INTERRUPT_ASYNC_NOTIFY);
+		else
+			SendInterrupt(INTERRUPT_ASYNC_NOTIFY, procno);
 	}
 }
 
@@ -2531,38 +2497,11 @@ AtSubAbort_Notify(void)
 }
 
 /*
- * HandleNotifyInterrupt
- *
- *		Signal handler portion of interrupt handling. Let the backend know
- *		that there's a pending notify interrupt. If we're currently reading
- *		from the client, this will interrupt the read and
- *		ProcessClientReadInterrupt() will call ProcessNotifyInterrupt().
- */
-void
-HandleNotifyInterrupt(void)
-{
-	/*
-	 * Note: this is called by a SIGNAL HANDLER. You must be very wary what
-	 * you do here.
-	 */
-
-	/* signal that work needs to be done */
-	notifyInterruptPending = true;
-
-	/* make sure the event is processed in due course */
-	SetLatch(MyLatch);
-}
-
-/*
  * ProcessNotifyInterrupt
  *
- *		This is called if we see notifyInterruptPending set, just before
- *		transmitting ReadyForQuery at the end of a frontend command, and
- *		also if a notify signal occurs while reading from the frontend.
- *		HandleNotifyInterrupt() will cause the read to be interrupted
- *		via the process's latch, and this routine will get called.
- *		If we are truly idle (ie, *not* inside a transaction block),
- *		process the incoming notifies.
+ *		This is called if we see INTERRUPT_ASYNC_NOTIFY set, just before
+ *		transmitting ReadyForQuery at the end of a frontend command, and also
+ *		if the interrupt occurs while reading from the frontend.
  *
  *		If "flush" is true, force any frontend messages out immediately.
  *		This can be false when being called at the end of a frontend command,
@@ -2571,12 +2510,13 @@ HandleNotifyInterrupt(void)
 void
 ProcessNotifyInterrupt(bool flush)
 {
-	if (IsTransactionOrTransactionBlock())
-		return;					/* not really idle */
+	Assert(!IsTransactionOrTransactionBlock());
 
-	/* Loop in case another signal arrives while sending messages */
-	while (notifyInterruptPending)
+	/* Loop in case another interrupt arrives while sending messages */
+	do
+	{
 		ProcessIncomingNotify(flush);
+	} while (ConsumeInterrupt(INTERRUPT_ASYNC_NOTIFY));
 }
 
 
@@ -2686,7 +2626,7 @@ asyncQueueReadAllNotifications(void)
 			 * Our stop position is what we found to be the head's position
 			 * when we entered this function. It might have changed already.
 			 * But if it has, we will receive (or have already received and
-			 * queued) another signal and come here again.
+			 * queued) another interrupt and come here again.
 			 *
 			 * We are not holding NotifyQueueLock here! The queue can only
 			 * extend beyond the head pointer (see above) and we leave our
@@ -3050,9 +2990,6 @@ AsyncNotifyFreezeXids(TransactionId newFrozenXid)
 static void
 ProcessIncomingNotify(bool flush)
 {
-	/* We *must* reset the flag */
-	notifyInterruptPending = false;
-
 	/* Do nothing else if we aren't actively listening */
 	if (LocalChannelTableIsEmpty())
 		return;

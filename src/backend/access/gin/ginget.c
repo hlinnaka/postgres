@@ -17,6 +17,7 @@
 #include "access/gin_private.h"
 #include "access/relscan.h"
 #include "common/pg_prng.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/predicate.h"
 #include "utils/datum.h"

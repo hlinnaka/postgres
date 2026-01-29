@@ -143,6 +143,7 @@
 #include "common/int.h"
 #include "common/pg_prng.h"
 #include "executor/instrument.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "portability/instr_time.h"
@@ -3300,11 +3301,10 @@ lazy_truncate_heap(LVRelState *vacrel)
 				return;
 			}
 
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL,
-							 WAIT_EVENT_VACUUM_TRUNCATE);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(CheckForInterruptsMask,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 VACUUM_TRUNCATE_LOCK_WAIT_INTERVAL,
+								 WAIT_EVENT_VACUUM_TRUNCATE);
 		}
 
 		/*

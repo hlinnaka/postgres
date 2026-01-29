@@ -18,7 +18,7 @@
 #include "access/nbtxlog.h"
 #include "access/tableam.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/rel.h"
 
 static void _bt_bottomupdel_finish_pending(Page page, BTDedupState state,

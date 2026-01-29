@@ -16,7 +16,6 @@
 
 #include "nodes/params.h"
 #include "nodes/plannodes.h"
-#include "storage/procsignal.h"
 #include "utils/guc.h"
 #include "utils/queryenvironment.h"
 
@@ -70,13 +69,7 @@ extern List *pg_plan_queries(List *querytrees, const char *query_string,
 							 int cursorOptions,
 							 ParamListInfo boundParams);
 
-extern void die(SIGNAL_ARGS);
-pg_noreturn extern void quickdie(SIGNAL_ARGS);
-extern void StatementCancelHandler(SIGNAL_ARGS);
 pg_noreturn extern void FloatExceptionHandler(SIGNAL_ARGS);
-extern void HandleRecoveryConflictInterrupt(void);
-extern void ProcessClientReadInterrupt(bool blocked);
-extern void ProcessClientWriteInterrupt(bool blocked);
 
 extern void process_postgres_switches(int argc, char *argv[],
 									  GucContext ctx, const char **dbname);

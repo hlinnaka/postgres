@@ -13,11 +13,8 @@
 #ifndef ASYNC_H
 #define ASYNC_H
 
-#include <signal.h>
-
 extern PGDLLIMPORT bool Trace_notify;
 extern PGDLLIMPORT int max_notify_queue_pages;
-extern PGDLLIMPORT volatile sig_atomic_t notifyInterruptPending;
 
 extern Size AsyncShmemSize(void);
 extern void AsyncShmemInit(void);
@@ -39,9 +36,6 @@ extern void AtAbort_Notify(void);
 extern void AtSubCommit_Notify(void);
 extern void AtSubAbort_Notify(void);
 extern void AtPrepare_Notify(void);
-
-/* signal handler for inbound notifies (PROCSIG_NOTIFY_INTERRUPT) */
-extern void HandleNotifyInterrupt(void);
 
 /* process interrupts */
 extern void ProcessNotifyInterrupt(bool flush);

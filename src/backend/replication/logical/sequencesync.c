@@ -57,7 +57,6 @@
 #include "catalog/pg_subscription_rel.h"
 #include "commands/sequence.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
 #include "replication/logicalworker.h"
 #include "replication/worker_internal.h"
 #include "utils/acl.h"
@@ -494,11 +493,8 @@ copy_sequences(WalReceiverConn *conn)
 
 			CHECK_FOR_INTERRUPTS();
 
-			if (ConfigReloadPending)
-			{
-				ConfigReloadPending = false;
+			if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 				ProcessConfigFile(PGC_SIGHUP);
-			}
 
 			sync_status = get_and_validate_seq_info(slot, &sequence_rel,
 													&seqinfo, &seqidx);

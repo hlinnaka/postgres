@@ -44,6 +44,7 @@
 #include "catalog/pg_control.h"
 #include "commands/tablespace.h"
 #include "common/file_utils.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/miscnodes.h"
 #include "pgstat.h"
@@ -54,8 +55,8 @@
 #include "replication/walreceiver.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pmsignal.h"
+#include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/spin.h"
 #include "utils/datetime.h"
@@ -323,23 +324,6 @@ typedef struct XLogRecoveryCtlData
 	bool		SharedPromoteIsTriggered;
 
 	/*
-	 * recoveryWakeupLatch is used to wake up the startup process to continue
-	 * WAL replay, if it is waiting for WAL to arrive or promotion to be
-	 * requested.
-	 *
-	 * Note that the startup process also uses another latch, its procLatch,
-	 * to wait for recovery conflict. If we get rid of recoveryWakeupLatch for
-	 * signaling the startup process in favor of using its procLatch, which
-	 * comports better with possible generic signal handlers using that latch.
-	 * But we should not do that because the startup process doesn't assume
-	 * that it's waken up by walreceiver process or SIGHUP signal handler
-	 * while it's waiting for recovery conflict. The separate latches,
-	 * recoveryWakeupLatch and procLatch, should be used for inter-process
-	 * communication for WAL replay and recovery conflict, respectively.
-	 */
-	Latch		recoveryWakeupLatch;
-
-	/*
 	 * Last record successfully replayed.
 	 */
 	XLogRecPtr	lastReplayedReadRecPtr; /* start position */
@@ -473,7 +457,6 @@ XLogRecoveryShmemInit(void)
 	memset(XLogRecoveryCtl, 0, sizeof(XLogRecoveryCtlData));
 
 	SpinLockInit(&XLogRecoveryCtl->info_lck);
-	InitSharedLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
 	ConditionVariableInit(&XLogRecoveryCtl->recoveryNotPausedCV);
 }
 
@@ -546,13 +529,6 @@ InitWalRecovery(ControlFileData *ControlFile, bool *wasShutdown_ptr,
 	 */
 	readRecoverySignalFile();
 	validateRecoveryParameters();
-
-	/*
-	 * Take ownership of the wakeup latch if we're going to sleep during
-	 * recovery, if required.
-	 */
-	if (ArchiveRecoveryRequested)
-		OwnLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
 
 	/*
 	 * Set the WAL reading processor now, as it will be needed when reading
@@ -1654,13 +1630,6 @@ ShutdownWalRecovery(void)
 		snprintf(recoveryPath, MAXPGPATH, XLOGDIR "/RECOVERYHISTORY");
 		unlink(recoveryPath);	/* ignore any error */
 	}
-
-	/*
-	 * We don't need the latch anymore. It's not strictly necessary to disown
-	 * it, but let's do it for the sake of tidiness.
-	 */
-	if (ArchiveRecoveryRequested)
-		DisownLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
 }
 
 /*
@@ -1790,8 +1759,8 @@ PerformWalRecovery(void)
 			}
 #endif
 
-			/* Handle interrupt signals of startup process */
-			ProcessStartupProcInterrupts();
+			CHECK_FOR_INTERRUPTS();
+			StartupProcCheckPostmasterDeath();
 
 			/*
 			 * Pause WAL replay, if requested by a hot-standby session via
@@ -1820,8 +1789,8 @@ PerformWalRecovery(void)
 			}
 
 			/*
-			 * If we've been asked to lag the primary, wait on latch until
-			 * enough time has passed.
+			 * If we've been asked to lag the primary, wait until enough time
+			 * has passed.
 			 */
 			if (recoveryApplyDelay(xlogreader))
 			{
@@ -1849,9 +1818,8 @@ PerformWalRecovery(void)
 			}
 
 			/*
-			 * If we replayed an LSN that someone was waiting for then walk
-			 * over the shared memory array and set latches to notify the
-			 * waiters.
+			 * If we replayed an LSN that someone was waiting for, wake them
+			 * up.
 			 */
 			if (waitLSNState &&
 				(XLogRecoveryCtl->lastReplayedEndRecPtr >=
@@ -2977,7 +2945,7 @@ recoveryPausesHere(bool endOfRecovery)
 	/* loop until recoveryPauseState is set to RECOVERY_NOT_PAUSED */
 	while (GetRecoveryPauseState() != RECOVERY_NOT_PAUSED)
 	{
-		ProcessStartupProcInterrupts();
+		CHECK_FOR_INTERRUPTS();
 		if (CheckForStandbyTrigger())
 			return;
 
@@ -3054,8 +3022,8 @@ recoveryApplyDelay(XLogReaderState *record)
 	delayUntil = TimestampTzPlusMilliseconds(xtime, recovery_min_apply_delay);
 
 	/*
-	 * Exit without arming the latch if it's already past time to apply this
-	 * record
+	 * Exit without clearing the interrupt if it's already past time to apply
+	 * this record
 	 */
 	msecs = TimestampDifferenceMilliseconds(GetCurrentTimestamp(), delayUntil);
 	if (msecs <= 0)
@@ -3063,11 +3031,16 @@ recoveryApplyDelay(XLogReaderState *record)
 
 	while (true)
 	{
-		ResetLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
-
 		/* This might change recovery_min_apply_delay. */
-		ProcessStartupProcInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
+		/*
+		 * Wait until more WAL arrives.  (We use a dedicated interrupt rather
+		 * than INTERRUPT_WAIT_WAKEUP for this, so that more WAL arriving
+		 * doesn't wake up the startup process excessively when we're waiting
+		 * in other places, like for recovery conflicts).
+		 */
+		ClearInterrupt(INTERRUPT_WAL_ARRIVED);
 		if (CheckForStandbyTrigger())
 			break;
 
@@ -3088,10 +3061,11 @@ recoveryApplyDelay(XLogReaderState *record)
 
 		elog(DEBUG2, "recovery apply delay %ld milliseconds", msecs);
 
-		(void) WaitLatch(&XLogRecoveryCtl->recoveryWakeupLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 msecs,
-						 WAIT_EVENT_RECOVERY_APPLY_DELAY);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_WAL_ARRIVED,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 msecs,
+							 WAIT_EVENT_RECOVERY_APPLY_DELAY);
 	}
 	return true;
 }
@@ -3769,16 +3743,16 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 						/* Do background tasks that might benefit us later. */
 						KnownAssignedTransactionIdsIdleMaintenance();
 
-						(void) WaitLatch(&XLogRecoveryCtl->recoveryWakeupLatch,
-										 WL_LATCH_SET | WL_TIMEOUT |
-										 WL_EXIT_ON_PM_DEATH,
-										 wait_time,
-										 WAIT_EVENT_RECOVERY_RETRIEVE_RETRY_INTERVAL);
-						ResetLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
+						(void) WaitInterrupt(CheckForInterruptsMask |
+											 INTERRUPT_WAL_ARRIVED,
+											 WL_INTERRUPT | WL_TIMEOUT |
+											 WL_EXIT_ON_PM_DEATH,
+											 wait_time,
+											 WAIT_EVENT_RECOVERY_RETRIEVE_RETRY_INTERVAL);
+						ClearInterrupt(INTERRUPT_WAL_ARRIVED);
 						now = GetCurrentTimestamp();
 
-						/* Handle interrupt signals of startup process */
-						ProcessStartupProcInterrupts();
+						CHECK_FOR_INTERRUPTS();
 					}
 					last_fail_time = now;
 					currentSource = XLOG_FROM_ARCHIVE;
@@ -4044,11 +4018,12 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 					 * Wait for more WAL to arrive, when we will be woken
 					 * immediately by the WAL receiver.
 					 */
-					(void) WaitLatch(&XLogRecoveryCtl->recoveryWakeupLatch,
-									 WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-									 -1L,
-									 WAIT_EVENT_RECOVERY_WAL_STREAM);
-					ResetLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
+					(void) WaitInterrupt(CheckForInterruptsMask |
+										 INTERRUPT_WAL_ARRIVED,
+										 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+										 -1L,
+										 WAIT_EVENT_RECOVERY_WAL_STREAM);
+					ClearInterrupt(INTERRUPT_WAL_ARRIVED);
 					break;
 				}
 
@@ -4064,11 +4039,8 @@ WaitForWALToBecomeAvailable(XLogRecPtr RecPtr, bool randAccess,
 			RECOVERY_NOT_PAUSED)
 			recoveryPausesHere(false);
 
-		/*
-		 * This possibly-long loop needs to handle interrupts of startup
-		 * process.
-		 */
-		ProcessStartupProcInterrupts();
+		/* This possibly-long loop needs to handle interrupts. */
+		CHECK_FOR_INTERRUPTS();
 	}
 
 	return XLREAD_FAIL;			/* not reached */
@@ -4500,11 +4472,11 @@ CheckForStandbyTrigger(void)
 	if (LocalPromoteIsTriggered)
 		return true;
 
-	if (IsPromoteSignaled() && CheckPromoteSignal())
+	if (InterruptPending(INTERRUPT_CHECK_PROMOTE) && CheckPromoteSignal())
 	{
 		ereport(LOG, (errmsg("received promote request")));
 		RemovePromoteSignalFiles();
-		ResetPromoteSignaled();
+		ClearInterrupt(INTERRUPT_CHECK_PROMOTE);
 		SetPromoteIsTriggered();
 		return true;
 	}
@@ -4542,7 +4514,10 @@ CheckPromoteSignal(void)
 void
 WakeupRecovery(void)
 {
-	SetLatch(&XLogRecoveryCtl->recoveryWakeupLatch);
+	ProcNumber	procno = ((volatile PROC_HDR *) ProcGlobal)->startupProc;
+
+	if (procno != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_WAL_ARRIVED, procno);
 }
 
 /*
@@ -4746,7 +4721,7 @@ RecoveryRequiresIntParameter(const char *param_name, int currValue, int minValue
 
 			while (GetRecoveryPauseState() != RECOVERY_NOT_PAUSED)
 			{
-				ProcessStartupProcInterrupts();
+				CHECK_FOR_INTERRUPTS();
 
 				if (CheckForStandbyTrigger())
 				{

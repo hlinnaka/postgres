@@ -23,6 +23,7 @@
 
 #include "miscadmin.h"
 #include "postmaster/postmaster.h"
+#include "port/atomics.h"
 #include "replication/walsender.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
@@ -68,6 +69,13 @@
 #define PM_CHILD_ACTIVE		2
 #define PM_CHILD_WALSENDER	3
 
+typedef struct PMChildSlotData
+{
+	sig_atomic_t state;
+
+	pg_atomic_uint32 pgprocno;
+} PMChildSlotData;
+
 /* "typedef struct PMSignalData PMSignalData" appears in pmsignal.h */
 struct PMSignalData
 {
@@ -75,20 +83,21 @@ struct PMSignalData
 	sig_atomic_t PMSignalFlags[NUM_PMSIGNALS];
 	/* global flags for signals from postmaster to children */
 	QuitSignalReason sigquit_reason;	/* why SIGQUIT was sent */
+
 	/* per-child-process flags */
-	int			num_child_flags;	/* # of entries in PMChildFlags[] */
-	sig_atomic_t PMChildFlags[FLEXIBLE_ARRAY_MEMBER];
+	int			num_child_slots;	/* # of entries in child_slots[] */
+	PMChildSlotData child_slots[FLEXIBLE_ARRAY_MEMBER];
 };
 
 /* PMSignalState pointer is valid in both postmaster and child processes */
 NON_EXEC_STATIC volatile PMSignalData *PMSignalState = NULL;
 
 /*
- * Local copy of PMSignalState->num_child_flags, only valid in the
+ * Local copy of PMSignalState->num_child_slots, only valid in the
  * postmaster.  Postmaster keeps a local copy so that it doesn't need to
  * trust the value in shared memory.
  */
-static int	num_child_flags;
+static int	num_child_slots;
 
 /*
  * Signal handler to be notified if postmaster dies.
@@ -131,9 +140,9 @@ PMSignalShmemSize(void)
 {
 	Size		size;
 
-	size = offsetof(PMSignalData, PMChildFlags);
+	size = offsetof(PMSignalData, child_slots);
 	size = add_size(size, mul_size(MaxLivePostmasterChildren(),
-								   sizeof(sig_atomic_t)));
+								   sizeof(PMChildSlotData)));
 
 	return size;
 }
@@ -153,8 +162,8 @@ PMSignalShmemInit(void)
 	{
 		/* initialize all flags to zeroes */
 		MemSet(unvolatize(PMSignalData *, PMSignalState), 0, PMSignalShmemSize());
-		num_child_flags = MaxLivePostmasterChildren();
-		PMSignalState->num_child_flags = num_child_flags;
+		num_child_slots = MaxLivePostmasterChildren();
+		PMSignalState->num_child_slots = num_child_slots;
 	}
 }
 
@@ -229,13 +238,14 @@ GetQuitSignalReason(void)
 void
 MarkPostmasterChildSlotAssigned(int slot)
 {
-	Assert(slot > 0 && slot <= num_child_flags);
+	Assert(slot > 0 && slot <= num_child_slots);
 	slot--;
 
-	if (PMSignalState->PMChildFlags[slot] != PM_CHILD_UNUSED)
+	if (PMSignalState->child_slots[slot].state != PM_CHILD_UNUSED)
 		elog(FATAL, "postmaster child slot is already in use");
 
-	PMSignalState->PMChildFlags[slot] = PM_CHILD_ASSIGNED;
+	pg_atomic_init_u32(&PMSignalState->child_slots[slot].pgprocno, (uint32) INVALID_PROC_NUMBER);
+	PMSignalState->child_slots[slot].state = PM_CHILD_ASSIGNED;
 }
 
 /*
@@ -250,7 +260,7 @@ MarkPostmasterChildSlotUnassigned(int slot)
 {
 	bool		result;
 
-	Assert(slot > 0 && slot <= num_child_flags);
+	Assert(slot > 0 && slot <= num_child_slots);
 	slot--;
 
 	/*
@@ -258,8 +268,9 @@ MarkPostmasterChildSlotUnassigned(int slot)
 	 * postmaster.c is such that this might get called twice when a child
 	 * crashes.  So we don't try to Assert anything about the state.
 	 */
-	result = (PMSignalState->PMChildFlags[slot] == PM_CHILD_ASSIGNED);
-	PMSignalState->PMChildFlags[slot] = PM_CHILD_UNUSED;
+	result = (PMSignalState->child_slots[slot].state == PM_CHILD_ASSIGNED);
+	PMSignalState->child_slots[slot].state = PM_CHILD_UNUSED;
+	pg_atomic_init_u32(&PMSignalState->child_slots[slot].pgprocno, (uint32) INVALID_PROC_NUMBER);
 	return result;
 }
 
@@ -270,10 +281,10 @@ MarkPostmasterChildSlotUnassigned(int slot)
 bool
 IsPostmasterChildWalSender(int slot)
 {
-	Assert(slot > 0 && slot <= num_child_flags);
+	Assert(slot > 0 && slot <= num_child_slots);
 	slot--;
 
-	if (PMSignalState->PMChildFlags[slot] == PM_CHILD_WALSENDER)
+	if (PMSignalState->child_slots[slot].state == PM_CHILD_WALSENDER)
 		return true;
 	else
 		return false;
@@ -291,13 +302,41 @@ RegisterPostmasterChildActive(void)
 {
 	int			slot = MyPMChildSlot;
 
-	Assert(slot > 0 && slot <= PMSignalState->num_child_flags);
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
 	slot--;
-	Assert(PMSignalState->PMChildFlags[slot] == PM_CHILD_ASSIGNED);
-	PMSignalState->PMChildFlags[slot] = PM_CHILD_ACTIVE;
+	Assert(PMSignalState->child_slots[slot].state == PM_CHILD_ASSIGNED);
+	PMSignalState->child_slots[slot].state = PM_CHILD_ACTIVE;
 
 	/* Arrange to clean up at exit. */
 	on_shmem_exit(MarkPostmasterChildInactive, 0);
+}
+
+/*
+ */
+void
+RegisterPostmasterChildProcNumber(ProcNumber procno)
+{
+	int			slot = MyPMChildSlot;
+
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
+	slot--;
+	Assert(PMSignalState->child_slots[slot].state == PM_CHILD_ACTIVE);
+	Assert(pg_atomic_read_u32(&PMSignalState->child_slots[slot].pgprocno) == (uint32) INVALID_PROC_NUMBER);
+	pg_atomic_write_u32(&PMSignalState->child_slots[slot].pgprocno, (uint32) procno);
+}
+
+/*
+ */
+void
+UnregisterPostmasterChildProcNumber(ProcNumber procno)
+{
+	int			slot = MyPMChildSlot;
+
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
+	slot--;
+	Assert(PMSignalState->child_slots[slot].state == PM_CHILD_ACTIVE);
+	Assert(pg_atomic_read_u32(&PMSignalState->child_slots[slot].pgprocno) == (uint32) procno);
+	pg_atomic_write_u32(&PMSignalState->child_slots[slot].pgprocno, (uint32) INVALID_PROC_NUMBER);
 }
 
 /*
@@ -312,10 +351,10 @@ MarkPostmasterChildWalSender(void)
 
 	Assert(am_walsender);
 
-	Assert(slot > 0 && slot <= PMSignalState->num_child_flags);
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
 	slot--;
-	Assert(PMSignalState->PMChildFlags[slot] == PM_CHILD_ACTIVE);
-	PMSignalState->PMChildFlags[slot] = PM_CHILD_WALSENDER;
+	Assert(PMSignalState->child_slots[slot].state == PM_CHILD_ACTIVE);
+	PMSignalState->child_slots[slot].state = PM_CHILD_WALSENDER;
 }
 
 /*
@@ -327,11 +366,11 @@ MarkPostmasterChildInactive(int code, Datum arg)
 {
 	int			slot = MyPMChildSlot;
 
-	Assert(slot > 0 && slot <= PMSignalState->num_child_flags);
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
 	slot--;
-	Assert(PMSignalState->PMChildFlags[slot] == PM_CHILD_ACTIVE ||
-		   PMSignalState->PMChildFlags[slot] == PM_CHILD_WALSENDER);
-	PMSignalState->PMChildFlags[slot] = PM_CHILD_ASSIGNED;
+	Assert(PMSignalState->child_slots[slot].state == PM_CHILD_ACTIVE ||
+		   PMSignalState->child_slots[slot].state == PM_CHILD_WALSENDER);
+	PMSignalState->child_slots[slot].state = PM_CHILD_ASSIGNED;
 }
 
 
@@ -429,4 +468,13 @@ PostmasterDeathSignalInit(void)
 	 */
 	postmaster_possibly_dead = true;
 #endif							/* USE_POSTMASTER_DEATH_SIGNAL */
+}
+
+ProcNumber
+GetPMChildProcNumber(int slot)
+{
+	Assert(slot > 0 && slot <= PMSignalState->num_child_slots);
+	slot--;
+
+	return (ProcNumber) pg_atomic_read_u32(&PMSignalState->child_slots[slot].pgprocno);
 }

@@ -78,7 +78,7 @@ extern VirtualTransactionId *GetCurrentVirtualXIDs(TransactionId limitXmin,
 												   int *nvxids);
 extern VirtualTransactionId *GetConflictingVirtualXIDs(TransactionId limitXmin, Oid dbOid);
 
-extern bool SignalRecoveryConflict(PGPROC *proc, pid_t pid, RecoveryConflictReason reason);
+extern bool SignalRecoveryConflict(PGPROC *proc, RecoveryConflictReason reason);
 extern bool SignalRecoveryConflictWithVirtualXID(VirtualTransactionId vxid, RecoveryConflictReason reason);
 extern void SignalRecoveryConflictWithDatabase(Oid databaseid, RecoveryConflictReason reason);
 

@@ -359,6 +359,8 @@ dsm_impl_posix_resize(int fd, off_t size)
 	 * for quite a long time, and is an all-or-nothing operation.  If we
 	 * allowed SIGUSR1 to interrupt us repeatedly (for example, due to
 	 * recovery conflicts), the retry loop might never succeed.
+	 *
+	 * FIXME: slightly outdated comment
 	 */
 	if (IsUnderPostmaster)
 		sigprocmask(SIG_SETMASK, &BlockSig, &save_sigmask);

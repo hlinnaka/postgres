@@ -21,7 +21,7 @@
 #include "access/transam.h"
 #include "access/xloginsert.h"
 #include "commands/vacuum.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/bufmgr.h"
 #include "storage/indexfsm.h"
 #include "storage/lmgr.h"

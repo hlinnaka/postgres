@@ -19,7 +19,7 @@
 
 #include "postgres.h"
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/procarray.h"
 #include "storage/shm_mq.h"
@@ -52,15 +52,12 @@ test_shm_mq_main(Datum main_arg)
 	shm_mq_handle *outqh;
 	volatile test_shm_mq_header *hdr;
 	int			myworkernumber;
-	PGPROC	   *registrant;
 
 	/*
-	 * Establish signal handlers.
-	 *
-	 * We want CHECK_FOR_INTERRUPTS() to kill off this worker process just as
-	 * it would a normal user backend.  To make that happen, we use die().
+	 * The standard interrupt and signal handlers are OK for us, in particular
+	 * we want CHECK_FOR_INTERRUPTS() to kill off this worker process just as
+	 * it would a normal user backend. Just unblock signals.
 	 */
-	pqsignal(SIGTERM, die);
 	BackgroundWorkerUnblockSignals();
 
 	/*
@@ -122,13 +119,7 @@ test_shm_mq_main(Datum main_arg)
 	SpinLockAcquire(&hdr->mutex);
 	++hdr->workers_ready;
 	SpinLockRelease(&hdr->mutex);
-	registrant = BackendPidGetProc(MyBgworkerEntry->bgw_notify_pid);
-	if (registrant == NULL)
-	{
-		elog(DEBUG1, "registrant backend has exited prematurely");
-		proc_exit(1);
-	}
-	SetLatch(&registrant->procLatch);
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, hdr->leader_proc_number);
 
 	/* Do the work. */
 	copy_messages(inqh, outqh);

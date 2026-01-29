@@ -390,7 +390,7 @@ pgaio_io_update_state(PgAioHandle *ioh, PgAioHandleState new_state)
 	 * interrupt processing could wait for the IO to complete, while in an
 	 * intermediary state.
 	 */
-	Assert(!INTERRUPTS_CAN_BE_PROCESSED());
+	Assert(CheckForInterruptsMask == 0);
 
 	pgaio_debug_io(DEBUG5, ioh,
 				   "updating state to %s",

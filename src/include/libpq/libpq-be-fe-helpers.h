@@ -30,10 +30,9 @@
 #ifndef LIBPQ_BE_FE_HELPERS_H
 #define LIBPQ_BE_FE_HELPERS_H
 
+#include "ipc/interrupt.h"
 #include "libpq/libpq-be-fe.h"
-#include "miscadmin.h"
 #include "storage/fd.h"
-#include "storage/latch.h"
 #include "utils/timestamp.h"
 #include "utils/wait_event.h"
 
@@ -167,8 +166,8 @@ libpqsrv_connect_internal(PGconn *conn, uint32 wait_event_info)
 		return;
 
 	/*
-	 * WaitLatchOrSocket() can conceivably fail, handle that case here instead
-	 * of requiring all callers to do so.
+	 * WaitInterruptOrSocket() can conceivably fail, handle that case here
+	 * instead of requiring all callers to do so.
 	 */
 	PG_TRY();
 	{
@@ -199,18 +198,15 @@ libpqsrv_connect_internal(PGconn *conn, uint32 wait_event_info)
 			else
 				io_flag = WL_SOCKET_WRITEABLE;
 
-			rc = WaitLatchOrSocket(MyLatch,
-								   WL_EXIT_ON_PM_DEATH | WL_LATCH_SET | io_flag,
-								   PQsocket(conn),
-								   0,
-								   wait_event_info);
+			rc = WaitInterruptOrSocket(CheckForInterruptsMask,
+									   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT | io_flag,
+									   PQsocket(conn),
+									   0,
+									   wait_event_info);
 
 			/* Interrupted? */
-			if (rc & WL_LATCH_SET)
-			{
-				ResetLatch(MyLatch);
+			if (rc & WL_INTERRUPT)
 				CHECK_FOR_INTERRUPTS();
-			}
 
 			/* If socket is ready, advance the libpq state machine */
 			if (rc & io_flag)
@@ -320,19 +316,16 @@ libpqsrv_get_result(PGconn *conn, uint32 wait_event_info)
 	{
 		int			rc;
 
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_EXIT_ON_PM_DEATH | WL_LATCH_SET |
-							   WL_SOCKET_READABLE,
-							   PQsocket(conn),
-							   0,
-							   wait_event_info);
+		rc = WaitInterruptOrSocket(CheckForInterruptsMask,
+								   WL_EXIT_ON_PM_DEATH | WL_INTERRUPT |
+								   WL_SOCKET_READABLE,
+								   PQsocket(conn),
+								   0,
+								   wait_event_info);
 
 		/* Interrupted? */
-		if (rc & WL_LATCH_SET)
-		{
-			ResetLatch(MyLatch);
+		if (rc & WL_INTERRUPT)
 			CHECK_FOR_INTERRUPTS();
-		}
 
 		/* Consume whatever data is available from the socket */
 		if (PQconsumeInput(conn) == 0)
@@ -386,7 +379,7 @@ libpqsrv_cancel(PGconn *conn, TimestampTz endtime)
 			PostgresPollingStatusType pollres;
 			TimestampTz now;
 			long		cur_timeout;
-			int			waitEvents = WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
+			int			waitEvents = WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
 
 			pollres = PQcancelPoll(cancel_conn);
 			if (pollres == PGRES_POLLING_OK)
@@ -415,10 +408,9 @@ libpqsrv_cancel(PGconn *conn, TimestampTz endtime)
 			}
 
 			/* Sleep until there's something to do */
-			WaitLatchOrSocket(MyLatch, waitEvents, PQcancelSocket(cancel_conn),
-							  cur_timeout, PG_WAIT_CLIENT);
-
-			ResetLatch(MyLatch);
+			WaitInterruptOrSocket(CheckForInterruptsMask, waitEvents,
+								  PQcancelSocket(cancel_conn),
+								  cur_timeout, PG_WAIT_CLIENT);
 
 			CHECK_FOR_INTERRUPTS();
 		}

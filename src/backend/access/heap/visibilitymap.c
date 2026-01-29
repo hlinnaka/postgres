@@ -91,7 +91,7 @@
 #include "access/visibilitymap.h"
 #include "access/xloginsert.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "port/pg_bitutils.h"
 #include "storage/bufmgr.h"
 #include "storage/smgr.h"

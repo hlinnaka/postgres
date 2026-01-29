@@ -17,11 +17,11 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procnumber.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "storage/sinvaladt.h"
 #include "storage/spin.h"
@@ -118,7 +118,7 @@
  * we exceed CLEANUP_MIN.  Should be a power of 2 for speed.
  *
  * SIG_THRESHOLD: the minimum number of messages a backend must have fallen
- * behind before we'll send it PROCSIG_CATCHUP_INTERRUPT.
+ * behind before we'll send it INTERRUPT_SINVAL_CATCHUP.
  *
  * WRITE_QUANTUM: the max number of messages to push into the buffer per
  * iteration of SIInsertDataEntries.  Noncritical but should be less than
@@ -314,6 +314,14 @@ SharedInvalBackendInit(bool sendOnly)
 
 	/* register exit routine to mark my entry inactive at exit */
 	on_shmem_exit(CleanupInvalidationState, PointerGetDatum(segP));
+
+	/*
+	 * all processes that participate in shared invalidations must handle
+	 * catchup interrupts promptly. (Client backends will disable this while
+	 * processing a query, but enable by default.)
+	 */
+	SetInterruptHandler(INTERRUPT_SINVAL_CATCHUP, ProcessCatchupInterrupt);
+	EnableInterrupt(INTERRUPT_SINVAL_CATCHUP);
 }
 
 /*
@@ -565,7 +573,7 @@ SIGetDataEntries(SharedInvalidationMessage *data, int datasize)
  * minFree is the minimum number of message slots to make free.
  *
  * Possible side effects of this routine include marking one or more
- * backends as "reset" in the array, and sending PROCSIG_CATCHUP_INTERRUPT
+ * backends as "reset" in the array, and sending INTERRUPT_SINVAL_CATCHUP
  * to some backend that seems to be getting too far behind.  We signal at
  * most one backend at a time, for reasons explained at the top of the file.
  *
@@ -658,8 +666,8 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		segP->nextThreshold = (numMsgs / CLEANUP_QUANTUM + 1) * CLEANUP_QUANTUM;
 
 	/*
-	 * Lastly, signal anyone who needs a catchup interrupt.  Since
-	 * SendProcSignal() might not be fast, we don't want to hold locks while
+	 * Lastly, signal anyone who needs a catchup interrupt.  SendInterrupt()
+	 * is pretty fast, but we nevertheless don't want to hold locks while
 	 * executing it.
 	 */
 	if (needSig)
@@ -670,8 +678,8 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		needSig->signaled = true;
 		LWLockRelease(SInvalReadLock);
 		LWLockRelease(SInvalWriteLock);
-		elog(DEBUG4, "sending sinval catchup signal to PID %d", (int) his_pid);
-		SendProcSignal(his_pid, PROCSIG_CATCHUP_INTERRUPT, his_procNumber);
+		elog(DEBUG4, "sending sinval catchup interrupt to backend PID %d", (int) his_pid);
+		SendInterrupt(INTERRUPT_SINVAL_CATCHUP, his_procNumber);
 		if (callerHasWriteLock)
 			LWLockAcquire(SInvalWriteLock, LW_EXCLUSIVE);
 	}

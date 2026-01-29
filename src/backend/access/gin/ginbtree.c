@@ -17,7 +17,7 @@
 #include "access/gin_private.h"
 #include "access/ginxlog.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/predicate.h"
 #include "utils/injection_point.h"
 #include "utils/memutils.h"

@@ -16,7 +16,10 @@
 #include "c.h"
 #include <unistd.h>
 
-#include "miscadmin.h"
+#ifndef FRONTEND
+#include "postgres.h"
+#include "ipc/interrupt.h"
+#endif
 #include "port/pg_numa.h"
 
 /*
@@ -87,7 +90,9 @@ pg_numa_query_pages(int pid, unsigned long count, void **pages, int *status)
 		unsigned long count_chunk = Min(count - next,
 										NUMA_QUERY_CHUNK_SIZE);
 
+#ifndef FRONTEND
 		CHECK_FOR_INTERRUPTS();
+#endif
 
 		/*
 		 * Bail out if any of the chunks errors out (ret<0). We ignore (ret>0)

@@ -91,6 +91,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/storage.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "pgstat.h"

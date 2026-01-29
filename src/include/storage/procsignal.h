@@ -14,35 +14,6 @@
 #ifndef PROCSIGNAL_H
 #define PROCSIGNAL_H
 
-#include "storage/procnumber.h"
-
-
-/*
- * Reasons for signaling a Postgres child process (a backend or an auxiliary
- * process, like checkpointer).  We can cope with concurrent signals for different
- * reasons.  However, if the same reason is signaled multiple times in quick
- * succession, the process is likely to observe only one notification of it.
- * This is okay for the present uses.
- *
- * Also, because of race conditions, it's important that all the signals be
- * defined so that no harm is done if a process mistakenly receives one.
- */
-typedef enum
-{
-	PROCSIG_CATCHUP_INTERRUPT,	/* sinval catchup interrupt */
-	PROCSIG_NOTIFY_INTERRUPT,	/* listen/notify interrupt */
-	PROCSIG_PARALLEL_MESSAGE,	/* message from cooperating parallel backend */
-	PROCSIG_WALSND_INIT_STOPPING,	/* ask walsenders to prepare for shutdown  */
-	PROCSIG_BARRIER,			/* global barrier interrupt  */
-	PROCSIG_LOG_MEMORY_CONTEXT, /* ask backend to log the memory contexts */
-	PROCSIG_PARALLEL_APPLY_MESSAGE, /* Message from parallel apply workers */
-	PROCSIG_RECOVERY_CONFLICT,	/* backend is blocking recovery, check
-								 * PGPROC->pendingRecoveryConflicts for the
-								 * reason */
-} ProcSignalReason;
-
-#define NUM_PROCSIGNALS (PROCSIG_RECOVERY_CONFLICT + 1)
-
 typedef enum
 {
 	PROCSIGNAL_BARRIER_SMGRRELEASE, /* ask smgr to close files */
@@ -67,15 +38,11 @@ extern Size ProcSignalShmemSize(void);
 extern void ProcSignalShmemInit(void);
 
 extern void ProcSignalInit(const uint8 *cancel_key, int cancel_key_len);
-extern int	SendProcSignal(pid_t pid, ProcSignalReason reason,
-						   ProcNumber procNumber);
 extern void SendCancelRequest(int backendPID, const uint8 *cancel_key, int cancel_key_len);
 
 extern uint64 EmitProcSignalBarrier(ProcSignalBarrierType type);
 extern void WaitForProcSignalBarrier(uint64 generation);
 extern void ProcessProcSignalBarrier(void);
-
-extern void procsignal_sigusr1_handler(SIGNAL_ARGS);
 
 /* ProcSignalHeader is an opaque struct, details known only within procsignal.c */
 typedef struct ProcSignalHeader ProcSignalHeader;

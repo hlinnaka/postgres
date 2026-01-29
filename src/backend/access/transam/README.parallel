@@ -37,7 +37,7 @@ with fewer parallel workers than it originally requested, so catering to
 this case imposes no additional burden.
 
 Whenever a new message (or partial message; very large messages may wrap) is
-sent to the error-reporting queue, PROCSIG_PARALLEL_MESSAGE is sent to the
+sent to the error-reporting queue, INTERRUPT_PARALLEL_MESSAGE is sent to the
 initiating backend.  This causes the next CHECK_FOR_INTERRUPTS() in the
 initiating backend to read and rethrow the message.  For the most part, this
 makes error reporting in parallel mode "just work".  Of course, to work

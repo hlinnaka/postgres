@@ -32,18 +32,17 @@
 #include "access/parallel.h"
 #include "catalog/pg_authid.h"
 #include "common/file_perm.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/libpq.h"
 #include "libpq/pqsignal.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "replication/slotsync.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pg_shmem.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -65,8 +64,6 @@ BackendType MyBackendType;
 
 /* List of lock files to be removed at proc exit */
 static List *lock_files = NIL;
-
-static Latch LocalLatchData;
 
 /* ----------------------------------------------------------------
  *		ignoring system indexes support stuff
@@ -126,10 +123,9 @@ InitPostmasterChild(void)
 	pqinitmask();
 #endif
 
-	/* Initialize process-local latch support */
+	/* Initialize process-local interrupt support */
 	InitializeWaitEventSupport();
-	InitProcessLocalLatch();
-	InitializeLatchWaitSet();
+	InitializeInterruptWaitSet();
 
 	/*
 	 * If possible, make this process a group leader, so that the postmaster
@@ -143,25 +139,12 @@ InitPostmasterChild(void)
 #endif
 
 	/*
-	 * Reset signals that are used by postmaster but not by child processes.
+	 * Set standard signal handlers suitable for most backend processes.
 	 *
-	 * Currently just SIGCHLD.  The handlers for other signals are overridden
-	 * later, depending on the child process type.
+	 * We don't unblock the signals yet, so that if the process needs special
+	 * signal handling, it can install custom handlers before unblocking.
 	 */
-	pqsignal(SIGCHLD, SIG_DFL); /* system() requires this to be SIG_DFL rather
-								 * than SIG_IGN on some platforms */
-
-	/*
-	 * Every postmaster child process is expected to respond promptly to
-	 * SIGQUIT at all times.  Therefore we centrally remove SIGQUIT from
-	 * BlockSig and install a suitable signal handler.  (Client-facing
-	 * processes may choose to replace this default choice of handler with
-	 * quickdie().)  All other blockable signals remain blocked for now.
-	 */
-	pqsignal(SIGQUIT, SignalHandlerForCrashExit);
-
-	sigdelset(&BlockSig, SIGQUIT);
-	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
+	SetPostmasterChildSignalHandlers();
 
 	/*
 	 * It is up to the *Main() function to set signal handlers appropriate for
@@ -201,10 +184,9 @@ InitStandaloneProcess(const char *argv0)
 
 	InitProcessGlobals();
 
-	/* Initialize process-local latch support */
+	/* Initialize process-local interrupt support */
 	InitializeWaitEventSupport();
-	InitProcessLocalLatch();
-	InitializeLatchWaitSet();
+	InitializeInterruptWaitSet();
 
 	/*
 	 * For consistency with InitPostmasterChild, initialize signal mask here.
@@ -223,48 +205,6 @@ InitStandaloneProcess(const char *argv0)
 
 	if (pkglib_path[0] == '\0')
 		get_pkglib_path(my_exec_path, pkglib_path);
-}
-
-void
-SwitchToSharedLatch(void)
-{
-	Assert(MyLatch == &LocalLatchData);
-	Assert(MyProc != NULL);
-
-	MyLatch = &MyProc->procLatch;
-
-	if (FeBeWaitSet)
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetLatchPos, WL_LATCH_SET,
-						MyLatch);
-
-	/*
-	 * Set the shared latch as the local one might have been set. This
-	 * shouldn't normally be necessary as code is supposed to check the
-	 * condition before waiting for the latch, but a bit care can't hurt.
-	 */
-	SetLatch(MyLatch);
-}
-
-void
-InitProcessLocalLatch(void)
-{
-	MyLatch = &LocalLatchData;
-	InitLatch(MyLatch);
-}
-
-void
-SwitchBackToLocalLatch(void)
-{
-	Assert(MyLatch != &LocalLatchData);
-	Assert(MyProc != NULL && MyLatch == &MyProc->procLatch);
-
-	MyLatch = &LocalLatchData;
-
-	if (FeBeWaitSet)
-		ModifyWaitEvent(FeBeWaitSet, FeBeWaitSetLatchPos, WL_LATCH_SET,
-						MyLatch);
-
-	SetLatch(MyLatch);
 }
 
 /*

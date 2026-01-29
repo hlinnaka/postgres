@@ -45,11 +45,12 @@
 #include <unistd.h>
 
 #include "access/xlog.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/walwriter.h"
 #include "storage/aio_subsys.h"
 #include "storage/bufmgr.h"
@@ -101,16 +102,16 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 	 * Properly accept or ignore signals the postmaster might send us
 	 *
 	 * We have no particular use for SIGINT at the moment, but seems
-	 * reasonable to treat like SIGTERM.
+	 * reasonable to treat like SIGTERM. XXX: is it really
+	 * reasonable/necessary?
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
 	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, SIG_IGN); /* not used */
+
+	SetStandardInterruptHandlers();
+
+	EnableInterrupt(INTERRUPT_CONFIG_RELOAD);
+	SetInterruptHandler(INTERRUPT_TERMINATE, ProcessAuxProcessShutdownInterrupt);
+	EnableInterrupt(INTERRUPT_TERMINATE);
 
 	/*
 	 * Create a memory context that we will do all our work in.  We do this so
@@ -219,12 +220,12 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 
 		/*
 		 * Advertise whether we might hibernate in this cycle.  We do this
-		 * before resetting the latch to ensure that any async commits will
-		 * see the flag set if they might possibly need to wake us up, and
-		 * that we won't miss any signal they send us.  (If we discover work
-		 * to do in the last cycle before we would hibernate, the global flag
-		 * will be set unnecessarily, but little harm is done.)  But avoid
-		 * touching the global flag if it doesn't need to change.
+		 * before clearing the interrupt flag to ensure that any async commits
+		 * will see the flag set if they might possibly need to wake us up,
+		 * and that we won't miss any signal they send us.  (If we discover
+		 * work to do in the last cycle before we would hibernate, the global
+		 * flag will be set unnecessarily, but little harm is done.)  But
+		 * avoid touching the global flag if it doesn't need to change.
 		 */
 		if (hibernating != (left_till_hibernate <= 1))
 		{
@@ -232,11 +233,10 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 			SetWalWriterSleeping(hibernating);
 		}
 
-		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
-		/* Process any signals received recently */
-		ProcessMainLoopInterrupts();
+		/* Process any interrupts received recently */
+		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * Do what we're here for; then, if XLogBackgroundFlush() found useful
@@ -260,9 +260,9 @@ WalWriterMain(const void *startup_data, size_t startup_data_len)
 		else
 			cur_timeout = WalWriterDelay * HIBERNATE_FACTOR;
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 cur_timeout,
-						 WAIT_EVENT_WAL_WRITER_MAIN);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 cur_timeout,
+							 WAIT_EVENT_WAL_WRITER_MAIN);
 	}
 }

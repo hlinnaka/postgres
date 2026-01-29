@@ -4,8 +4,8 @@
  *		Sample background worker code that demonstrates various coding
  *		patterns: establishing a database connection; starting and committing
  *		transactions; using GUC variables, and heeding SIGHUP to reread
- *		the configuration file; reporting to pg_stat_activity; using the
- *		process latch to sleep and exit in case of postmaster death.
+ *		the configuration file; reporting to pg_stat_activity; using
+ *		WaitInterrupt to sleep and exit in case of postmaster death.
  *
  * This code connects to a database, creates a schema and table, and summarizes
  * the numbers contained therein.  To see it working, insert an initial value
@@ -23,10 +23,8 @@
 #include "postgres.h"
 
 /* These are always necessary for a bgworker */
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
-#include "storage/latch.h"
 
 /* these headers are used by this particular worker's code */
 #include "access/xact.h"
@@ -155,11 +153,10 @@ worker_spi_main(Datum main_arg)
 	p += sizeof(Oid);
 	memcpy(&flags, p, sizeof(bits32));
 
-	/* Establish signal handlers before unblocking signals. */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGTERM, die);
-
-	/* We're now ready to receive signals */
+	/*
+	 * The standard interrupt and signal handlers are OK for us; unblock
+	 * signals.
+	 */
 	BackgroundWorkerUnblockSignals();
 
 	/* Connect to our database */
@@ -213,26 +210,25 @@ worker_spi_main(Datum main_arg)
 
 		/*
 		 * Background workers mustn't call usleep() or any direct equivalent:
-		 * instead, they may wait on their process latch, which sleeps as
-		 * necessary, but is awakened if postmaster dies.  That way the
-		 * background process goes away immediately in an emergency.
+		 * instead, they may use WaitInterrupt, which sleeps as necessary, but
+		 * is awakened if postmaster dies.  That way the background process
+		 * goes away immediately in an emergency.
 		 */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 worker_spi_naptime * 1000L,
-						 worker_spi_wait_event_main);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_CONFIG_RELOAD,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 worker_spi_naptime * 1000L,
+							 worker_spi_wait_event_main);
 
 		CHECK_FOR_INTERRUPTS();
 
 		/*
-		 * In case of a SIGHUP, just reload the configuration.
+		 * Reload configuration if requested.  This is not done by
+		 * CHECK_FOR_INTERRUPTS() because we only want it to happen here in
+		 * the main loop.
 		 */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/*
 		 * Start a transaction on which we can run queries.  Note that each
@@ -366,7 +362,6 @@ _PG_init(void)
 	worker.bgw_restart_time = BGW_NEVER_RESTART;
 	sprintf(worker.bgw_library_name, "worker_spi");
 	sprintf(worker.bgw_function_name, "worker_spi_main");
-	worker.bgw_notify_pid = 0;
 
 	/*
 	 * Now fill in worker-specific data, and do the actual registrations.
@@ -420,8 +415,6 @@ worker_spi_launch(PG_FUNCTION_ARGS)
 	snprintf(worker.bgw_name, BGW_MAXLEN, "worker_spi dynamic worker %d", i);
 	snprintf(worker.bgw_type, BGW_MAXLEN, "worker_spi dynamic");
 	worker.bgw_main_arg = Int32GetDatum(i);
-	/* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
-	worker.bgw_notify_pid = MyProcPid;
 
 	/* extract flags, if any */
 	ndim = ARR_NDIM(arr);

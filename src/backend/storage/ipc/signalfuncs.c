@@ -17,6 +17,7 @@
 #include <signal.h>
 
 #include "catalog/pg_authid.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/syslogger.h"
@@ -112,6 +113,7 @@ pg_signal_backend(int pid, int sig)
 	 */
 
 	/* If we have setsid(), signal the backend's whole process group */
+	elog(LOG, "sending %d to %d (%s)", sig, pid, (sig == SIGTERM) ? "SIGTERM" : "other");
 #ifdef HAVE_SETSID
 	if (kill(-pid, sig))
 #else
@@ -204,12 +206,12 @@ pg_wait_until_termination(int pid, int64 timeout)
 		/* Process interrupts, if any, before waiting */
 		CHECK_FOR_INTERRUPTS();
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 waittime,
-						 WAIT_EVENT_BACKEND_TERMINATION);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 waittime,
+							 WAIT_EVENT_BACKEND_TERMINATION);
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		remainingtime -= waittime;
 	} while (remainingtime > 0);

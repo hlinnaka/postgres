@@ -24,6 +24,8 @@
 #include <sys/procctl.h>
 #endif
 
+#include "storage/procnumber.h"
+
 /*
  * Reasons for signaling the postmaster.  We can cope with simultaneous
  * signals for different reasons.  If the same reason is signaled multiple
@@ -76,6 +78,9 @@ extern void MarkPostmasterChildSlotAssigned(int slot);
 extern bool MarkPostmasterChildSlotUnassigned(int slot);
 extern bool IsPostmasterChildWalSender(int slot);
 extern void RegisterPostmasterChildActive(void);
+extern void RegisterPostmasterChildProcNumber(ProcNumber procno);
+extern void UnregisterPostmasterChildProcNumber(ProcNumber procno);
+extern ProcNumber GetPMChildProcNumber(int slot);
 extern void MarkPostmasterChildWalSender(void);
 extern bool PostmasterIsAliveInternal(void);
 extern void PostmasterDeathSignalInit(void);

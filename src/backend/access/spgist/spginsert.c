@@ -20,7 +20,7 @@
 #include "access/spgist_private.h"
 #include "access/tableam.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "storage/bufmgr.h"
 #include "storage/bulk_write.h"

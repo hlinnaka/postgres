@@ -29,20 +29,6 @@
 
 ProtocolVersion FrontendProtocol;
 
-volatile sig_atomic_t InterruptPending = false;
-volatile sig_atomic_t QueryCancelPending = false;
-volatile sig_atomic_t ProcDiePending = false;
-volatile sig_atomic_t CheckClientConnectionPending = false;
-volatile sig_atomic_t ClientConnectionLost = false;
-volatile sig_atomic_t IdleInTransactionSessionTimeoutPending = false;
-volatile sig_atomic_t TransactionTimeoutPending = false;
-volatile sig_atomic_t IdleSessionTimeoutPending = false;
-volatile sig_atomic_t ProcSignalBarrierPending = false;
-volatile sig_atomic_t LogMemoryContextPending = false;
-volatile sig_atomic_t IdleStatsUpdateTimeoutPending = false;
-volatile uint32 InterruptHoldoffCount = 0;
-volatile uint32 QueryCancelHoldoffCount = 0;
-volatile uint32 CritSectionCount = 0;
 
 int			MyProcPid;
 pg_time_t	MyStartTime;
@@ -52,15 +38,6 @@ struct Port *MyProcPort;
 uint8		MyCancelKey[MAX_CANCEL_KEY_LENGTH];
 int			MyCancelKeyLength = 0;
 int			MyPMChildSlot;
-
-/*
- * MyLatch points to the latch that should be used for signal handling by the
- * current process. It will either point to a process local latch if the
- * current process does not have a PGPROC entry in that moment, or to
- * PGPROC->procLatch if it has. Thus it can always be used in signal handlers,
- * without checking for its existence.
- */
-struct Latch *MyLatch;
 
 /*
  * DataDir is the absolute path to the top level of the PGDATA directory tree.
