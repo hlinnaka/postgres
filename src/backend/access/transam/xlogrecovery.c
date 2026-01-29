@@ -3062,7 +3062,8 @@ recoveryApplyDelay(XLogReaderState *record)
 		elog(DEBUG2, "recovery apply delay %ld milliseconds", msecs);
 
 		(void) WaitInterrupt(CheckForInterruptsMask |
-							 INTERRUPT_WAL_ARRIVED,
+							 INTERRUPT_WAL_ARRIVED |
+							 INTERRUPT_CHECK_PROMOTE,
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 msecs,
 							 WAIT_EVENT_RECOVERY_APPLY_DELAY);

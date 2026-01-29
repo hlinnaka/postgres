@@ -3927,10 +3927,16 @@ process_pm_pmsignal(void)
 		/*
 		 * Tell startup process to finish recovery.
 		 *
+		 * The INTERRUPT_CHECK_PROMOTE flag hints the startup process to check
+		 * for the signal file, while INTERRUPT_WAL_ARRIVED wakes up the
+		 * process from sleep.
+		 *
 		 * Leave the promote signal file in place and let the Startup process
 		 * do the unlink.
 		 */
-		SendInterruptToPMChild(StartupPMChild, INTERRUPT_CHECK_PROMOTE);
+		SendInterruptToPMChild(StartupPMChild,
+							   INTERRUPT_CHECK_PROMOTE | INTERRUPT_WAL_ARRIVED
+			);
 	}
 }
 
