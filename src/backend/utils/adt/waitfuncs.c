@@ -17,10 +17,9 @@
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/array.h"
+#include "utils/backend_status.h"
 #include "utils/fmgrprotos.h"
 #include "utils/wait_event.h"
-
-#define UINT32_ACCESS_ONCE(var)		 ((uint32)(*((volatile uint32 *)&(var))))
 
 
 /*
@@ -41,6 +40,7 @@ pg_isolation_test_session_is_blocked(PG_FUNCTION_ARGS)
 	int			blocked_pid = PG_GETARG_INT32(0);
 	ArrayType  *interesting_pids_a = PG_GETARG_ARRAYTYPE_P(1);
 	PGPROC	   *proc;
+	PgBackendStatus *beentry;
 	const char *wait_event_type;
 	ArrayType  *blocking_pids_a;
 	int32	   *interesting_pids;
@@ -55,8 +55,10 @@ pg_isolation_test_session_is_blocked(PG_FUNCTION_ARGS)
 	proc = BackendPidGetProc(blocked_pid);
 	if (proc == NULL)
 		PG_RETURN_BOOL(false);	/* session gone: definitely unblocked */
-	wait_event_type =
-		pgstat_get_wait_event_type(UINT32_ACCESS_ONCE(proc->wait_event_info));
+	beentry = pgstat_get_beentry_by_proc_number(GetNumberFromPGProc(proc));
+	if (beentry == NULL)
+		PG_RETURN_BOOL(false);	/* session gone: definitely unblocked */
+	wait_event_type = pgstat_get_wait_event_type(beentry->st_wait_event_info);
 	if (wait_event_type && strcmp("InjectionPoint", wait_event_type) == 0)
 		PG_RETURN_BOOL(true);
 

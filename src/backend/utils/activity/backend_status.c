@@ -322,6 +322,7 @@ pgstat_bestart_initial(void)
 	lbeentry.st_progress_command_target = InvalidOid;
 	lbeentry.st_query_id = INT64CONST(0);
 	lbeentry.st_plan_id = INT64CONST(0);
+	lbeentry.st_wait_event_info = 0;
 
 	/*
 	 * we don't zero st_progress_param here to save cycles; nobody should
@@ -369,6 +370,9 @@ pgstat_bestart_initial(void)
 #endif
 
 	PGSTAT_END_WRITE_ACTIVITY(vbeentry);
+
+	/* now that we have a backend entry, report wait events to shared memory */
+	pgstat_set_wait_event_storage(unvolatize(uint32 *, &vbeentry->st_wait_event_info));
 }
 
 /* ----------
@@ -585,8 +589,6 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 	{
 		if (beentry->st_state != STATE_DISABLED)
 		{
-			volatile PGPROC *proc = MyProc;
-
 			/*
 			 * track_activities is disabled, but we last reported a
 			 * non-disabled state.  As our final update, change the state and
@@ -597,11 +599,11 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 			beentry->st_state_start_timestamp = 0;
 			beentry->st_activity_raw[0] = '\0';
 			beentry->st_activity_start_timestamp = 0;
-			/* st_xact_start_timestamp and wait_event_info are also disabled */
+			/* st_xact_start_timestamp and st_wait_event_info are also disabled */
 			beentry->st_xact_start_timestamp = 0;
 			beentry->st_query_id = INT64CONST(0);
 			beentry->st_plan_id = INT64CONST(0);
-			proc->wait_event_info = 0;
+			beentry->st_wait_event_info = 0;
 			PGSTAT_END_WRITE_ACTIVITY(beentry);
 		}
 		return;
@@ -895,6 +897,13 @@ pgstat_read_current_status(void)
 			if (localentry->backendStatus.st_procpid > 0)
 			{
 				memcpy(&localentry->backendStatus, unvolatize(PgBackendStatus *, beentry), sizeof(PgBackendStatus));
+				/*
+				 * st_wait_event_info is not protected by the changecount, so
+				 * make sure we read it atomically.  (Any half-way decent
+				 * memcpy() implementation will read it as one word, but let's
+				 * not assume it)
+				 */
+				localentry->backendStatus.st_wait_event_info = beentry->st_wait_event_info;
 
 				/*
 				 * For each PgBackendStatus field that is a pointer, copy the
@@ -1185,7 +1194,7 @@ cmp_lbestatus(const void *a, const void *b)
  *
  *	Support function for the SQL-callable pgstat* functions. Returns
  *	our local copy of the current-activity entry for one backend,
- *	or NULL if the given beid doesn't identify any known session.
+ *	or NULL if the given procNumber doesn't identify any known session.
  *
  *	The argument is the ProcNumber of the desired session
  *	(note that this is unlike pgstat_get_local_beentry_by_index()).

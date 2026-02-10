@@ -520,9 +520,6 @@ InitProcess(void)
 	Assert(MyProc->lockGroupLeader == NULL);
 	Assert(dlist_is_empty(&MyProc->lockGroupMembers));
 
-	/* Initialize wait event information. */
-	MyProc->wait_event_info = 0;
-
 	/* Initialize fields for group transaction status update. */
 	MyProc->clogGroupMember = false;
 	MyProc->clogGroupMemberXid = InvalidTransactionId;
@@ -538,9 +535,6 @@ InitProcess(void)
 	 */
 	OwnLatch(&MyProc->procLatch);
 	SwitchToSharedLatch();
-
-	/* now that we have a proc, report wait events to shared memory */
-	pgstat_set_wait_event_storage(&MyProc->wait_event_info);
 
 	/*
 	 * We might be reusing a semaphore that belonged to a failed process. So
@@ -708,9 +702,6 @@ InitAuxiliaryProcess(void)
 	 */
 	OwnLatch(&MyProc->procLatch);
 	SwitchToSharedLatch();
-
-	/* now that we have a proc, report wait events to shared memory */
-	pgstat_set_wait_event_storage(&MyProc->wait_event_info);
 
 	/* Check that group locking fields are in a proper initial state. */
 	Assert(MyProc->lockGroupLeader == NULL);

@@ -32,8 +32,6 @@
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 
-#define UINT32_ACCESS_ONCE(var)		 ((uint32)(*((volatile uint32 *)&(var))))
-
 #define HAS_PGSTAT_PERMISSIONS(role)	 (has_privs_of_role(GetUserId(), ROLE_PG_READ_ALL_STATS) || has_privs_of_role(GetUserId(), role))
 
 #define PG_STAT_GET_RELENTRY_INT64(stat)						\
@@ -469,7 +467,7 @@ pg_stat_get_activity(PG_FUNCTION_ARGS)
 				uint32		raw_wait_event;
 				PGPROC	   *leader;
 
-				raw_wait_event = UINT32_ACCESS_ONCE(proc->wait_event_info);
+				raw_wait_event = beentry->st_wait_event_info;
 				wait_event_type = pgstat_get_wait_event_type(raw_wait_event);
 				wait_event = pgstat_get_wait_event(raw_wait_event);
 
@@ -817,15 +815,14 @@ pg_stat_get_backend_wait_event_type(PG_FUNCTION_ARGS)
 {
 	int32		procNumber = PG_GETARG_INT32(0);
 	PgBackendStatus *beentry;
-	PGPROC	   *proc;
 	const char *wait_event_type = NULL;
 
 	if ((beentry = pgstat_get_beentry_by_proc_number(procNumber)) == NULL)
 		wait_event_type = "<backend information not available>";
 	else if (!HAS_PGSTAT_PERMISSIONS(beentry->st_userid))
 		wait_event_type = "<insufficient privilege>";
-	else if ((proc = BackendPidGetProc(beentry->st_procpid)) != NULL)
-		wait_event_type = pgstat_get_wait_event_type(proc->wait_event_info);
+	else
+		wait_event_type = pgstat_get_wait_event_type(beentry->st_wait_event_info);
 
 	if (!wait_event_type)
 		PG_RETURN_NULL();
@@ -838,15 +835,14 @@ pg_stat_get_backend_wait_event(PG_FUNCTION_ARGS)
 {
 	int32		procNumber = PG_GETARG_INT32(0);
 	PgBackendStatus *beentry;
-	PGPROC	   *proc;
 	const char *wait_event = NULL;
 
 	if ((beentry = pgstat_get_beentry_by_proc_number(procNumber)) == NULL)
 		wait_event = "<backend information not available>";
 	else if (!HAS_PGSTAT_PERMISSIONS(beentry->st_userid))
 		wait_event = "<insufficient privilege>";
-	else if ((proc = BackendPidGetProc(beentry->st_procpid)) != NULL)
-		wait_event = pgstat_get_wait_event(proc->wait_event_info);
+	else
+		wait_event = pgstat_get_wait_event(beentry->st_wait_event_info);
 
 	if (!wait_event)
 		PG_RETURN_NULL();

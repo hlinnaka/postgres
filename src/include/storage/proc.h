@@ -309,8 +309,6 @@ typedef struct PGPROC
 	 */
 	TransactionId procArrayGroupMemberXid;
 
-	uint32		wait_event_info;	/* proc's wait information */
-
 	/* Support for group transaction status update. */
 	bool		clogGroupMember;	/* true, if member of clog group */
 	pg_atomic_uint32 clogGroupNext; /* next clog group member */

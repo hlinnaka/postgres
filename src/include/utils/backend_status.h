@@ -118,7 +118,7 @@ typedef struct PgBackendStatus
 	/* The entry is valid iff st_procpid > 0, unused if st_procpid == 0 */
 	int			st_procpid;
 
-	/* Type of backends */
+	/* Type of backend */
 	BackendType st_backendType;
 
 	/* Times when current backend, transaction, and activity started */
@@ -174,6 +174,14 @@ typedef struct PgBackendStatus
 
 	/* plan identifier, optionally computed using planner_hook */
 	int64		st_plan_id;
+
+	/*
+	 * Proc's wait information.  This is *not* protected by the changecount
+	 * mechanism, because we want to keep the overhead of updating this as
+	 * small as possible.  Instead, we rely on reading and writing an uint32
+	 * is assumed to atomic.
+	 */
+	uint32		st_wait_event_info;
 } PgBackendStatus;
 
 
