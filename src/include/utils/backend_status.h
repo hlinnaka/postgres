@@ -93,39 +93,20 @@ typedef struct PgBackendGSSStatus
  *
  * Each auxiliary process also maintains a PgBackendStatus struct in shared
  * memory.
+ *
+ * The fields are ordered such that the fields that change most frequently are
+ * towards the end of the struct.  That way, even though the structs in the
+ * backend status array are not cache line aligned, the hot parts of two
+ * different structs will not fall on the same cache line.
  * ----------
  */
 typedef struct PgBackendStatus
 {
-	/*
-	 * To avoid locking overhead, we use the following protocol: a backend
-	 * increments st_changecount before modifying its entry, and again after
-	 * finishing a modification.  A would-be reader should note the value of
-	 * st_changecount, copy the entry into private memory, then check
-	 * st_changecount again.  If the value hasn't changed, and if it's even,
-	 * the copy is valid; otherwise start over.  This makes updates cheap
-	 * while reads are potentially expensive, but that's the tradeoff we want.
-	 *
-	 * The above protocol needs memory barriers to ensure that the apparent
-	 * order of execution is as it desires.  Otherwise, for example, the CPU
-	 * might rearrange the code so that st_changecount is incremented twice
-	 * before the modification on a machine with weak memory ordering.  Hence,
-	 * use the macros defined below for manipulating st_changecount, rather
-	 * than touching it directly.
-	 */
-	int			st_changecount;
-
 	/* The entry is valid iff st_procpid > 0, unused if st_procpid == 0 */
 	int			st_procpid;
 
 	/* Type of backend */
 	BackendType st_backendType;
-
-	/* Times when current backend, transaction, and activity started */
-	TimestampTz st_proc_start_timestamp;
-	TimestampTz st_xact_start_timestamp;
-	TimestampTz st_activity_start_timestamp;
-	TimestampTz st_state_start_timestamp;
 
 	/* Database OID, owning user's OID, connection client address */
 	Oid			st_databaseid;
@@ -140,9 +121,6 @@ typedef struct PgBackendStatus
 	/* Information about GSSAPI connection */
 	bool		st_gss;
 	PgBackendGSSStatus *st_gssstatus;
-
-	/* current state */
-	BackendState st_state;
 
 	/* application name; MUST be null-terminated */
 	char	   *st_appname;
@@ -175,6 +153,15 @@ typedef struct PgBackendStatus
 	/* plan identifier, optionally computed using planner_hook */
 	int64		st_plan_id;
 
+	/* Times when current backend, transaction, and activity started */
+	TimestampTz st_proc_start_timestamp;
+	TimestampTz st_xact_start_timestamp;
+	TimestampTz st_activity_start_timestamp;
+	TimestampTz st_state_start_timestamp;
+
+	/* current state */
+	BackendState st_state;
+
 	/*
 	 * Proc's wait information.  This is *not* protected by the changecount
 	 * mechanism, because we want to keep the overhead of updating this as
@@ -182,6 +169,24 @@ typedef struct PgBackendStatus
 	 * is assumed to atomic.
 	 */
 	uint32		st_wait_event_info;
+
+	/*
+	 * To avoid locking overhead, we use the following protocol: a backend
+	 * increments st_changecount before modifying its entry, and again after
+	 * finishing a modification.  A would-be reader should note the value of
+	 * st_changecount, copy the entry into private memory, then check
+	 * st_changecount again.  If the value hasn't changed, and if it's even,
+	 * the copy is valid; otherwise start over.  This makes updates cheap
+	 * while reads are potentially expensive, but that's the tradeoff we want.
+	 *
+	 * The above protocol needs memory barriers to ensure that the apparent
+	 * order of execution is as it desires.  Otherwise, for example, the CPU
+	 * might rearrange the code so that st_changecount is incremented twice
+	 * before the modification on a machine with weak memory ordering.  Hence,
+	 * use the macros defined below for manipulating st_changecount, rather
+	 * than touching it directly.
+	 */
+	int			st_changecount;
 } PgBackendStatus;
 
 
