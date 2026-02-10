@@ -182,7 +182,7 @@ typedef enum
  *
  * See PROC_HDR for details.
  */
-struct PGPROC
+typedef struct PGPROC
 {
 	dlist_node	links;			/* list link if process is in a list */
 	dlist_head *procgloballist; /* procglobal list that owns this PGPROC */
@@ -337,10 +337,18 @@ struct PGPROC
 	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
 	dlist_head	lockGroupMembers;	/* list of members, if I'm a leader */
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
-};
+}
 
-/* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
-
+/*
+ * If compiler understands aligned pragma, use it to align the struct at cache
+ * line boundaries.  This is just for performance, to (a) avoid false sharing
+ * and (b) to make the multiplication / division to convert between PGPROC *
+ * and ProcNumber be a little cheaper.
+ */
+#if defined(pg_attribute_aligned)
+			pg_attribute_aligned(PG_CACHE_LINE_SIZE)
+#endif
+PGPROC;
 
 extern PGDLLIMPORT PGPROC *MyProc;
 
