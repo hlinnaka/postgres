@@ -44,9 +44,9 @@
 #include "access/xlogrecovery.h"
 #include "common/file_utils.h"
 #include "common/string.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
 #include "replication/logicallauncher.h"
 #include "replication/slotsync.h"
 #include "replication/slot.h"
@@ -622,7 +622,6 @@ ReplicationSlotAcquire(const char *name, bool nowait, bool error_if_invalid)
 {
 	ReplicationSlot *s;
 	ProcNumber	active_proc;
-	int			active_pid;
 
 	Assert(name != NULL);
 
@@ -685,7 +684,6 @@ retry:
 		s->active_proc = active_proc = MyProcNumber;
 		ReplicationSlotSetInactiveSince(s, 0, true);
 	}
-	active_pid = GetPGProcByNumber(active_proc)->pid;
 	LWLockRelease(ReplicationSlotControlLock);
 
 	/*
@@ -707,7 +705,7 @@ retry:
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_IN_USE),
 				 errmsg("replication slot \"%s\" is active for PID %d",
-						NameStr(s->data.name), active_pid)));
+						NameStr(s->data.name), GetPGProcByNumber(active_proc)->pid)));
 	}
 	else if (!nowait)
 		ConditionVariableCancelSleep(); /* no sleep needed after all */
@@ -1968,7 +1966,7 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 							   Oid dboid, TransactionId snapshotConflictHorizon,
 							   bool *released_lock_out)
 {
-	int			last_signaled_pid = 0;
+	ProcNumber	last_signaled_proc = INVALID_PROC_NUMBER;
 	bool		released_lock = false;
 	bool		invalidated = false;
 	TimestampTz inactive_since = 0;
@@ -1978,7 +1976,6 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 		XLogRecPtr	restart_lsn;
 		NameData	slotname;
 		ProcNumber	active_proc;
-		int			active_pid = 0;
 		ReplicationSlotInvalidationCause invalidation_cause = RS_INVAL_NONE;
 		TimestampTz now = 0;
 		long		slot_idle_secs = 0;
@@ -2062,11 +2059,6 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 			/* Let caller know */
 			invalidated = true;
 		}
-		else
-		{
-			active_pid = GetPGProcByNumber(active_proc)->pid;
-			Assert(active_pid != 0);
-		}
 
 		SpinLockRelease(&s->mutex);
 
@@ -2105,22 +2097,25 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 			 * process owns it. To handle that, we signal only if the PID of
 			 * the owning process has changed from the previous time. (This
 			 * logic assumes that the same PID is not reused very quickly.)
+			 *
+			 * FIXME: need another check now that we're using ProcNumbers,
+			 * which do get recycled quickly
 			 */
-			if (last_signaled_pid != active_pid)
+			if (last_signaled_proc != active_proc)
 			{
-				ReportSlotInvalidation(invalidation_cause, true, active_pid,
+				ReportSlotInvalidation(invalidation_cause, true,
+									   GetPGProcByNumber(active_proc)->pid,
 									   slotname, restart_lsn,
 									   oldestLSN, snapshotConflictHorizon,
 									   slot_idle_secs);
 
 				if (MyBackendType == B_STARTUP)
 					(void) SignalRecoveryConflict(GetPGProcByNumber(active_proc),
-												  active_pid,
 												  RECOVERY_CONFLICT_LOGICALSLOT);
 				else
-					(void) kill(active_pid, SIGTERM);
+					SendInterrupt(INTERRUPT_TERMINATE, active_proc);
 
-				last_signaled_pid = active_pid;
+				last_signaled_proc = active_proc;
 			}
 
 			/* Wait until the slot is released. */
@@ -2161,7 +2156,8 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 			ReplicationSlotSave();
 			ReplicationSlotRelease();
 
-			ReportSlotInvalidation(invalidation_cause, false, active_pid,
+			ReportSlotInvalidation(invalidation_cause, false,
+								   GetPGProcByNumber(active_proc)->pid,
 								   slotname, restart_lsn,
 								   oldestLSN, snapshotConflictHorizon,
 								   slot_idle_secs);
@@ -3253,11 +3249,8 @@ WaitForStandbyConfirmation(XLogRecPtr wait_for_lsn)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/* Exit if done waiting for every slot. */
 		if (StandbySlotsHaveCaughtup(wait_for_lsn, WARNING))
@@ -3267,6 +3260,8 @@ WaitForStandbyConfirmation(XLogRecPtr wait_for_lsn)
 		 * Wait for the slots in the synchronized_standby_slots to catch up,
 		 * but use a timeout (1s) so we can also check if the
 		 * synchronized_standby_slots has been changed.
+		 *
+		 * FIXME: I think we need a way to add a CV to WaitEventSet
 		 */
 		ConditionVariableTimedSleep(&WalSndCtl->wal_confirm_rcv_cv, 1000,
 									WAIT_EVENT_WAIT_FOR_STANDBY_CONFIRMATION);

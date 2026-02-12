@@ -20,6 +20,7 @@
 
 #include <limits.h>
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "portability/instr_time.h"
 #include "storage/condition_variable.h"
@@ -149,23 +150,24 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		INSTR_TIME_SET_CURRENT(start_time);
 		Assert(timeout >= 0 && timeout <= INT_MAX);
 		cur_timeout = timeout;
-		wait_events = WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
+		wait_events = WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
 	}
 	else
-		wait_events = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
+		wait_events = WL_INTERRUPT | WL_EXIT_ON_PM_DEATH;
 
 	while (true)
 	{
 		bool		done = false;
 
 		/*
-		 * Wait for latch to be set.  (If we're awakened for some other
-		 * reason, the code below will cope anyway.)
+		 * Wait for interrupt.  (If we're awakened for some other reason, the
+		 * code below will cope anyway.)
 		 */
-		(void) WaitLatch(MyLatch, wait_events, cur_timeout, wait_event_info);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 wait_events, cur_timeout, wait_event_info);
 
-		/* Reset latch before examining the state of the wait list. */
-		ResetLatch(MyLatch);
+		/* Clear the flag before examining the state of the wait list. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * If this process has been taken out of the wait list, then we know
@@ -178,9 +180,10 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		 * the wait list only when the caller calls
 		 * ConditionVariableCancelSleep.
 		 *
-		 * If we're still in the wait list, then the latch must have been set
-		 * by something other than ConditionVariableSignal; though we don't
-		 * guarantee not to return spuriously, we'll avoid this obvious case.
+		 * If we're still in the wait list, then the interrupt must have been
+		 * sent by something other than ConditionVariableSignal; though we
+		 * don't guarantee not to return spuriously, we'll avoid this obvious
+		 * case.
 		 */
 		SpinLockAcquire(&cv->mutex);
 		if (!proclist_contains(&cv->wakeup, MyProcNumber, cvWaitLink))
@@ -268,9 +271,9 @@ ConditionVariableSignal(ConditionVariable *cv)
 		proc = proclist_pop_head_node(&cv->wakeup, cvWaitLink);
 	SpinLockRelease(&cv->mutex);
 
-	/* If we found someone sleeping, set their latch to wake them up. */
+	/* If we found someone sleeping, wake them up. */
 	if (proc != NULL)
-		SetLatch(&proc->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 }
 
 /*
@@ -299,8 +302,8 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 	 * CV and in doing so remove our sentinel entry.  But that's fine: since
 	 * CV waiters are always added and removed in order, that must mean that
 	 * every previous waiter has been wakened, so we're done.  We'll get an
-	 * extra "set" on our latch from the someone else's signal, which is
-	 * slightly inefficient but harmless.
+	 * extra interrupt from the someone else's signal, which is slightly
+	 * inefficient but harmless.
 	 *
 	 * We can't insert our cvWaitLink as a sentinel if it's already in use in
 	 * some other proclist.  While that's not expected to be true for typical
@@ -333,7 +336,7 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 
 	/* Awaken first waiter, if there was one. */
 	if (proc != NULL)
-		SetLatch(&proc->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 
 	while (have_sentinel)
 	{
@@ -357,6 +360,6 @@ ConditionVariableBroadcast(ConditionVariable *cv)
 		SpinLockRelease(&cv->mutex);
 
 		if (proc != NULL && proc != MyProc)
-			SetLatch(&proc->procLatch);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 	}
 }

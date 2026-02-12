@@ -994,7 +994,7 @@ smgrfd(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, uint32 *off)
 	 * The caller needs to prevent interrupts from being processed, otherwise
 	 * the FD could be closed prematurely.
 	 */
-	Assert(!INTERRUPTS_CAN_BE_PROCESSED());
+	Assert(CheckForInterruptsMask == 0);
 
 	fd = smgrsw[reln->smgr_which].smgr_fd(reln, forknum, blocknum, off);
 
@@ -1073,7 +1073,7 @@ smgr_aio_reopen(PgAioHandle *ioh)
 	 * The caller needs to prevent interrupts from being processed, otherwise
 	 * the FD could be closed again before we get to executing the IO.
 	 */
-	Assert(!INTERRUPTS_CAN_BE_PROCESSED());
+	Assert(CheckForInterruptsMask == 0);
 
 	if (sd->smgr.is_temp)
 		procno = pgaio_io_get_owner(ioh);

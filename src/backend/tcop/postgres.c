@@ -40,6 +40,8 @@
 #include "commands/explain_state.h"
 #include "commands/prepare.h"
 #include "common/pg_prng.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "jit/jit.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -54,7 +56,6 @@
 #include "pg_getopt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
@@ -179,8 +180,8 @@ static bool IsTransactionExitStmt(Node *parsetree);
 static bool IsTransactionExitStmtList(List *pstmts);
 static bool IsTransactionStmtList(List *pstmts);
 static void drop_unnamed_stmt(void);
-static void ProcessRecoveryConflictInterrupts(void);
-static void ProcessRecoveryConflictInterrupt(RecoveryConflictReason reason);
+static void ProcessRecoveryConflictInterrupt(void);
+static void ProcessRecoveryConflict(RecoveryConflictReason reason);
 static void report_recovery_conflict(RecoveryConflictReason reason);
 static void log_disconnections(int code, Datum arg);
 static void enable_statement_timeout(void);
@@ -335,8 +336,6 @@ interactive_getc(void)
 
 	c = getc(stdin);
 
-	ProcessClientReadInterrupt(false);
-
 	return c;
 }
 
@@ -353,11 +352,23 @@ SocketBackend(StringInfo inBuf)
 {
 	int			qtype;
 	int			maxmsglen;
+	bool		save_query_cancel_enabled;
+
+	/*
+	 * Don't allow query cancel interrupts while reading input from the
+	 * client, because we might lose sync in the FE/BE protocol.  (Die
+	 * interrupts are OK, because we won't read any further messages from the
+	 * client in that case.)
+	 *
+	 * See similar logic in ProcessRecoveryConflictInterrupt().
+	 */
+	save_query_cancel_enabled = (EnabledInterruptsMask & INTERRUPT_QUERY_CANCEL) != 0;
+	if (save_query_cancel_enabled)
+		DisableInterrupt(INTERRUPT_QUERY_CANCEL);
 
 	/*
 	 * Get message type code from the frontend.
 	 */
-	HOLD_CANCEL_INTERRUPTS();
 	pq_startmsgread();
 	qtype = pq_getbyte();
 
@@ -464,7 +475,9 @@ SocketBackend(StringInfo inBuf)
 	 */
 	if (pq_getmessage(inBuf, maxmsglen))
 		return EOF;				/* suitable message already logged */
-	RESUME_CANCEL_INTERRUPTS();
+
+	if (save_query_cancel_enabled)
+		EnableInterrupt(INTERRUPT_QUERY_CANCEL);
 
 	return qtype;
 }
@@ -486,104 +499,6 @@ ReadCommand(StringInfo inBuf)
 	else
 		result = InteractiveBackend(inBuf);
 	return result;
-}
-
-/*
- * ProcessClientReadInterrupt() - Process interrupts specific to client reads
- *
- * This is called just before and after low-level reads.
- * 'blocked' is true if no data was available to read and we plan to retry,
- * false if about to read or done reading.
- *
- * Must preserve errno!
- */
-void
-ProcessClientReadInterrupt(bool blocked)
-{
-	int			save_errno = errno;
-
-	if (DoingCommandRead)
-	{
-		/* Check for general interrupts that arrived before/while reading */
-		CHECK_FOR_INTERRUPTS();
-
-		/* Process sinval catchup interrupts, if any */
-		if (catchupInterruptPending)
-			ProcessCatchupInterrupt();
-
-		/* Process notify interrupts, if any */
-		if (notifyInterruptPending)
-			ProcessNotifyInterrupt(true);
-	}
-	else if (ProcDiePending)
-	{
-		/*
-		 * We're dying.  If there is no data available to read, then it's safe
-		 * (and sane) to handle that now.  If we haven't tried to read yet,
-		 * make sure the process latch is set, so that if there is no data
-		 * then we'll come back here and die.  If we're done reading, also
-		 * make sure the process latch is set, as we might've undesirably
-		 * cleared it while reading.
-		 */
-		if (blocked)
-			CHECK_FOR_INTERRUPTS();
-		else
-			SetLatch(MyLatch);
-	}
-
-	errno = save_errno;
-}
-
-/*
- * ProcessClientWriteInterrupt() - Process interrupts specific to client writes
- *
- * This is called just before and after low-level writes.
- * 'blocked' is true if no data could be written and we plan to retry,
- * false if about to write or done writing.
- *
- * Must preserve errno!
- */
-void
-ProcessClientWriteInterrupt(bool blocked)
-{
-	int			save_errno = errno;
-
-	if (ProcDiePending)
-	{
-		/*
-		 * We're dying.  If it's not possible to write, then we should handle
-		 * that immediately, else a stuck client could indefinitely delay our
-		 * response to the signal.  If we haven't tried to write yet, make
-		 * sure the process latch is set, so that if the write would block
-		 * then we'll come back here and die.  If we're done writing, also
-		 * make sure the process latch is set, as we might've undesirably
-		 * cleared it while writing.
-		 */
-		if (blocked)
-		{
-			/*
-			 * Don't mess with whereToSendOutput if ProcessInterrupts wouldn't
-			 * service ProcDiePending.
-			 */
-			if (InterruptHoldoffCount == 0 && CritSectionCount == 0)
-			{
-				/*
-				 * We don't want to send the client the error message, as a)
-				 * that would possibly block again, and b) it would likely
-				 * lead to loss of protocol sync because we may have already
-				 * sent a partial protocol message.
-				 */
-				if (whereToSendOutput == DestRemote)
-					whereToSendOutput = DestNone;
-
-				CHECK_FOR_INTERRUPTS();
-			}
-		}
-		else
-			SetLatch(MyLatch);
-	}
-
-	errno = save_errno;
 }
 
 /*
@@ -2910,7 +2825,7 @@ drop_unnamed_stmt(void)
  * Either some backend has bought the farm, or we've been told to shut down
  * "immediately"; so we need to stop what we're doing and exit.
  */
-void
+static void
 quickdie(SIGNAL_ARGS)
 {
 	sigaddset(&BlockSig, SIGQUIT);	/* prevent nested calls */
@@ -3007,50 +2922,26 @@ quickdie(SIGNAL_ARGS)
  * Shutdown signal from postmaster: abort transaction and exit
  * at soonest convenient time
  */
-void
+static void
 die(SIGNAL_ARGS)
 {
-	/* Don't joggle the elbow of proc_exit */
-	if (!proc_exit_inprogress)
-	{
-		InterruptPending = true;
-		ProcDiePending = true;
-	}
-
 	/* for the cumulative stats system */
 	pgStatSessionEndCause = DISCONNECT_KILLED;
 
-	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+	/* Don't joggle the elbow of proc_exit */
+	if (proc_exit_inprogress)
+		return;
+
+	RaiseInterrupt(INTERRUPT_TERMINATE);
 
 	/*
 	 * If we're in single user mode, we want to quit immediately - we can't
-	 * rely on latches as they wouldn't work when stdin/stdout is a file.
+	 * rely on interrupts as they wouldn't work when stdin/stdout is a file.
 	 * Rather ugly, but it's unlikely to be worthwhile to invest much more
 	 * effort just for the benefit of single user mode.
 	 */
 	if (DoingCommandRead && whereToSendOutput != DestRemote)
-		ProcessInterrupts();
-}
-
-/*
- * Query-cancel signal from postmaster: abort current transaction
- * at soonest convenient time
- */
-void
-StatementCancelHandler(SIGNAL_ARGS)
-{
-	/*
-	 * Don't joggle the elbow of proc_exit
-	 */
-	if (!proc_exit_inprogress)
-	{
-		InterruptPending = true;
-		QueryCancelPending = true;
-	}
-
-	/* If we're still here, waken anything waiting on the process latch */
-	SetLatch(MyLatch);
+		ProcessTerminateInterrupt();
 }
 
 /* signal handler for floating point exception */
@@ -3067,22 +2958,91 @@ FloatExceptionHandler(SIGNAL_ARGS)
 }
 
 /*
- * Tell the next CHECK_FOR_INTERRUPTS() to process recovery conflicts.  Runs
- * in a SIGUSR1 handler.
+ * Set the "standard" set of interrupt handlers, to handle common interrupts
+ * that should be handled by all or most child processes.
+ *
+ * The caller may modify the defaults after calling this with further
+ * SetInterruptHandler() or Enable/DisableInterrupt() calls.
  */
 void
-HandleRecoveryConflictInterrupt(void)
+SetStandardInterruptHandlers(void)
 {
-	if (pg_atomic_read_u32(&MyProc->pendingRecoveryConflicts) != 0)
-		InterruptPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
+	/* All processes should react to barriers and memory context debugging */
+	SetInterruptHandler(INTERRUPT_BARRIER, ProcessProcSignalBarrier);
+	EnableInterrupt(INTERRUPT_BARRIER);
+	SetInterruptHandler(INTERRUPT_LOG_MEMORY_CONTEXT, ProcessLogMemoryContextInterrupt);
+	EnableInterrupt(INTERRUPT_LOG_MEMORY_CONTEXT);
+
+	/*
+	 * Catchup interrupts must be handled in anything that participates in
+	 * shared invalidation
+	 */
+	/* XXX: done in sinvaladt.c */
+	/* SetInterruptHandler(INTERRUPT_SINVAL_CATCHUP, ProcessCatchupInterrupt); */
+
+	/*
+	 * Every process should react to INTERRUPT_TERMINATE. But many processes
+	 * disable this and do their own checks at appropriate times.
+	 */
+	SetInterruptHandler(INTERRUPT_TERMINATE, ProcessTerminateInterrupt);
+	EnableInterrupt(INTERRUPT_TERMINATE);
+
+	/*
+	 * Backends and processes that connect to a particular database can
+	 * conflict with recovery
+	 *
+	 * xxx: Set this in InitPostgres if we're connecting to a particular
+	 * database?
+	 */
+	SetInterruptHandler(INTERRUPT_RECOVERY_CONFLICT, ProcessRecoveryConflictInterrupt);
+	EnableInterrupt(INTERRUPT_RECOVERY_CONFLICT);
+
+	/*
+	 * All processes should handle config reloads. But usually only in
+	 * specific spots, like when not in a transaction, so this is disabled by
+	 * default.
+	 *
+	 * This relies on the SIGHUP signal handler to raise
+	 * INTERRUPT_CONFIG_RELOAD on SIGHUP.
+	 */
+	SetInterruptHandler(INTERRUPT_CONFIG_RELOAD, ProcessConfigReloadInterrupt);
 }
 
 /*
- * Check one individual conflict reason.
+ * Check each possible recovery conflict reason.
  */
 static void
-ProcessRecoveryConflictInterrupt(RecoveryConflictReason reason)
+ProcessRecoveryConflictInterrupt(void)
+{
+	uint32		pending;
+
+	/* Are any recovery conflicts pending? */
+	pending = pg_atomic_read_membarrier_u32(&MyProc->pendingRecoveryConflicts);
+	if (pending == 0)
+		return;
+
+	/*
+	 * Check the conflicts one by one, clearing each flag only before
+	 * processing the particular conflict.  This ensures that if multiple
+	 * conflicts are pending, we come back here to process the remaining
+	 * conflicts, if an error is thrown during processing one of them.
+	 */
+	for (RecoveryConflictReason reason = 0;
+		 reason < NUM_RECOVERY_CONFLICT_REASONS;
+		 reason++)
+	{
+		if ((pending & (1 << reason)) != 0)
+		{
+			/* clear the flag */
+			(void) pg_atomic_fetch_and_u32(&MyProc->pendingRecoveryConflicts, ~(1 << reason));
+
+			ProcessRecoveryConflict(reason);
+		}
+	}
+}
+
+void
+ProcessRecoveryConflict(RecoveryConflictReason reason)
 {
 	switch (reason)
 	{
@@ -3242,14 +3202,14 @@ report_recovery_conflict(RecoveryConflictReason reason)
 		if (!DoingCommandRead)
 		{
 			/* Avoid losing sync in the FE/BE protocol. */
-			if (QueryCancelHoldoffCount != 0)
+			if (!INTERRUPTS_CAN_BE_PROCESSED(INTERRUPT_QUERY_CANCEL))
 			{
 				/*
 				 * Re-arm and defer this interrupt until later.  See similar
 				 * code in ProcessInterrupts().
 				 */
 				(void) pg_atomic_fetch_or_u32(&MyProc->pendingRecoveryConflicts, (1 << reason));
-				InterruptPending = true;
+				RaiseInterrupt(INTERRUPT_RECOVERY_CONFLICT);
 				return;
 			}
 
@@ -3280,72 +3240,31 @@ report_recovery_conflict(RecoveryConflictReason reason)
 					 " database and repeat your command.")));
 }
 
-/*
- * Check each possible recovery conflict reason.
- */
-static void
-ProcessRecoveryConflictInterrupts(void)
+void
+ProcessConfigReloadInterrupt(void)
 {
-	uint32		pending;
-
-	/*
-	 * We don't need to worry about joggling the elbow of proc_exit, because
-	 * proc_exit_prepare() holds interrupts, so ProcessInterrupts() won't call
-	 * us.
-	 */
-	Assert(!proc_exit_inprogress);
-	Assert(InterruptHoldoffCount == 0);
-
-	/* Are any recovery conflict pending? */
-	pending = pg_atomic_read_membarrier_u32(&MyProc->pendingRecoveryConflicts);
-	if (pending == 0)
-		return;
-
-	/*
-	 * Check the conflicts one by one, clearing each flag only before
-	 * processing the particular conflict.  This ensures that if multiple
-	 * conflicts are pending, we come back here to process the remaining
-	 * conflicts, if an error is thrown during processing one of them.
-	 */
-	for (RecoveryConflictReason reason = 0;
-		 reason < NUM_RECOVERY_CONFLICT_REASONS;
-		 reason++)
-	{
-		if ((pending & (1 << reason)) != 0)
-		{
-			/* clear the flag */
-			(void) pg_atomic_fetch_and_u32(&MyProc->pendingRecoveryConflicts, ~(1 << reason));
-
-			ProcessRecoveryConflictInterrupt(reason);
-		}
-	}
+	ProcessConfigFile(PGC_SIGHUP);
 }
 
-/*
- * ProcessInterrupts: out-of-line portion of CHECK_FOR_INTERRUPTS() macro
- *
- * If an interrupt condition is pending, and it's safe to service it,
- * then clear the flag and accept the interrupt.  Called only when
- * InterruptPending is true.
- *
- * Note: if INTERRUPTS_CAN_BE_PROCESSED() is true, then ProcessInterrupts
- * is guaranteed to clear the InterruptPending flag before returning.
- * (This is not the same as guaranteeing that it's still clear when we
- * return; another interrupt could have arrived.  But we promise that
- * any pre-existing one will have been serviced.)
- */
 void
-ProcessInterrupts(void)
+ProcessAsyncNotifyInterrupt(void)
+{
+	/*
+	 * This is only enabled while DoingCommandRead, so we want to flush the
+	 * async notify to the client immediately
+	 */
+	Assert(DoingCommandRead);
+	ProcessNotifyInterrupt(true);
+}
+
+void
+ProcessTerminateInterrupt(void)
 {
 	/* OK to accept any interrupts now? */
-	if (InterruptHoldoffCount != 0 || CritSectionCount != 0)
-		return;
-	InterruptPending = false;
+	Assert(InterruptHoldoffCount == 0);
+	Assert(CritSectionCount == 0);
 
-	if (ProcDiePending)
 	{
-		ProcDiePending = false;
-		QueryCancelPending = false; /* ProcDie trumps QueryCancel */
 		LockErrorCleanup();
 		/* As in quickdie, don't risk sending to client during auth */
 		if (ClientAuthInProgress && whereToSendOutput == DestRemote)
@@ -3394,64 +3313,54 @@ ProcessInterrupts(void)
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
 					 errmsg("terminating connection due to administrator command")));
 	}
+}
 
-	if (CheckClientConnectionPending)
-	{
-		CheckClientConnectionPending = false;
 
-		/*
-		 * Check for lost connection and re-arm, if still configured, but not
-		 * if we've arrived back at DoingCommandRead state.  We don't want to
-		 * wake up idle sessions, and they already know how to detect lost
-		 * connections.
-		 */
-		if (!DoingCommandRead && client_connection_check_interval > 0)
-		{
-			if (!pq_check_connection())
-				ClientConnectionLost = true;
-			else
-				enable_timeout_after(CLIENT_CONNECTION_CHECK_TIMEOUT,
-									 client_connection_check_interval);
-		}
-	}
-
-	if (ClientConnectionLost)
-	{
-		QueryCancelPending = false; /* lost connection trumps QueryCancel */
-		LockErrorCleanup();
-		/* don't send to client, we already know the connection to be dead. */
-		whereToSendOutput = DestNone;
-		ereport(FATAL,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 errmsg("connection to client lost")));
-	}
-
+void
+ProcessClientCheckTimeoutInterrupt(void)
+{
 	/*
-	 * Don't allow query cancel interrupts while reading input from the
-	 * client, because we might lose sync in the FE/BE protocol.  (Die
-	 * interrupts are OK, because we won't read any further messages from the
-	 * client in that case.)
-	 *
-	 * See similar logic in ProcessRecoveryConflictInterrupts().
+	 * Check for lost connection and re-arm, if still configured, but not if
+	 * we've arrived back at DoingCommandRead state.  We don't want to wake up
+	 * idle sessions, and they already know how to detect lost connections.
 	 */
-	if (QueryCancelPending && QueryCancelHoldoffCount != 0)
+	if (!DoingCommandRead && client_connection_check_interval > 0)
 	{
-		/*
-		 * Re-arm InterruptPending so that we process the cancel request as
-		 * soon as we're done reading the message.  (XXX this is seriously
-		 * ugly: it complicates INTERRUPTS_CAN_BE_PROCESSED(), and it means we
-		 * can't use that macro directly as the initial test in this function,
-		 * meaning that this code also creates opportunities for other bugs to
-		 * appear.)
-		 */
-		InterruptPending = true;
+		if (!pq_check_connection())
+			RaiseInterrupt(INTERRUPT_CLIENT_CONNECTION_LOST);
+		else
+			enable_timeout_after(CLIENT_CONNECTION_CHECK_TIMEOUT,
+								 client_connection_check_interval);
 	}
-	else if (QueryCancelPending)
+}
+
+void
+ProcessClientConnectionLost(void)
+{
+	/* FIXME: check procdie first */
+
+	ClearInterrupt(INTERRUPT_QUERY_CANCEL); /* lost connection trumps
+											 * QueryCancel */
+	LockErrorCleanup();
+	/* don't send to client, we already know the connection to be dead. */
+	whereToSendOutput = DestNone;
+	ereport(FATAL,
+			(errcode(ERRCODE_CONNECTION_FAILURE),
+			 errmsg("connection to client lost")));
+}
+
+void
+ProcessQueryCancelInterrupt(void)
+{
+	/*
+	 * FIXME: Check client connection lost and terminate interrupts first, so
+	 * that if we're about to terminate the whole backend anyway, we do that
+	 * straight away and skip the query cancellation.
+	 */
+
 	{
 		bool		lock_timeout_occurred;
 		bool		stmt_timeout_occurred;
-
-		QueryCancelPending = false;
 
 		/*
 		 * If LOCK_TIMEOUT and STATEMENT_TIMEOUT indicators are both set, we
@@ -3505,76 +3414,66 @@ ProcessInterrupts(void)
 					 errmsg("canceling statement due to user request")));
 		}
 	}
+}
 
-	if (pg_atomic_read_u32(&MyProc->pendingRecoveryConflicts) != 0)
-		ProcessRecoveryConflictInterrupts();
 
-	if (IdleInTransactionSessionTimeoutPending)
-	{
-		/*
-		 * If the GUC has been reset to zero, ignore the signal.  This is
-		 * important because the GUC update itself won't disable any pending
-		 * interrupt.  We need to unset the flag before the injection point,
-		 * otherwise we could loop in interrupts checking.
-		 */
-		IdleInTransactionSessionTimeoutPending = false;
-		if (IdleInTransactionSessionTimeout > 0)
-		{
-			INJECTION_POINT("idle-in-transaction-session-timeout", NULL);
-			ereport(FATAL,
-					(errcode(ERRCODE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT),
-					 errmsg("terminating connection due to idle-in-transaction timeout")));
-		}
-	}
-
-	if (TransactionTimeoutPending)
-	{
-		/* As above, ignore the signal if the GUC has been reset to zero. */
-		TransactionTimeoutPending = false;
-		if (TransactionTimeout > 0)
-		{
-			INJECTION_POINT("transaction-timeout", NULL);
-			ereport(FATAL,
-					(errcode(ERRCODE_TRANSACTION_TIMEOUT),
-					 errmsg("terminating connection due to transaction timeout")));
-		}
-	}
-
-	if (IdleSessionTimeoutPending)
-	{
-		/* As above, ignore the signal if the GUC has been reset to zero. */
-		IdleSessionTimeoutPending = false;
-		if (IdleSessionTimeout > 0)
-		{
-			INJECTION_POINT("idle-session-timeout", NULL);
-			ereport(FATAL,
-					(errcode(ERRCODE_IDLE_SESSION_TIMEOUT),
-					 errmsg("terminating connection due to idle-session timeout")));
-		}
-	}
-
+void
+ProcessIdleInTransactionSessionTimeoutInterrupt(void)
+{
 	/*
-	 * If there are pending stats updates and we currently are truly idle
-	 * (matching the conditions in PostgresMain(), report stats now.
+	 * If the GUC has been reset to zero, ignore the interrupt.  This is
+	 * important because the GUC update itself won't disable any pending
+	 * interrupt.  We need to unset the flag before the injection point,
+	 * otherwise we could loop in interrupts checking.
 	 */
-	if (IdleStatsUpdateTimeoutPending &&
-		DoingCommandRead && !IsTransactionOrTransactionBlock())
+	if (IdleInTransactionSessionTimeout > 0)
 	{
-		IdleStatsUpdateTimeoutPending = false;
-		pgstat_report_stat(true);
+		INJECTION_POINT("idle-in-transaction-session-timeout", NULL);
+		ereport(FATAL,
+				(errcode(ERRCODE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT),
+				 errmsg("terminating connection due to idle-in-transaction timeout")));
 	}
+}
 
-	if (ProcSignalBarrierPending)
-		ProcessProcSignalBarrier();
+void
+ProcessTransactionTimeoutInterrupt(void)
+{
+	/* As above, ignore the signal if the GUC has been reset to zero. */
+	if (TransactionTimeout > 0)
+	{
+		INJECTION_POINT("transaction-timeout", NULL);
+		ereport(FATAL,
+				(errcode(ERRCODE_TRANSACTION_TIMEOUT),
+				 errmsg("terminating connection due to transaction timeout")));
+	}
+}
 
-	if (ParallelMessagePending)
-		ProcessParallelMessages();
+void
+ProcessIdleSessionTimeoutInterrupt(void)
+{
+	/* As above, ignore the signal if the GUC has been reset to zero. */
+	if (IdleSessionTimeout > 0)
+	{
+		INJECTION_POINT("idle-session-timeout", NULL);
+		ereport(FATAL,
+				(errcode(ERRCODE_IDLE_SESSION_TIMEOUT),
+				 errmsg("terminating connection due to idle-session timeout")));
+	}
+}
 
-	if (LogMemoryContextPending)
-		ProcessLogMemoryContextInterrupt();
-
-	if (ParallelApplyMessagePending)
-		ProcessParallelApplyMessages();
+void
+ProcessIdleStatsTimeoutInterrupt(void)
+{
+	/*
+	 * Stats update was requested. This handler is only enabled when we're
+	 * truly idle, with no transaction in progress
+	 */
+	/*
+	 * FIXME: check that this is called under right conditions also in
+	 * walsenders
+	 */
+	Assert(!IsTransactionOrTransactionBlock());
+	pgstat_report_stat(true);
 }
 
 /*
@@ -4238,9 +4137,13 @@ PostgresMain(const char *dbname, const char *username)
 
 	Assert(GetProcessingMode() == InitProcessing);
 
+	HOLD_INTERRUPTS();
+	SetStandardInterruptHandlers();
+
 	/*
-	 * Set up signal handlers.  (InitPostmasterChild or InitStandaloneProcess
-	 * has already set up BlockSig and made that the active signal mask.)
+	 * Set up signal and interrupt handlers.  (InitPostmasterChild or
+	 * InitStandaloneProcess has already set up BlockSig and made that the
+	 * active signal mask.)
 	 *
 	 * Note that postmaster blocked all signals before forking child process,
 	 * so there is no race condition whereby we might receive a signal before
@@ -4253,13 +4156,25 @@ PostgresMain(const char *dbname, const char *username)
 	 * an issue for signals that are locally generated, such as SIGALRM and
 	 * SIGPIPE.)
 	 */
+	SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
+	EnableInterrupt(INTERRUPT_QUERY_CANCEL);
+
 	if (am_walsender)
+	{
+		pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+
 		WalSndSignals();
+	}
 	else
 	{
-		pqsignal(SIGHUP, SignalHandlerForConfigReload);
-		pqsignal(SIGINT, StatementCancelHandler);	/* cancel current query */
-		pqsignal(SIGTERM, die); /* cancel current query and exit */
+		pqsignal(SIGINT, SignalHandlerForQueryCancel);	/* cancel current query */
+
+		/*
+		 * Cancel current query and exit. This is a bit more complicated in
+		 * backend processes. so we we cannot use
+		 * SignalHandlerForShutdownRequest here.
+		 */
+		pqsignal(SIGTERM, die); /* */
 
 		/*
 		 * In a postmaster child backend, replace SignalHandlerForCrashExit
@@ -4273,7 +4188,14 @@ PostgresMain(const char *dbname, const char *username)
 			pqsignal(SIGQUIT, quickdie);	/* hard crash time */
 		else
 			pqsignal(SIGQUIT, die); /* cancel current query and exit */
+
 		InitializeTimeouts();	/* establishes SIGALRM handler */
+		SetInterruptHandler(INTERRUPT_TRANSACTION_TIMEOUT, ProcessTransactionTimeoutInterrupt);
+		EnableInterrupt(INTERRUPT_TRANSACTION_TIMEOUT);
+		SetInterruptHandler(INTERRUPT_IDLE_SESSION_TIMEOUT, ProcessIdleSessionTimeoutInterrupt);
+		EnableInterrupt(INTERRUPT_IDLE_SESSION_TIMEOUT);
+		SetInterruptHandler(INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT, ProcessIdleInTransactionSessionTimeoutInterrupt);
+		EnableInterrupt(INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT);
 
 		/*
 		 * Ignore failure to write to frontend. Note: if frontend closes
@@ -4282,10 +4204,30 @@ PostgresMain(const char *dbname, const char *username)
 		 * midst of output during who-knows-what operation...
 		 */
 		pqsignal(SIGPIPE, SIG_IGN);
-		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-		pqsignal(SIGUSR2, SIG_IGN);
 		pqsignal(SIGFPE, FloatExceptionHandler);
 	}
+
+	SetInterruptHandler(INTERRUPT_CLIENT_CHECK_TIMEOUT, ProcessClientCheckTimeoutInterrupt);
+	SetInterruptHandler(INTERRUPT_CLIENT_CONNECTION_LOST, ProcessClientConnectionLost);
+	EnableInterrupt(INTERRUPT_CLIENT_CHECK_TIMEOUT);
+	EnableInterrupt(INTERRUPT_CLIENT_CONNECTION_LOST);
+
+	/* stats updates are only sent when we're idle, so don't enable this yet */
+	SetInterruptHandler(INTERRUPT_IDLE_STATS_TIMEOUT, ProcessIdleStatsTimeoutInterrupt);
+
+	/*
+	 * Backends that can LISTEN need this. (It is only enabled when idle
+	 * outside a transaction, however.)
+	 *
+	 * FIXME: should bgworkers do this too? Or it's up to them to set up the
+	 * handler if they LISTEN?
+	 */
+	SetInterruptHandler(INTERRUPT_ASYNC_NOTIFY, ProcessAsyncNotifyInterrupt);
+
+	SetInterruptHandler(INTERRUPT_PARALLEL_MESSAGE, ProcessParallelMessages);
+	EnableInterrupt(INTERRUPT_PARALLEL_MESSAGE);
+
+	RESUME_INTERRUPTS();
 
 	/* Early initialization */
 	BaseInit();
@@ -4454,11 +4396,14 @@ PostgresMain(const char *dbname, const char *username)
 		 * forgetting a timeout cancel.
 		 */
 		disable_all_timeouts(false);	/* do first to avoid race condition */
-		QueryCancelPending = false;
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 		idle_in_transaction_timeout_enabled = false;
 		idle_session_timeout_enabled = false;
 
 		/* Not reading from the client anymore. */
+		DisableInterrupt(INTERRUPT_SINVAL_CATCHUP);
+		DisableInterrupt(INTERRUPT_ASYNC_NOTIFY);
+		DisableInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
 		DoingCommandRead = false;
 
 		/* Make sure libpq is in a good state */
@@ -4639,7 +4584,7 @@ PostgresMain(const char *dbname, const char *username)
 				 * were received during the just-finished transaction, they'll
 				 * be seen by the client before ReadyForQuery is.
 				 */
-				if (notifyInterruptPending)
+				if (ConsumeInterrupt(INTERRUPT_ASYNC_NOTIFY))
 					ProcessNotifyInterrupt(false);
 
 				/*
@@ -4729,6 +4674,28 @@ PostgresMain(const char *dbname, const char *username)
 		DoingCommandRead = true;
 
 		/*
+		 * Let cache inval catchup requests to be processed while we're idle.
+		 */
+		EnableInterrupt(INTERRUPT_SINVAL_CATCHUP);
+
+		/*
+		 * When we're truly idle, i.e. no transaction in progress, we can
+		 * additionally process any async LISTEN/NOTIFY messages and stats
+		 * update requests.
+		 */
+		if (!IsTransactionOrTransactionBlock())
+		{
+			EnableInterrupt(INTERRUPT_ASYNC_NOTIFY);
+			EnableInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
+		}
+
+		/*
+		 * If any of the newly-enabled interrupts are already pending, process
+		 * them now.
+		 */
+		CHECK_FOR_INTERRUPTS();
+
+		/*
 		 * (3) read a command (loop blocks here)
 		 */
 		firstchar = ReadCommand(&input_message);
@@ -4757,22 +4724,22 @@ PostgresMain(const char *dbname, const char *username)
 		 *
 		 * Query cancel is supposed to be a no-op when there is no query in
 		 * progress, so if a query cancel arrived while we were idle, just
-		 * reset QueryCancelPending. ProcessInterrupts() has that effect when
-		 * it's called when DoingCommandRead is set, so check for interrupts
-		 * before resetting DoingCommandRead.
+		 * reset INTERRUPT_QUERY_CANCEL. ProcessInterrupts() has that effect
+		 * when it's called when DoingCommandRead is set, so check for
+		 * interrupts before resetting DoingCommandRead.
 		 */
 		CHECK_FOR_INTERRUPTS();
 		DoingCommandRead = false;
+		DisableInterrupt(INTERRUPT_SINVAL_CATCHUP);
+		DisableInterrupt(INTERRUPT_ASYNC_NOTIFY);
+		DisableInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
 
 		/*
 		 * (6) check for any other interesting events that happened while we
 		 * slept.
 		 */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/*
 		 * (7) process the command.  But ignore it if we're skipping till

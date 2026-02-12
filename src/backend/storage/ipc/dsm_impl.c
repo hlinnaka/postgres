@@ -357,8 +357,8 @@ dsm_impl_posix_resize(int fd, off_t size)
 	/*
 	 * Block all blockable signals, except SIGQUIT.  posix_fallocate() can run
 	 * for quite a long time, and is an all-or-nothing operation.  If we
-	 * allowed SIGUSR1 to interrupt us repeatedly (for example, due to
-	 * recovery conflicts), the retry loop might never succeed.
+	 * allowed signals to interrupt us repeatedly (for example, due to config
+	 * file reloads), the retry loop might never succeed.
 	 */
 	if (IsUnderPostmaster)
 		sigprocmask(SIG_SETMASK, &BlockSig, &save_sigmask);

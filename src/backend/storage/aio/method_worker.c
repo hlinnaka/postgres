@@ -13,7 +13,7 @@
  *
  * So that the submitter can make just one system call when submitting a batch
  * of IOs, wakeups "fan out"; each woken IO worker can wake two more. XXX This
- * could be improved by using futexes instead of latches to wake N waiters.
+ * could be improved by using futexes instead of interrupts to wake N waiters.
  *
  * This method of AIO is available in all builds on all operating systems, and
  * is the default.
@@ -29,17 +29,16 @@
 
 #include "postgres.h"
 
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
 #include "storage/aio.h"
 #include "storage/aio_internal.h"
 #include "storage/aio_subsys.h"
 #include "storage/io_worker.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
@@ -62,7 +61,7 @@ typedef struct PgAioWorkerSubmissionQueue
 
 typedef struct PgAioWorkerSlot
 {
-	Latch	   *latch;
+	ProcNumber	procno;
 	bool		in_use;
 } PgAioWorkerSlot;
 
@@ -154,7 +153,7 @@ pgaio_worker_shmem_init(bool first_time)
 		io_worker_control->idle_worker_mask = 0;
 		for (int i = 0; i < MAX_IO_WORKERS; ++i)
 		{
-			io_worker_control->workers[i].latch = NULL;
+			io_worker_control->workers[i].procno = INVALID_PROC_NUMBER;
 			io_worker_control->workers[i].in_use = false;
 		}
 	}
@@ -244,7 +243,7 @@ pgaio_worker_submit_internal(int num_staged_ios, PgAioHandle **staged_ios)
 {
 	PgAioHandle *synchronous_ios[PGAIO_SUBMIT_BATCH_SIZE];
 	int			nsync = 0;
-	Latch	   *wakeup = NULL;
+	ProcNumber	wakeup = INVALID_PROC_NUMBER;
 	int			worker;
 
 	Assert(num_staged_ios <= PGAIO_SUBMIT_BATCH_SIZE);
@@ -263,22 +262,24 @@ pgaio_worker_submit_internal(int num_staged_ios, PgAioHandle **staged_ios)
 			continue;
 		}
 
-		if (wakeup == NULL)
+		if (wakeup == INVALID_PROC_NUMBER)
 		{
 			/* Choose an idle worker to wake up if we haven't already. */
 			worker = pgaio_worker_choose_idle();
 			if (worker >= 0)
-				wakeup = io_worker_control->workers[worker].latch;
+				wakeup = io_worker_control->workers[worker].procno;
 
-			pgaio_debug_io(DEBUG4, staged_ios[i],
+			pgaio_debug_io(LOG, staged_ios[i],
 						   "choosing worker %d",
 						   worker);
 		}
 	}
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 
-	if (wakeup)
-		SetLatch(wakeup);
+	if (wakeup != INVALID_PROC_NUMBER)
+	{
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, wakeup);
+	}
 
 	/* Run whatever is left synchronously. */
 	if (nsync > 0)
@@ -314,11 +315,11 @@ pgaio_worker_die(int code, Datum arg)
 {
 	LWLockAcquire(AioWorkerSubmissionQueueLock, LW_EXCLUSIVE);
 	Assert(io_worker_control->workers[MyIoWorkerId].in_use);
-	Assert(io_worker_control->workers[MyIoWorkerId].latch == MyLatch);
+	Assert(io_worker_control->workers[MyIoWorkerId].procno == MyProcNumber);
 
 	io_worker_control->idle_worker_mask &= ~(UINT64_C(1) << MyIoWorkerId);
 	io_worker_control->workers[MyIoWorkerId].in_use = false;
-	io_worker_control->workers[MyIoWorkerId].latch = NULL;
+	io_worker_control->workers[MyIoWorkerId].procno = INVALID_PROC_NUMBER;
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 }
 
@@ -341,20 +342,20 @@ pgaio_worker_register(void)
 	{
 		if (!io_worker_control->workers[i].in_use)
 		{
-			Assert(io_worker_control->workers[i].latch == NULL);
+			Assert(io_worker_control->workers[i].procno == INVALID_PROC_NUMBER);
 			io_worker_control->workers[i].in_use = true;
 			MyIoWorkerId = i;
 			break;
 		}
 		else
-			Assert(io_worker_control->workers[i].latch != NULL);
+			Assert(io_worker_control->workers[i].procno != INVALID_PROC_NUMBER);
 	}
 
 	if (MyIoWorkerId == -1)
 		elog(ERROR, "couldn't find a free worker slot");
 
 	io_worker_control->idle_worker_mask |= (UINT64_C(1) << MyIoWorkerId);
-	io_worker_control->workers[MyIoWorkerId].latch = MyLatch;
+	io_worker_control->workers[MyIoWorkerId].procno = MyProcNumber;
 	LWLockRelease(AioWorkerSubmissionQueueLock);
 
 	on_shmem_exit(pgaio_worker_die, 0);
@@ -392,19 +393,19 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	AuxiliaryProcessMainCommon();
 
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, die);		/* to allow manually triggering worker restart */
+	/* xxx: this used 'die'. Any reason? */
+	pqsignal(SIGINT, SignalHandlerForShutdownRequest);	/* to allow manually
+														 * triggering worker
+														 * restart */
 
 	/*
 	 * Ignore SIGTERM, will get explicit shutdown via SIGUSR2 later in the
 	 * shutdown sequence, similar to checkpointer.
 	 */
 	pqsignal(SIGTERM, SIG_IGN);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
 	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+
+	SetStandardInterruptHandlers();
 
 	/* also registers a shutdown callback to unregister */
 	pgaio_worker_register();
@@ -453,11 +454,11 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_TERMINATE))
 	{
 		uint32		io_index;
-		Latch	   *latches[IO_WORKER_WAKEUP_FANOUT];
-		int			nlatches = 0;
+		ProcNumber	procnos[IO_WORKER_WAKEUP_FANOUT];
+		int			nprocnos = 0;
 		int			nwakeups = 0;
 		int			worker;
 
@@ -490,13 +491,13 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 			{
 				if ((worker = pgaio_worker_choose_idle()) < 0)
 					break;
-				latches[nlatches++] = io_worker_control->workers[worker].latch;
+				procnos[nprocnos++] = io_worker_control->workers[worker].procno;
 			}
 		}
 		LWLockRelease(AioWorkerSubmissionQueueLock);
 
-		for (int i = 0; i < nlatches; ++i)
-			SetLatch(latches[i]);
+		for (int i = 0; i < nprocnos; ++i)
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, procnos[i]);
 
 		if (io_index != -1)
 		{
@@ -567,18 +568,20 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 		}
 		else
 		{
-			WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1,
-					  WAIT_EVENT_IO_WORKER_MAIN);
-			ResetLatch(MyLatch);
+			WaitInterrupt(CheckForInterruptsMask |
+						  INTERRUPT_CONFIG_RELOAD |
+						  INTERRUPT_TERMINATE |
+						  INTERRUPT_WAIT_WAKEUP,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+						  -1,
+						  WAIT_EVENT_IO_WORKER_MAIN);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		}
 
 		CHECK_FOR_INTERRUPTS();
 
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 	}
 
 	error_context_stack = errcallback.previous;

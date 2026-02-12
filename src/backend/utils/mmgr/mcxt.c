@@ -1312,35 +1312,15 @@ MemoryContextAllocExtended(MemoryContext context, Size size, int flags)
 }
 
 /*
- * HandleLogMemoryContextInterrupt
- *		Handle receipt of an interrupt indicating logging of memory
- *		contexts.
- *
- * All the actual work is deferred to ProcessLogMemoryContextInterrupt(),
- * because we cannot safely emit a log message inside the signal handler.
- */
-void
-HandleLogMemoryContextInterrupt(void)
-{
-	InterruptPending = true;
-	LogMemoryContextPending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
-}
-
-/*
  * ProcessLogMemoryContextInterrupt
  * 		Perform logging of memory contexts of this backend process.
  *
- * Any backend that participates in ProcSignal signaling must arrange
- * to call this function if we see LogMemoryContextPending set.
- * It is called from CHECK_FOR_INTERRUPTS(), which is enough because
- * the target process for logging of memory contexts is a backend.
+ * This is the handler for INTERRUPT_LOG_MEMORY_CONTEXT, normally called from
+ * CHECK_FOR_INTERRUPTS().
  */
 void
 ProcessLogMemoryContextInterrupt(void)
 {
-	LogMemoryContextPending = false;
-
 	/*
 	 * Exit immediately if memory context logging is already in progress. This
 	 * prevents recursive calls, which could occur if logging is requested

@@ -15,7 +15,7 @@
 #include "access/brin_revmap.h"
 #include "access/brin_xlog.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"
 #include "storage/lmgr.h"

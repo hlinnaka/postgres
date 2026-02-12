@@ -204,6 +204,7 @@
 #include "access/twophase_rmgr.h"
 #include "access/xact.h"
 #include "access/xlog.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/pg_lfind.h"
@@ -1584,7 +1585,11 @@ GetSafeSnapshot(Snapshot origSnapshot)
 				 SxactIsROUnsafe(MySerializableXact)))
 		{
 			LWLockRelease(SerializableXactHashLock);
-			ProcWaitForSignal(WAIT_EVENT_SAFE_SNAPSHOT);
+			WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+						  WAIT_EVENT_SAFE_SNAPSHOT);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+			CHECK_FOR_INTERRUPTS();
 			LWLockAcquire(SerializableXactHashLock, LW_EXCLUSIVE);
 		}
 		MySerializableXact->flags &= ~SXACT_FLAG_DEFERRABLE_WAITING;
@@ -3617,7 +3622,7 @@ ReleasePredicateLocks(bool isCommit, bool isReadOnlySafe)
 			 */
 			if (SxactIsDeferrableWaiting(roXact) &&
 				(SxactIsROUnsafe(roXact) || SxactIsROSafe(roXact)))
-				ProcSendSignal(roXact->pgprocno);
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, roXact->pgprocno);
 		}
 	}
 

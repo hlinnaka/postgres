@@ -33,17 +33,17 @@
 #include "access/xlog_internal.h"
 #include "archive/archive_module.h"
 #include "archive/shell_archive.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "lib/binaryheap.h"
 #include "libpq/pqsignal.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/pgarch.h"
 #include "storage/condition_variable.h"
 #include "storage/aio_subsys.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -132,11 +132,6 @@ struct arch_files_state
 
 static struct arch_files_state *arch_files = NULL;
 
-/*
- * Flags set by interrupt handlers for later service in the main loop.
- */
-static volatile sig_atomic_t ready_to_stop = false;
-
 /* ----------
  * Local function forward declarations
  * ----------
@@ -148,10 +143,11 @@ static bool pgarch_archiveXlog(char *xlog);
 static bool pgarch_readyXlog(char *xlog);
 static void pgarch_archiveDone(char *xlog);
 static void pgarch_die(int code, Datum arg);
-static void ProcessPgArchInterrupts(void);
 static int	ready_file_comparator(Datum a, Datum b, void *arg);
 static void LoadArchiveLibrary(void);
 static void pgarch_call_module_shutdown_cb(int code, Datum arg);
+static void pgarch_ProcessConfigReloadInterrupt(void);
+
 
 /* Report shared memory space needed by PgArchShmemInit */
 Size
@@ -225,17 +221,26 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	AuxiliaryProcessMainCommon();
 
 	/*
-	 * Ignore all signals usually bound to some action in the postmaster,
-	 * except for SIGHUP, SIGTERM, SIGUSR1, SIGUSR2, and SIGQUIT.
+	 * no query cancel. XXX: should we leave the signal handler in place and
+	 * just not install an interrupt handler for it?
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	/* an interrupt handler for it? */
 	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+
+	/* TODO: use interrupt for this directly */
 	pqsignal(SIGUSR2, pgarch_waken_stop);
+
+	/*
+	 * These interrupt handlers are called in the loops pgarch_MainLoop and
+	 * pgarch_ArchiverCopyLoop. Do not set INTERRUPT_TERMINATE handler,
+	 * because that's different between the loops.
+	 */
+	SetInterruptHandler(INTERRUPT_CONFIG_RELOAD, pgarch_ProcessConfigReloadInterrupt);
+	EnableInterrupt(INTERRUPT_CONFIG_RELOAD);
+	SetInterruptHandler(INTERRUPT_BARRIER, ProcessProcSignalBarrier);
+	EnableInterrupt(INTERRUPT_BARRIER);
+	SetInterruptHandler(INTERRUPT_LOG_MEMORY_CONTEXT, ProcessLogMemoryContextInterrupt);
+	EnableInterrupt(INTERRUPT_LOG_MEMORY_CONTEXT);
 
 	/* Unblock signals (they were blocked when the postmaster forked us) */
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
@@ -247,8 +252,8 @@ PgArchiverMain(const void *startup_data, size_t startup_data_len)
 	on_shmem_exit(pgarch_die, 0);
 
 	/*
-	 * Advertise our proc number so that backends can use our latch to wake us
-	 * up while we're sleeping.
+	 * Advertise our proc number so that backends can wake us up while we're
+	 * sleeping.
 	 */
 	PgArch->pgprocno = MyProcNumber;
 
@@ -282,13 +287,12 @@ PgArchWakeup(void)
 	int			arch_pgprocno = PgArch->pgprocno;
 
 	/*
-	 * We don't acquire ProcArrayLock here.  It's actually fine because
-	 * procLatch isn't ever freed, so we just can potentially set the wrong
-	 * process' (or no process') latch.  Even in that case the archiver will
-	 * be relaunched shortly and will start archiving.
+	 * We don't acquire ProcArrayLock here, so we may send the interrupt to
+	 * wrong process, but that's harmless.  Even in that case the archiver
+	 * will be relaunched shortly and will start archiving.
 	 */
 	if (arch_pgprocno != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(arch_pgprocno)->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, arch_pgprocno);
 }
 
 
@@ -297,8 +301,7 @@ static void
 pgarch_waken_stop(SIGNAL_ARGS)
 {
 	/* set flag to do a final cycle and shut down afterwards */
-	ready_to_stop = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_SHUTDOWN_PGARCH);
 }
 
 /*
@@ -309,7 +312,7 @@ pgarch_waken_stop(SIGNAL_ARGS)
 static void
 pgarch_MainLoop(void)
 {
-	bool		time_to_stop;
+	bool		time_to_stop = false;
 
 	/*
 	 * There shouldn't be anything for the archiver to do except to wait for a
@@ -318,13 +321,15 @@ pgarch_MainLoop(void)
 	 */
 	do
 	{
-		ResetLatch(MyLatch);
+		/* FIXME: is this used for something in pgarch? To nudge it? */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/* When we get SIGUSR2, we do one more archive cycle, then exit */
-		time_to_stop = ready_to_stop;
+		if (InterruptPending(INTERRUPT_SHUTDOWN_PGARCH))
+			time_to_stop = true;
 
 		/* Check for barrier events and config update */
-		ProcessPgArchInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * If we've gotten SIGTERM, we normally just sit and do nothing until
@@ -334,7 +339,7 @@ pgarch_MainLoop(void)
 		 * that the postmaster can start a new archiver if needed.  Also exit
 		 * if time unexpectedly goes backward.
 		 */
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_TERMINATE))
 		{
 			time_t		curtime = time(NULL);
 
@@ -346,6 +351,7 @@ pgarch_MainLoop(void)
 		}
 
 		/* Do what we're here for */
+
 		pgarch_ArchiverCopyLoop();
 
 		/*
@@ -356,10 +362,13 @@ pgarch_MainLoop(void)
 		{
 			int			rc;
 
-			rc = WaitLatch(MyLatch,
-						   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-						   PGARCH_AUTOWAKE_INTERVAL * 1000L,
-						   WAIT_EVENT_ARCHIVER_MAIN);
+			rc = WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+							   INTERRUPT_TERMINATE |
+							   INTERRUPT_SHUTDOWN_PGARCH |
+							   CheckForInterruptsMask,
+							   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+							   PGARCH_AUTOWAKE_INTERVAL * 1000L,
+							   WAIT_EVENT_ARCHIVER_MAIN);
 			if (rc & WL_POSTMASTER_DEATH)
 				time_to_stop = true;
 		}
@@ -408,7 +417,7 @@ pgarch_ArchiverCopyLoop(void)
 			 * command, and the second is to avoid conflicts with another
 			 * archiver spawned by a newer postmaster.
 			 */
-			if (ShutdownRequestPending || !PostmasterIsAlive())
+			if (InterruptPending(INTERRUPT_TERMINATE) || !PostmasterIsAlive())
 				return;
 
 			/*
@@ -416,7 +425,7 @@ pgarch_ArchiverCopyLoop(void)
 			 * we'll adopt a new setting for archive_command as soon as
 			 * possible, even if there is a backlog of files to be archived.
 			 */
-			ProcessPgArchInterrupts();
+			CHECK_FOR_INTERRUPTS();
 
 			/* Reset variables that might be set by the callback */
 			arch_module_check_errdetail_string = NULL;
@@ -849,30 +858,13 @@ pgarch_die(int code, Datum arg)
 	PgArch->pgprocno = INVALID_PROC_NUMBER;
 }
 
-/*
- * Interrupt handler for WAL archiver process.
- *
- * This is called in the loops pgarch_MainLoop and pgarch_ArchiverCopyLoop.
- * It checks for barrier events, config update and request for logging of
- * memory contexts, but not shutdown request because how to handle
- * shutdown request is different between those loops.
- */
 static void
-ProcessPgArchInterrupts(void)
+pgarch_ProcessConfigReloadInterrupt(void)
 {
-	if (ProcSignalBarrierPending)
-		ProcessProcSignalBarrier();
-
-	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
-		ProcessLogMemoryContextInterrupt();
-
-	if (ConfigReloadPending)
 	{
 		char	   *archiveLib = pstrdup(XLogArchiveLibrary);
 		bool		archiveLibChanged;
 
-		ConfigReloadPending = false;
 		ProcessConfigFile(PGC_SIGHUP);
 
 		if (XLogArchiveLibrary[0] != '\0' && XLogArchiveCommand[0] != '\0')

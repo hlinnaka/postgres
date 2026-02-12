@@ -32,10 +32,10 @@
  *
  * CAUTION: It's not a good idea to use long sleeps in the backend.  They will
  * silently return early if a signal is caught, but that doesn't include
- * latches being set on most OSes, and even signal handlers that set MyLatch
- * might happen to run before the sleep begins, allowing the full delay.
- * Better practice is to use WaitLatch() with a timeout, so that backends
- * respond to latches and signals promptly.
+ * interrupts being received on most OSes, and even signal handlers that raise
+ * an interrupt might happen to run before the sleep begins, allowing the full
+ * delay.  Better practice is to use WaitInterrupt() with a timeout, so that
+ * backends respond to interrupts and signals promptly.
  */
 void
 pg_usleep(long microsec)

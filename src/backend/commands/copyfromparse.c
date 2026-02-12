@@ -269,9 +269,13 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 					/* Try to receive another message */
 					int			mtype;
 					int			maxmsglen;
+					bool		save_query_cancel_enabled;
 
 			readmessage:
-					HOLD_CANCEL_INTERRUPTS();
+					save_query_cancel_enabled = (EnabledInterruptsMask & INTERRUPT_QUERY_CANCEL) != 0;
+					if (save_query_cancel_enabled)
+						DisableInterrupt(INTERRUPT_QUERY_CANCEL);
+
 					pq_startmsgread();
 					mtype = pq_getbyte();
 					if (mtype == EOF)
@@ -303,7 +307,10 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 						ereport(ERROR,
 								(errcode(ERRCODE_CONNECTION_FAILURE),
 								 errmsg("unexpected EOF on client connection with an open transaction")));
-					RESUME_CANCEL_INTERRUPTS();
+
+					if (save_query_cancel_enabled)
+						EnableInterrupt(INTERRUPT_QUERY_CANCEL);
+
 					/* ... and process it */
 					switch (mtype)
 					{

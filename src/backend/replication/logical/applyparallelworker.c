@@ -157,10 +157,12 @@
 
 #include "postgres.h"
 
+#include "access/parallel.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
 #include "replication/origin.h"
@@ -237,12 +239,6 @@ static List *ParallelApplyWorkerPool = NIL;
  * Information shared between leader apply worker and parallel apply worker.
  */
 ParallelApplyWorkerShared *MyParallelShared = NULL;
-
-/*
- * Is there a message sent by a parallel apply worker that the leader apply
- * worker needs to receive?
- */
-volatile sig_atomic_t ParallelApplyMessagePending = false;
 
 /*
  * Cache the parallel apply worker information required for applying the
@@ -706,30 +702,6 @@ pa_process_spooled_messages_if_required(void)
 	return true;
 }
 
-/*
- * Interrupt handler for main loop of parallel apply worker.
- */
-static void
-ProcessParallelApplyInterrupts(void)
-{
-	CHECK_FOR_INTERRUPTS();
-
-	if (ShutdownRequestPending)
-	{
-		ereport(LOG,
-				(errmsg("logical replication parallel apply worker for subscription \"%s\" has finished",
-						MySubscription->name)));
-
-		proc_exit(0);
-	}
-
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
-		ProcessConfigFile(PGC_SIGHUP);
-	}
-}
-
 /* Parallel apply worker main loop. */
 static void
 LogicalParallelApplyLoop(shm_mq_handle *mqh)
@@ -759,7 +731,18 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 		void	   *data;
 		Size		len;
 
-		ProcessParallelApplyInterrupts();
+		CHECK_FOR_INTERRUPTS();
+		if (InterruptPending(INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER))
+		{
+			ereport(LOG,
+					(errmsg("logical replication parallel apply worker for subscription \"%s\" has finished",
+							MySubscription->name)));
+			proc_exit(0);
+		}
+		if (ConsumeInterrupt(INTERRUPT_TERMINATE))
+			ProcessTerminateInterrupt();
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
+			ProcessConfigFile(PGC_SIGHUP);
 
 		/* Ensure we are reading the data into our memory context. */
 		MemoryContextSwitchTo(ApplyMessageContext);
@@ -805,13 +788,17 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 				int			rc;
 
 				/* Wait for more work. */
-				rc = WaitLatch(MyLatch,
-							   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							   1000L,
-							   WAIT_EVENT_LOGICAL_PARALLEL_APPLY_MAIN);
+				rc = WaitInterrupt(CheckForInterruptsMask |
+								   INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER |
+								   INTERRUPT_TERMINATE |
+								   INTERRUPT_CONFIG_RELOAD |
+								   INTERRUPT_WAIT_WAKEUP,
+								   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								   1000L,
+								   WAIT_EVENT_LOGICAL_PARALLEL_APPLY_MAIN);
 
-				if (rc & WL_LATCH_SET)
-					ResetLatch(MyLatch);
+				if (rc & WL_INTERRUPT)
+					ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			}
 		}
 		else
@@ -844,9 +831,8 @@ LogicalParallelApplyLoop(shm_mq_handle *mqh)
 static void
 pa_shutdown(int code, Datum arg)
 {
-	SendProcSignal(MyLogicalRepWorker->leader_pid,
-				   PROCSIG_PARALLEL_APPLY_MESSAGE,
-				   INVALID_PROC_NUMBER);
+	SendInterrupt(INTERRUPT_PARALLEL_MESSAGE,
+				  MyLogicalRepWorker->leader_pgprocno);
 
 	dsm_detach((dsm_segment *) DatumGetPointer(arg));
 }
@@ -871,15 +857,18 @@ ParallelApplyWorkerMain(Datum main_arg)
 	InitializingApplyWorker = true;
 
 	/*
-	 * Setup signal handling.
+	 * Setup interrupt handling.
 	 *
-	 * Note: We intentionally used SIGUSR2 to trigger a graceful shutdown
-	 * initiated by the leader apply worker. This helps to differentiate it
-	 * from the case where we abort the current transaction and exit on
-	 * receiving SIGTERM.
+	 * In addition to the usual interrupts, we use
+	 * INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER as alternative to
+	 * INTERRUPT_TERMINATE to trigger a graceful shutdown initiated by the
+	 * leader apply worker. This helps to differentiate it from the case where
+	 * we abort the current transaction and exit on receiving SIGTERM.
+	 *
+	 * FIXME: It has the same effect, but prints an additional message to the
+	 * log. Is it worth distinguishing, and do we even want the log message?
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+	SetStandardInterruptHandlers();
 	BackgroundWorkerUnblockSignals();
 
 	/*
@@ -940,8 +929,7 @@ ParallelApplyWorkerMain(Datum main_arg)
 	error_mqh = shm_mq_attach(mq, seg, NULL);
 
 	pq_redirect_to_shm_mq(seg, error_mqh);
-	pq_set_parallel_leader(MyLogicalRepWorker->leader_pid,
-						   INVALID_PROC_NUMBER);
+	pq_set_parallel_leader(MyLogicalRepWorker->leader_pgprocno);
 
 	MyLogicalRepWorker->last_send_time = MyLogicalRepWorker->last_recv_time =
 		MyLogicalRepWorker->reply_time = 0;
@@ -975,29 +963,7 @@ ParallelApplyWorkerMain(Datum main_arg)
 	set_apply_error_context_origin(originname);
 
 	LogicalParallelApplyLoop(mqh);
-
-	/*
-	 * The parallel apply worker must not get here because the parallel apply
-	 * worker will only stop when it receives a SIGTERM or SIGUSR2 from the
-	 * leader, or SIGINT from itself, or when there is an error. None of these
-	 * cases will allow the code to reach here.
-	 */
-	Assert(false);
-}
-
-/*
- * Handle receipt of an interrupt indicating a parallel apply worker message.
- *
- * Note: this is called within a signal handler! All we can do is set a flag
- * that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessParallelApplyMessages().
- */
-void
-HandleParallelApplyMessageInterrupt(void)
-{
-	InterruptPending = true;
-	ParallelApplyMessagePending = true;
-	SetLatch(MyLatch);
+	Assert(false);				/* LogicalParallelApplyLoop never returns */
 }
 
 /*
@@ -1064,7 +1030,7 @@ ProcessParallelApplyMessage(StringInfo msg)
 }
 
 /*
- * Handle any queued protocol messages received from parallel apply workers.
+ * Process any queued protocol messages received from parallel apply workers.
  */
 void
 ProcessParallelApplyMessages(void)
@@ -1073,6 +1039,9 @@ ProcessParallelApplyMessages(void)
 	MemoryContext oldcontext;
 
 	static MemoryContext hpam_context = NULL;
+
+	/* We don't expect the leader apply worker to also run parallel queries */
+	Assert(!ParallelContextActive());
 
 	/*
 	 * This is invoked from ProcessInterrupts(), and since some of the
@@ -1096,8 +1065,6 @@ ProcessParallelApplyMessages(void)
 		MemoryContextReset(hpam_context);
 
 	oldcontext = MemoryContextSwitchTo(hpam_context);
-
-	ParallelApplyMessagePending = false;
 
 	foreach(lc, ParallelApplyWorkerPool)
 	{
@@ -1189,14 +1156,15 @@ pa_send_data(ParallelApplyWorkerInfo *winfo, Size nbytes, const void *data)
 		Assert(result == SHM_MQ_WOULD_BLOCK);
 
 		/* Wait before retrying. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   SHM_SEND_RETRY_INTERVAL_MS,
-					   WAIT_EVENT_LOGICAL_APPLY_SEND_DATA);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   SHM_SEND_RETRY_INTERVAL_MS,
+						   WAIT_EVENT_LOGICAL_APPLY_SEND_DATA);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 
@@ -1261,13 +1229,14 @@ pa_wait_for_xact_state(ParallelApplyWorkerInfo *winfo,
 			break;
 
 		/* Wait to be signalled. */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 10L,
-						 WAIT_EVENT_LOGICAL_PARALLEL_APPLY_STATE_CHANGE);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 10L,
+							 WAIT_EVENT_LOGICAL_PARALLEL_APPLY_STATE_CHANGE);
 
-		/* Reset the latch so we don't spin. */
-		ResetLatch(MyLatch);
+		/* Clear the interrupt flag so we don't spin. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/* An interrupt may have occurred while we were waiting. */
 		CHECK_FOR_INTERRUPTS();

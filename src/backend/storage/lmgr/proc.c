@@ -37,6 +37,7 @@
 #include "access/twophase.h"
 #include "access/xlogutils.h"
 #include "access/xlogwait.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
@@ -214,6 +215,8 @@ InitProcGlobal(void)
 	pg_atomic_init_u32(&ProcGlobal->avLauncherProc, INVALID_PROC_NUMBER);
 	pg_atomic_init_u32(&ProcGlobal->walwriterProc, INVALID_PROC_NUMBER);
 	pg_atomic_init_u32(&ProcGlobal->checkpointerProc, INVALID_PROC_NUMBER);
+	pg_atomic_init_u32(&ProcGlobal->walreceiverProc, INVALID_PROC_NUMBER);
+	pg_atomic_init_u32(&ProcGlobal->startupProc, INVALID_PROC_NUMBER);
 	pg_atomic_init_u32(&ProcGlobal->procArrayGroupFirst, INVALID_PROC_NUMBER);
 	pg_atomic_init_u32(&ProcGlobal->clogGroupFirst, INVALID_PROC_NUMBER);
 
@@ -301,14 +304,28 @@ InitProcGlobal(void)
 		Assert(fpPtr <= fpEndPtr);
 
 		/*
-		 * Set up per-PGPROC semaphore, latch, and fpInfoLock.  Prepared xact
-		 * dummy PGPROCs don't need these though - they're never associated
-		 * with a real process
+		 * Set up per-PGPROC semaphore, interrupt wakeup event (on Windows),
+		 * and fpInfoLock.  Prepared xact dummy PGPROCs don't need these
+		 * though - they're never associated with a real process
 		 */
 		if (i < MaxBackends + NUM_AUXILIARY_PROCS)
 		{
+#ifdef WIN32
+			SECURITY_ATTRIBUTES sa;
+
+			/*
+			 * Set up security attributes to specify that the events are
+			 * inherited.
+			 */
+			ZeroMemory(&sa, sizeof(sa));
+			sa.nLength = sizeof(sa);
+			sa.bInheritHandle = TRUE;
+
+			proc->interruptWakeupEvent = CreateEvent(&sa, TRUE, FALSE, NULL);
+			if (proc->interruptWakeupEvent == NULL)
+				elog(ERROR, "CreateEvent failed: error code %lu", GetLastError());
+#endif
 			proc->sem = PGSemaphoreCreate();
-			InitSharedLatch(&(proc->procLatch));
 			LWLockInitialize(&(proc->fpInfoLock), LWTRANCHE_LOCK_FASTPATH);
 		}
 
@@ -518,13 +535,8 @@ InitProcess(void)
 	MyProc->clogGroupMemberLsn = InvalidXLogRecPtr;
 	Assert(pg_atomic_read_u32(&MyProc->clogGroupNext) == INVALID_PROC_NUMBER);
 
-	/*
-	 * Acquire ownership of the PGPROC's latch, so that we can use WaitLatch
-	 * on it.  That allows us to repoint the process latch, which so far
-	 * points to process local one, to the shared one.
-	 */
-	OwnLatch(&MyProc->procLatch);
-	SwitchToSharedLatch();
+	/* Start accepting interrupts from other processes */
+	SwitchToSharedInterrupts();
 
 	/* now that we have a proc, report wait events to shared memory */
 	pgstat_set_wait_event_storage(&MyProc->wait_event_info);
@@ -688,13 +700,8 @@ InitAuxiliaryProcess(void)
 	}
 #endif
 
-	/*
-	 * Acquire ownership of the PGPROC's latch, so that we can use WaitLatch
-	 * on it.  That allows us to repoint the process latch, which so far
-	 * points to process local one, to the shared one.
-	 */
-	OwnLatch(&MyProc->procLatch);
-	SwitchToSharedLatch();
+	/* Start accepting interrupts from other processes */
+	SwitchToSharedInterrupts();
 
 	/* now that we have a proc, report wait events to shared memory */
 	pgstat_set_wait_event_storage(&MyProc->wait_event_info);
@@ -717,6 +724,10 @@ InitAuxiliaryProcess(void)
 		pg_atomic_write_u32(&ProcGlobal->walwriterProc, MyProcNumber);
 	if (MyBackendType == B_CHECKPOINTER)
 		pg_atomic_write_u32(&ProcGlobal->checkpointerProc, MyProcNumber);
+	if (MyBackendType == B_WAL_RECEIVER)
+		pg_atomic_write_u32(&ProcGlobal->walreceiverProc, MyProcNumber);
+	if (MyBackendType == B_STARTUP)
+		pg_atomic_write_u32(&ProcGlobal->startupProc, MyProcNumber);
 
 	/*
 	 * Arrange to clean up at process exit.
@@ -986,21 +997,20 @@ ProcKill(int code, Datum arg)
 	}
 
 	/*
-	 * Reset MyLatch to the process local one.  This is so that signal
-	 * handlers et al can continue using the latch after the shared latch
-	 * isn't ours anymore.
+	 * Reset interrupt vector to the process local one.  This is so that
+	 * signal handlers et al can continue using interrupts after the PGPROC
+	 * entry isn't ours anymore.
 	 *
 	 * Similarly, stop reporting wait events to MyProc->wait_event_info.
 	 *
-	 * After that clear MyProc and disown the shared latch.
+	 * After that clear MyProc.
 	 */
-	SwitchBackToLocalLatch();
+	SwitchToLocalInterrupts();
 	pgstat_reset_wait_event_storage();
 
 	proc = MyProc;
 	MyProc = NULL;
 	MyProcNumber = INVALID_PROC_NUMBER;
-	DisownLatch(&proc->procLatch);
 
 	/* Mark the proc no longer in use */
 	proc->pid = 0;
@@ -1059,7 +1069,7 @@ AuxiliaryProcKill(int code, Datum arg)
 	ConditionVariableCancelSleep();
 
 	/* look at the equivalent ProcKill() code for comments */
-	SwitchBackToLocalLatch();
+	SwitchToLocalInterrupts();
 	pgstat_reset_wait_event_storage();
 
 	/* If this was one of aux processes advertised in ProcGlobal, clear it */
@@ -1078,11 +1088,20 @@ AuxiliaryProcKill(int code, Datum arg)
 		Assert(pg_atomic_read_u32(&ProcGlobal->checkpointerProc) == MyProcNumber);
 		pg_atomic_write_u32(&ProcGlobal->checkpointerProc, INVALID_PROC_NUMBER);
 	}
+	if (MyBackendType == B_WAL_RECEIVER)
+	{
+		Assert(pg_atomic_read_u32(&ProcGlobal->walreceiverProc) == MyProcNumber);
+		pg_atomic_write_u32(&ProcGlobal->walreceiverProc, INVALID_PROC_NUMBER);
+	}
+	if (MyBackendType == B_STARTUP)
+	{
+		Assert(pg_atomic_read_u32(&ProcGlobal->startupProc) == MyProcNumber);
+		pg_atomic_write_u32(&ProcGlobal->startupProc, INVALID_PROC_NUMBER);
+	}
 
 	proc = MyProc;
 	MyProc = NULL;
 	MyProcNumber = INVALID_PROC_NUMBER;
-	DisownLatch(&proc->procLatch);
 
 	SpinLockAcquire(&ProcGlobal->freeProcsLock);
 
@@ -1410,18 +1429,18 @@ ProcSleep(LOCALLOCK *locallock)
 	}
 
 	/*
-	 * If somebody wakes us between LWLockRelease and WaitLatch, the latch
-	 * will not wait. But a set latch does not necessarily mean that the lock
-	 * is free now, as there are many other sources for latch sets than
-	 * somebody releasing the lock.
+	 * If somebody wakes us between LWLockRelease and WaitInterrupt,
+	 * WaitInterrupt will not wait. But an interrupt does not necessarily mean
+	 * that the lock is free now, as there are many other sources for the
+	 * interrupt than somebody releasing the lock.
 	 *
-	 * We process interrupts whenever the latch has been set, so cancel/die
-	 * interrupts are processed quickly. This means we must not mind losing
-	 * control to a cancel/die interrupt here.  We don't, because we have no
-	 * shared-state-change work to do after being granted the lock (the
-	 * grantor did it all).  We do have to worry about canceling the deadlock
-	 * timeout and updating the locallock table, but if we lose control to an
-	 * error, LockErrorCleanup will fix that up.
+	 * We process interrupts whenever the interrupt has been set, so
+	 * cancel/die interrupts are processed quickly. This means we must not
+	 * mind losing control to a cancel/die interrupt here.  We don't, because
+	 * we have no shared-state-change work to do after being granted the lock
+	 * (the grantor did it all).  We do have to worry about canceling the
+	 * deadlock timeout and updating the locallock table, but if we lose
+	 * control to an error, LockErrorCleanup will fix that up.
 	 */
 	do
 	{
@@ -1467,9 +1486,10 @@ ProcSleep(LOCALLOCK *locallock)
 		}
 		else
 		{
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			/* check for deadlocks first, as that's probably log-worthy */
 			if (got_deadlock_timeout)
 			{
@@ -1675,8 +1695,8 @@ ProcSleep(LOCALLOCK *locallock)
 	/*
 	 * Disable the timers, if they are still running.  As in LockErrorCleanup,
 	 * we must preserve the LOCK_TIMEOUT indicator flag: if a lock timeout has
-	 * already caused QueryCancelPending to become set, we want the cancel to
-	 * be reported as a lock timeout, not a user cancel.
+	 * already raised INTERRUPT_QUERY_CANCEL, we want the cancel to be
+	 * reported as a lock timeout, not a user cancel.
 	 */
 	if (!InHotStandby)
 	{
@@ -1713,7 +1733,7 @@ ProcSleep(LOCALLOCK *locallock)
 
 
 /*
- * ProcWakeup -- wake up a process by setting its latch.
+ * ProcWakeup -- wake up a process by sending it an interrupt.
  *
  *	 Also remove the process from the wait queue and set its links invalid.
  *
@@ -1742,7 +1762,7 @@ ProcWakeup(PGPROC *proc, ProcWaitStatus waitStatus)
 	pg_atomic_write_u64(&MyProc->waitStart, 0);
 
 	/* And awaken it */
-	SetLatch(&proc->procLatch);
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 }
 
 /*
@@ -1899,14 +1919,12 @@ CheckDeadLockAlert(void)
 	got_deadlock_timeout = true;
 
 	/*
-	 * Have to set the latch again, even if handle_sig_alarm already did. Back
-	 * then got_deadlock_timeout wasn't yet set... It's unlikely that this
-	 * ever would be a problem, but setting a set latch again is cheap.
-	 *
-	 * Note that, when this function runs inside procsignal_sigusr1_handler(),
-	 * the handler function sets the latch again after the latch is set here.
+	 * Have to raise the interrupt again, even if handle_sig_alarm already
+	 * did. Back then got_deadlock_timeout wasn't yet set... It's unlikely
+	 * that this ever would be a problem, but raising an interrupt again is
+	 * cheap.
 	 */
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 	errno = save_errno;
 }
 
@@ -1983,34 +2001,6 @@ GetLockHoldersAndWaiters(LOCALLOCK *locallock, StringInfo lock_holders_sbuf,
 			(*lockHoldersNum)++;
 		}
 	}
-}
-
-/*
- * ProcWaitForSignal - wait for a signal from another backend.
- *
- * As this uses the generic process latch the caller has to be robust against
- * unrelated wakeups: Always check that the desired state has occurred, and
- * wait again if not.
- */
-void
-ProcWaitForSignal(uint32 wait_event_info)
-{
-	(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-					 wait_event_info);
-	ResetLatch(MyLatch);
-	CHECK_FOR_INTERRUPTS();
-}
-
-/*
- * ProcSendSignal - set the latch of a backend identified by ProcNumber
- */
-void
-ProcSendSignal(ProcNumber procNumber)
-{
-	if (procNumber < 0 || procNumber >= ProcGlobal->allProcCount)
-		elog(ERROR, "procNumber out of range");
-
-	SetLatch(&GetPGProcByNumber(procNumber)->procLatch);
 }
 
 /*

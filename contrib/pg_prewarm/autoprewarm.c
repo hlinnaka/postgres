@@ -30,17 +30,15 @@
 
 #include "access/relation.h"
 #include "access/xact.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
 #include "storage/buf_internals.h"
 #include "storage/dsm.h"
 #include "storage/dsm_registry.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
-#include "storage/procsignal.h"
 #include "storage/read_stream.h"
 #include "storage/smgr.h"
 #include "tcop/tcopprot.h"
@@ -170,10 +168,13 @@ autoprewarm_main(Datum main_arg)
 	bool		final_dump_allowed = true;
 	TimestampTz last_dump_time = 0;
 
-	/* Establish signal handlers; once that's done, unblock signals. */
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	/*
+	 * We will check for INTERRUPT_TERMINATE explicitly in the main loop, so
+	 * disable the normal interrupt handler.
+	 */
+	DisableInterrupt(INTERRUPT_TERMINATE);
+
+	/* Default signal handlers are OK for us; unblock signals. */
 	BackgroundWorkerUnblockSignals();
 
 	/* Create (if necessary) and attach to our shared memory area. */
@@ -222,27 +223,27 @@ autoprewarm_main(Datum main_arg)
 	if (first_time)
 	{
 		apw_load_buffers();
-		final_dump_allowed = !ShutdownRequestPending;
+		final_dump_allowed = !InterruptPending(INTERRUPT_TERMINATE);
 		last_dump_time = GetCurrentTimestamp();
 	}
 
 	/* Periodically dump buffers until terminated. */
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_TERMINATE))
 	{
-		/* In case of a SIGHUP, just reload the configuration. */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		/* Check for standard interrupts and config reload */
+		CHECK_FOR_INTERRUPTS();
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		if (autoprewarm_interval <= 0)
 		{
 			/* We're only dumping at shutdown, so just wait forever. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-							 -1L,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_CONFIG_RELOAD |
+								 INTERRUPT_TERMINATE,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+								 -1L,
+								 PG_WAIT_EXTENSION);
 		}
 		else
 		{
@@ -266,14 +267,13 @@ autoprewarm_main(Datum main_arg)
 			}
 
 			/* Sleep until the next dump time. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 delay_in_ms,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_CONFIG_RELOAD |
+								 INTERRUPT_TERMINATE,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 delay_in_ms,
+								 PG_WAIT_EXTENSION);
 		}
-
-		/* Reset the latch, loop. */
-		ResetLatch(MyLatch);
 	}
 
 	/*
@@ -423,7 +423,7 @@ apw_load_buffers(void)
 		 * Likewise, don't launch if we've already been told to shut down.
 		 * (The launch would fail anyway, but we might as well skip it.)
 		 */
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_TERMINATE))
 			break;
 
 		/*
@@ -444,7 +444,7 @@ apw_load_buffers(void)
 	LWLockRelease(&apw_state->lock);
 
 	/* Report our success, if we were able to finish. */
-	if (!ShutdownRequestPending)
+	if (!InterruptPending(INTERRUPT_TERMINATE))
 		ereport(LOG,
 				(errmsg("autoprewarm successfully prewarmed %d of %d previously-loaded blocks",
 						apw_state->prewarmed_blocks, num_elements)));
@@ -504,8 +504,7 @@ autoprewarm_database_main(Datum main_arg)
 	BlockInfoRecord blk;
 	dsm_segment *seg;
 
-	/* Establish signal handlers; once that's done, unblock signals. */
-	pqsignal(SIGTERM, die);
+	/* Default signal handlers are OK for us; unblock signals. */
 	BackgroundWorkerUnblockSignals();
 
 	/* Connect to correct database and get block information. */
@@ -923,9 +922,6 @@ apw_start_leader_worker(void)
 		return;
 	}
 
-	/* must set notify PID to wait for startup */
-	worker.bgw_notify_pid = MyProcPid;
-
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
@@ -957,9 +953,6 @@ apw_start_database_worker(void)
 	strcpy(worker.bgw_function_name, "autoprewarm_database_main");
 	strcpy(worker.bgw_name, "autoprewarm worker");
 	strcpy(worker.bgw_type, "autoprewarm worker");
-
-	/* must set notify PID to wait for shutdown */
-	worker.bgw_notify_pid = MyProcPid;
 
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,

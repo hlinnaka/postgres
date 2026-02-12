@@ -18,7 +18,6 @@
 #include "access/xlogdefs.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
 #include "storage/proclist_types.h"
@@ -190,9 +189,6 @@ struct PGPROC
 	PGSemaphore sem;			/* ONE semaphore to sleep on */
 	ProcWaitStatus waitStatus;
 
-	Latch		procLatch;		/* generic latch for process */
-
-
 	TransactionId xid;			/* id of top-level transaction currently being
 								 * executed by this proc, if running and XID
 								 * is assigned; else InvalidTransactionId.
@@ -235,16 +231,6 @@ struct PGPROC
 									 * using */
 
 	BackendType backendType;	/* what kind of process is this? */
-
-	/*
-	 * While in hot standby mode, shows that a conflict signal has been sent
-	 * for the current transaction. Set/cleared while holding ProcArrayLock,
-	 * though not required. Accessed without lock, if needed.
-	 *
-	 * This is a bitmask; each bit corresponds to a RecoveryConflictReason
-	 * enum value.
-	 */
-	pg_atomic_uint32 pendingRecoveryConflicts;
 
 	/*
 	 * Info about LWLock the process is currently waiting for, if any.
@@ -337,6 +323,24 @@ struct PGPROC
 	PGPROC	   *lockGroupLeader;	/* lock group leader, if I'm a member */
 	dlist_head	lockGroupMembers;	/* list of members, if I'm a leader */
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
+
+	/* Bit mask of pending interrupts, waiting to be processed */
+	pg_atomic_uint64 pendingInterrupts;
+
+	/*
+	 * While in hot standby mode, shows that a conflict signal has been sent
+	 * for the current transaction. Set/cleared while holding ProcArrayLock,
+	 * though not required. Accessed without lock, if needed.
+	 *
+	 * This is a bitmask; each bit corresponds to a RecoveryConflictReason
+	 * enum value.
+	 */
+	pg_atomic_uint32 pendingRecoveryConflicts;
+
+#ifdef WIN32
+	/* Event handle to wake up the process when sending an interrupt */
+	HANDLE		interruptWakeupEvent;
+#endif
 };
 
 /* NOTE: "typedef struct PGPROC PGPROC" appears in storage/lock.h. */
@@ -451,6 +455,8 @@ typedef struct PROC_HDR
 	pg_atomic_uint32 avLauncherProc;
 	pg_atomic_uint32 walwriterProc;
 	pg_atomic_uint32 checkpointerProc;
+	pg_atomic_uint32 walreceiverProc;
+	pg_atomic_uint32 startupProc;
 
 	/* Current shared estimate of appropriate spins_per_delay value */
 	int			spins_per_delay;
@@ -532,9 +538,6 @@ extern void GetLockHoldersAndWaiters(LOCALLOCK *locallock,
 									 StringInfo lock_holders_sbuf,
 									 StringInfo lock_waiters_sbuf,
 									 int *lockHoldersNum);
-
-extern void ProcWaitForSignal(uint32 wait_event_info);
-extern void ProcSendSignal(ProcNumber procNumber);
 
 extern PGPROC *AuxiliaryPidGetProc(int pid);
 

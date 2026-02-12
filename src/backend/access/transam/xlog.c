@@ -70,6 +70,7 @@
 #include "common/controldata_utils.h"
 #include "common/file_utils.h"
 #include "executor/instrument.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "pgstat.h"
@@ -88,7 +89,6 @@
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/large_object.h"
-#include "storage/latch.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -2656,7 +2656,7 @@ XLogSetAsyncXactLSN(XLogRecPtr asyncXactLSN)
 		ProcNumber	walwriterProc = pg_atomic_read_u32(&ProcGlobal->walwriterProc);
 
 		if (walwriterProc != INVALID_PROC_NUMBER)
-			SetLatch(&GetPGProcByNumber(walwriterProc)->procLatch);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, walwriterProc);
 	}
 }
 
@@ -9509,11 +9509,11 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
 				reported_waiting = true;
 			}
 
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 1000L,
-							 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 1000L,
+								 WAIT_EVENT_BACKUP_WAIT_WAL_ARCHIVE);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 			if (++waits >= seconds_before_warning)
 			{

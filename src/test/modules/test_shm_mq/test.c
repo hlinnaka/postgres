@@ -14,7 +14,7 @@
 #include "postgres.h"
 
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "varatt.h"
 
@@ -170,6 +170,8 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 	{
 		bool		wait = true;
 
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+
 		/*
 		 * If we haven't yet sent the message the requisite number of times,
 		 * try again to send it now.  Note that when shm_mq_send() returns
@@ -234,13 +236,13 @@ test_shm_mq_pipelined(PG_FUNCTION_ARGS)
 
 			/*
 			 * If we made no progress, wait for one of the other processes to
-			 * which we are connected to set our latch, indicating that they
-			 * have read or written data and therefore there may now be work
-			 * for us to do.
+			 * which we are connected to send us the INTERRUPT_WAIT_WAKEUP
+			 * interrupt, indicating that they have read or written data and
+			 * therefore there may now be work for us to do.
 			 */
-			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-							 we_message_queue);
-			ResetLatch(MyLatch);
+			(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+								 we_message_queue);
 			CHECK_FOR_INTERRUPTS();
 		}
 	}

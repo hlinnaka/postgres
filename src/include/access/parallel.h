@@ -53,7 +53,6 @@ typedef struct ParallelWorkerContext
 	shm_toc    *toc;
 } ParallelWorkerContext;
 
-extern PGDLLIMPORT volatile sig_atomic_t ParallelMessagePending;
 extern PGDLLIMPORT int ParallelWorkerNumber;
 extern PGDLLIMPORT bool InitializingParallelWorker;
 
@@ -70,7 +69,6 @@ extern void WaitForParallelWorkersToFinish(ParallelContext *pcxt);
 extern void DestroyParallelContext(ParallelContext *pcxt);
 extern bool ParallelContextActive(void);
 
-extern void HandleParallelMessageInterrupt(void);
 extern void ProcessParallelMessages(void);
 extern void AtEOXact_Parallel(bool isCommit);
 extern void AtEOSubXact_Parallel(bool isCommit, SubTransactionId mySubId);

@@ -21,7 +21,7 @@
 #include "access/toast_internals.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"

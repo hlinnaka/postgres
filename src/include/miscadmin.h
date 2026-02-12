@@ -28,132 +28,15 @@
 #include "datatype/timestamp.h" /* for TimestampTz */
 #include "pgtime.h"				/* for pg_time_t */
 
-
-#define InvalidPid				(-1)
-
-
-/*****************************************************************************
- *	  System interrupt and critical section handling
- *
- * There are two types of interrupts that a running backend needs to accept
- * without messing up its state: QueryCancel (SIGINT) and ProcDie (SIGTERM).
- * In both cases, we need to be able to clean up the current transaction
- * gracefully, so we can't respond to the interrupt instantaneously ---
- * there's no guarantee that internal data structures would be self-consistent
- * if the code is interrupted at an arbitrary instant.  Instead, the signal
- * handlers set flags that are checked periodically during execution.
- *
- * The CHECK_FOR_INTERRUPTS() macro is called at strategically located spots
- * where it is normally safe to accept a cancel or die interrupt.  In some
- * cases, we invoke CHECK_FOR_INTERRUPTS() inside low-level subroutines that
- * might sometimes be called in contexts that do *not* want to allow a cancel
- * or die interrupt.  The HOLD_INTERRUPTS() and RESUME_INTERRUPTS() macros
- * allow code to ensure that no cancel or die interrupt will be accepted,
- * even if CHECK_FOR_INTERRUPTS() gets called in a subroutine.  The interrupt
- * will be held off until CHECK_FOR_INTERRUPTS() is done outside any
- * HOLD_INTERRUPTS() ... RESUME_INTERRUPTS() section.
- *
- * There is also a mechanism to prevent query cancel interrupts, while still
- * allowing die interrupts: HOLD_CANCEL_INTERRUPTS() and
- * RESUME_CANCEL_INTERRUPTS().
- *
- * Note that ProcessInterrupts() has also acquired a number of tasks that
- * do not necessarily cause a query-cancel-or-die response.  Hence, it's
- * possible that it will just clear InterruptPending and return.
- *
- * INTERRUPTS_PENDING_CONDITION() can be checked to see whether an
- * interrupt needs to be serviced, without trying to do so immediately.
- * Some callers are also interested in INTERRUPTS_CAN_BE_PROCESSED(),
- * which tells whether ProcessInterrupts is sure to clear the interrupt.
- *
- * Special mechanisms are used to let an interrupt be accepted when we are
- * waiting for a lock or when we are waiting for command input (but, of
- * course, only if the interrupt holdoff counter is zero).  See the
- * related code for details.
- *
- * A lost connection is handled similarly, although the loss of connection
- * does not raise a signal, but is detected when we fail to write to the
- * socket. If there was a signal for a broken connection, we could make use of
- * it by setting ClientConnectionLost in the signal handler.
- *
- * A related, but conceptually distinct, mechanism is the "critical section"
- * mechanism.  A critical section not only holds off cancel/die interrupts,
- * but causes any ereport(ERROR) or ereport(FATAL) to become ereport(PANIC)
- * --- that is, a system-wide reset is forced.  Needless to say, only really
- * *critical* code should be marked as a critical section!	Currently, this
- * mechanism is only used for XLOG-related code.
- *
- *****************************************************************************/
-
-/* in globals.c */
-/* these are marked volatile because they are set by signal handlers: */
-extern PGDLLIMPORT volatile sig_atomic_t InterruptPending;
-extern PGDLLIMPORT volatile sig_atomic_t QueryCancelPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcDiePending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t TransactionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t ProcSignalBarrierPending;
-extern PGDLLIMPORT volatile sig_atomic_t LogMemoryContextPending;
-extern PGDLLIMPORT volatile sig_atomic_t IdleStatsUpdateTimeoutPending;
-
-extern PGDLLIMPORT volatile sig_atomic_t CheckClientConnectionPending;
-extern PGDLLIMPORT volatile sig_atomic_t ClientConnectionLost;
-
-/* these are marked volatile because they are examined by signal handlers: */
-extern PGDLLIMPORT volatile uint32 InterruptHoldoffCount;
-extern PGDLLIMPORT volatile uint32 QueryCancelHoldoffCount;
-extern PGDLLIMPORT volatile uint32 CritSectionCount;
-
-/* in tcop/postgres.c */
-extern void ProcessInterrupts(void);
-
-/* Test whether an interrupt is pending */
-#ifndef WIN32
-#define INTERRUPTS_PENDING_CONDITION() \
-	(unlikely(InterruptPending))
-#else
-#define INTERRUPTS_PENDING_CONDITION() \
-	(unlikely(UNBLOCKED_SIGNAL_QUEUE()) ? \
-	 pgwin32_dispatch_queued_signals() : (void) 0, \
-	 unlikely(InterruptPending))
+/*
+ * XXX: many files include miscadmin.h for CHECK_FOR_INTERRUPTS(). Keep them
+ * working without changes
+ */
+#ifndef FRONTEND
+#include "ipc/interrupt.h"
 #endif
 
-/* Service interrupt, if one is pending and it's safe to service it now */
-#define CHECK_FOR_INTERRUPTS() \
-do { \
-	if (INTERRUPTS_PENDING_CONDITION()) \
-		ProcessInterrupts(); \
-} while(0)
-
-/* Is ProcessInterrupts() guaranteed to clear InterruptPending? */
-#define INTERRUPTS_CAN_BE_PROCESSED() \
-	(InterruptHoldoffCount == 0 && CritSectionCount == 0 && \
-	 QueryCancelHoldoffCount == 0)
-
-#define HOLD_INTERRUPTS()  (InterruptHoldoffCount++)
-
-#define RESUME_INTERRUPTS() \
-do { \
-	Assert(InterruptHoldoffCount > 0); \
-	InterruptHoldoffCount--; \
-} while(0)
-
-#define HOLD_CANCEL_INTERRUPTS()  (QueryCancelHoldoffCount++)
-
-#define RESUME_CANCEL_INTERRUPTS() \
-do { \
-	Assert(QueryCancelHoldoffCount > 0); \
-	QueryCancelHoldoffCount--; \
-} while(0)
-
-#define START_CRIT_SECTION()  (CritSectionCount++)
-
-#define END_CRIT_SECTION() \
-do { \
-	Assert(CritSectionCount > 0); \
-	CritSectionCount--; \
-} while(0)
+#define InvalidPid				(-1)
 
 
 /*****************************************************************************
@@ -191,7 +74,6 @@ extern PGDLLIMPORT int MyProcPid;
 extern PGDLLIMPORT pg_time_t MyStartTime;
 extern PGDLLIMPORT TimestampTz MyStartTimestamp;
 extern PGDLLIMPORT struct Port *MyProcPort;
-extern PGDLLIMPORT struct Latch *MyLatch;
 extern PGDLLIMPORT uint8 MyCancelKey[];
 extern PGDLLIMPORT int MyCancelKeyLength;
 extern PGDLLIMPORT int MyPMChildSlot;
@@ -324,9 +206,6 @@ extern PGDLLIMPORT char *DatabasePath;
 /* now in utils/init/miscinit.c */
 extern void InitPostmasterChild(void);
 extern void InitStandaloneProcess(const char *argv0);
-extern void InitProcessLocalLatch(void);
-extern void SwitchToSharedLatch(void);
-extern void SwitchBackToLocalLatch(void);
 
 /*
  * MyBackendType indicates what kind of a backend this is.

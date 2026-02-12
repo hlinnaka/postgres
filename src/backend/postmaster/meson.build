@@ -7,7 +7,6 @@ backend_sources += files(
   'bgwriter.c',
   'checkpointer.c',
   'fork_process.c',
-  'interrupt.c',
   'launch_backend.c',
   'pgarch.c',
   'pmchild.c',

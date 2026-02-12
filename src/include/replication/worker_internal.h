@@ -79,9 +79,10 @@ typedef struct LogicalRepWorker
 	FileSet    *stream_fileset;
 
 	/*
-	 * PID of leader apply worker if this slot is used for a parallel apply
-	 * worker, InvalidPid otherwise.
+	 * Leader apply worker if this slot is used for a parallel apply worker,
+	 * INVALID_PROC_NUMBER/InvalidPid otherwise.
 	 */
+	ProcNumber	leader_pgprocno;
 	pid_t		leader_pid;
 
 	/* Indicates whether apply can be performed in parallel. */

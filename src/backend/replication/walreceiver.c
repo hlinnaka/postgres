@@ -60,12 +60,13 @@
 #include "access/xlogwait.h"
 #include "catalog/pg_authid.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/ipc.h"
@@ -246,16 +247,8 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(WalRcvDie, PointerGetDatum(&startpointTLI));
 
-	/* Properly accept or ignore signals the postmaster might send us */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
-													 * file */
-	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, die);		/* request shutdown */
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, SIG_IGN);
+	/* Set up interrupt handlers. We have no special needs. */
+	SetStandardInterruptHandlers();
 
 	/* Load the libpq-specific functions */
 	load_file("libpqwalreceiver", false);
@@ -439,9 +432,8 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 				/* Process any requests or signals received recently */
 				CHECK_FOR_INTERRUPTS();
 
-				if (ConfigReloadPending)
+				if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 				{
-					ConfigReloadPending = false;
 					ProcessConfigFile(PGC_SIGHUP);
 					/* recompute wakeup times */
 					now = GetCurrentTimestamp();
@@ -514,25 +506,27 @@ WalReceiverMain(const void *startup_data, size_t startup_data_len)
 
 				/*
 				 * Ideally we would reuse a WaitEventSet object repeatedly
-				 * here to avoid the overheads of WaitLatchOrSocket on epoll
-				 * systems, but we can't be sure that libpq (or any other
-				 * walreceiver implementation) has the same socket (even if
-				 * the fd is the same number, it may have been closed and
+				 * here to avoid the overheads of WaitInterruptOrSocket on
+				 * epoll systems, but we can't be sure that libpq (or any
+				 * other walreceiver implementation) has the same socket (even
+				 * if the fd is the same number, it may have been closed and
 				 * reopened since the last time).  In future, if there is a
 				 * function for removing sockets from WaitEventSet, then we
 				 * could add and remove just the socket each time, potentially
 				 * avoiding some system calls.
 				 */
 				Assert(wait_fd != PGINVALID_SOCKET);
-				rc = WaitLatchOrSocket(MyLatch,
-									   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
-									   WL_TIMEOUT | WL_LATCH_SET,
-									   wait_fd,
-									   nap,
-									   WAIT_EVENT_WAL_RECEIVER_MAIN);
-				if (rc & WL_LATCH_SET)
+				rc = WaitInterruptOrSocket(CheckForInterruptsMask |
+										   INTERRUPT_WAIT_WAKEUP |
+										   INTERRUPT_CONFIG_RELOAD,
+										   WL_EXIT_ON_PM_DEATH | WL_SOCKET_READABLE |
+										   WL_TIMEOUT | WL_INTERRUPT,
+										   wait_fd,
+										   nap,
+										   WAIT_EVENT_WAL_RECEIVER_MAIN);
+				if (rc & WL_INTERRUPT)
 				{
-					ResetLatch(MyLatch);
+					ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 					CHECK_FOR_INTERRUPTS();
 
 					if (walrcv->force_reply)
@@ -680,7 +674,7 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 	WakeupRecovery();
 	for (;;)
 	{
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		CHECK_FOR_INTERRUPTS();
 
@@ -712,8 +706,12 @@ WalRcvWaitForStartPosition(XLogRecPtr *startpoint, TimeLineID *startpointTLI)
 		}
 		SpinLockRelease(&walrcv->mutex);
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_TERMINATE |
+							 INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 0,
+							 WAIT_EVENT_WAL_RECEIVER_WAIT_START);
 	}
 
 	if (update_process_title)
@@ -1384,7 +1382,7 @@ WalRcvForceReply(void)
 	procno = WalRcv->procno;
 	SpinLockRelease(&WalRcv->mutex);
 	if (procno != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(procno)->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, procno);
 }
 
 /*

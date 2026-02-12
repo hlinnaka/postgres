@@ -24,6 +24,7 @@
 #include "access/xloginsert.h"
 #include "catalog/pg_am.h"
 #include "commands/vacuum.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/autovacuum.h"

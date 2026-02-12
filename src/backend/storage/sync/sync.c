@@ -22,12 +22,12 @@
 #include "access/commit_ts.h"
 #include "access/multixact.h"
 #include "access/xlog.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "portability/instr_time.h"
 #include "postmaster/bgwriter.h"
 #include "storage/fd.h"
-#include "storage/latch.h"
 #include "storage/md.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
@@ -611,8 +611,8 @@ RegisterSyncRequest(const FileTag *ftag, SyncRequestType type,
 		if (ret || (!ret && !retryOnError))
 			break;
 
-		WaitLatch(NULL, WL_EXIT_ON_PM_DEATH | WL_TIMEOUT, 10,
-				  WAIT_EVENT_REGISTER_SYNC_REQUEST);
+		WaitInterrupt(0, WL_EXIT_ON_PM_DEATH | WL_TIMEOUT, 10,
+					  WAIT_EVENT_REGISTER_SYNC_REQUEST);
 	}
 
 	return ret;

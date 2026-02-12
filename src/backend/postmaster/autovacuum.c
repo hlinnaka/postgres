@@ -27,15 +27,17 @@
  * launcher has set up.
  *
  * If the fork() call fails in the postmaster, it sets a flag in the shared
- * memory area, and sends a signal to the launcher.  The launcher, upon
- * noticing the flag, can try starting the worker again by resending the
+ * memory area, sends a signal to the launcher, raising the
+ * INTERRUPT_AUTOVACUUM_WORKER_FINISHED interrupt. The launcher, upon
+ * noticing the interrupt, can try starting the worker again by resending the
  * signal.  Note that the failure can only be transient (fork failure due to
  * high load, memory pressure, too many processes, etc); more permanent
  * problems, like failure to connect to a database, are detected later in the
  * worker and dealt with just by having the worker exit normally.  The launcher
  * will launch a new worker again later, per schedule.
  *
- * When the worker is done vacuuming it sends SIGUSR2 to the launcher.  The
+ * When the worker is done vacuuming and exits, the postmaster sends SIGUSR2
+ * to the launcher, raising INTERRUPT_AUTOVACUUM_WORKER_FINISHED.  The
  * launcher then wakes up and is able to launch another worker, if the schedule
  * is so tight that a new worker is needed immediately.  At this time the
  * launcher can also balance the settings for the various remaining workers'
@@ -79,18 +81,18 @@
 #include "catalog/pg_namespace.h"
 #include "commands/vacuum.h"
 #include "common/int.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "lib/ilist.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "storage/aio_subsys.h"
 #include "storage/bufmgr.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lmgr.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
@@ -150,9 +152,6 @@ int			Log_autoanalyze_min_duration = 600000;
  */
 static double av_storage_param_cost_delay = -1;
 static int	av_storage_param_cost_limit = -1;
-
-/* Flags set by signal handlers */
-static volatile sig_atomic_t got_SIGUSR2 = false;
 
 /* Comparison points for determining whether freeze_max_age is exceeded */
 static TransactionId recentXid;
@@ -287,6 +286,9 @@ typedef struct AutoVacuumWorkItem
  *
  * This struct is protected by AutovacuumLock, except for av_signal and parts
  * of the worker list (see above).
+ *
+ * XXX: av_signal could be replaced with individual interrupts. This works
+ * too, though.
  *-------------
  */
 typedef struct
@@ -322,7 +324,7 @@ avl_dbase  *avl_dbase_array;
 static WorkerInfo MyWorkerInfo = NULL;
 
 static Oid	do_start_worker(void);
-static void ProcessAutoVacLauncherInterrupts(void);
+static void ProcessAutoVacLauncherConfigReloadInterrupt(void);
 pg_noreturn static void AutoVacLauncherShutdown(void);
 static void launcher_determine_sleep(bool canlaunch, bool recursing,
 									 struct timeval *nap);
@@ -394,21 +396,23 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	Assert(GetProcessingMode() == InitProcessing);
 
 	/*
-	 * Set up signal handlers.  We operate on databases much like a regular
-	 * backend, so we use the same signal handling.  See equivalent code in
-	 * tcop/postgres.c.
+	 * Set up signal and interrupt handlers.  We operate on databases much
+	 * like a regular backend, so we use mostly the same handling.  See
+	 * equivalent code in tcop/postgres.c.
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, StatementCancelHandler);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-
+	SetStandardInterruptHandlers();
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	/* Postmaster uses SIGUSR2 to raise INTERRUPT_AUTOVACUUM_WORKER_FINISHED */
 	pqsignal(SIGUSR2, avl_sigusr2_handler);
-	pqsignal(SIGFPE, FloatExceptionHandler);
+
+	SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
+	EnableInterrupt(INTERRUPT_QUERY_CANCEL);
+
+	SetInterruptHandler(INTERRUPT_TERMINATE, AutoVacLauncherShutdown);
+
+	/* We can safely reload config at any CHECK_FOR_INTERRUPTS() */
+	SetInterruptHandler(INTERRUPT_CONFIG_RELOAD, ProcessAutoVacLauncherConfigReloadInterrupt);
 
 	/*
 	 * Create a per-backend PGPROC struct in shared memory.  We must do this
@@ -455,7 +459,8 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 
 		/* Forget any pending QueryCancel or timeout request */
 		disable_all_timeouts(false);
-		QueryCancelPending = false; /* second to avoid race condition */
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL); /* second to avoid race
+												 * condition */
 
 		/* Report the error to the server log */
 		EmitErrorReport();
@@ -497,7 +502,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 		RESUME_INTERRUPTS();
 
 		/* if in shutdown mode, no need for anything further; just go away */
-		if (ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_TERMINATE))
 			AutoVacLauncherShutdown();
 
 		/*
@@ -556,7 +561,7 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	 */
 	if (!AutoVacuumingActive())
 	{
-		if (!ShutdownRequestPending)
+		if (InterruptPending(INTERRUPT_TERMINATE))
 			do_start_worker();
 		proc_exit(0);			/* done */
 	}
@@ -571,41 +576,44 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	rebuild_database_list(InvalidOid);
 
 	/* loop until shutdown request */
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_TERMINATE))
 	{
 		struct timeval nap;
 		TimestampTz current_time = 0;
 		bool		can_launch;
 
 		/*
-		 * This loop is a bit different from the normal use of WaitLatch,
+		 * This loop is a bit different from the normal use of WaitInterrupt,
 		 * because we'd like to sleep before the first launch of a child
-		 * process.  So it's WaitLatch, then ResetLatch, then check for
-		 * wakening conditions.
+		 * process.  So it's WaitInterrupt, then ClearInterrupt, then check
+		 * for wakening conditions.
 		 */
 
 		launcher_determine_sleep(av_worker_available(), false, &nap);
 
 		/*
-		 * Wait until naptime expires or we get some type of signal (all the
-		 * signal handlers will wake us by calling SetLatch).
+		 * Wait until naptime expires or we get some type of interrupt.
 		 */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
-						 WAIT_EVENT_AUTOVACUUM_MAIN);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_WAIT_WAKEUP |
+							 INTERRUPT_AUTOVACUUM_WORKER_FINISHED,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 (nap.tv_sec * 1000L) + (nap.tv_usec / 1000L),
+							 WAIT_EVENT_AUTOVACUUM_MAIN);
 
-		ResetLatch(MyLatch);
+		CHECK_FOR_INTERRUPTS();
 
-		ProcessAutoVacLauncherInterrupts();
+		/*
+		 * FIXME: is this still needed? Does anyone send INTERRUPT_WAIT_WAKEUP
+		 * to av launcher?
+		 */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * a worker finished, or postmaster signaled failure to start a worker
 		 */
-		if (got_SIGUSR2)
+		if (ConsumeInterrupt(INTERRUPT_AUTOVACUUM_WORKER_FINISHED))
 		{
-			got_SIGUSR2 = false;
-
 			/* rebalance cost limits, if needed */
 			if (AutoVacuumShmem->av_signal[AutoVacRebalance])
 			{
@@ -741,21 +749,17 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 	AutoVacLauncherShutdown();
 }
 
-/*
- * Process any new interrupts.
- */
 static void
-ProcessAutoVacLauncherInterrupts(void)
+ProcessAutoVacLauncherConfigReloadInterrupt(void)
 {
 	/* the normal shutdown case */
-	if (ShutdownRequestPending)
+	if (InterruptPending(INTERRUPT_TERMINATE))
 		AutoVacLauncherShutdown();
 
-	if (ConfigReloadPending)
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 	{
 		int			autovacuum_max_workers_prev = autovacuum_max_workers;
 
-		ConfigReloadPending = false;
 		ProcessConfigFile(PGC_SIGHUP);
 
 		/* shutdown requested in config file? */
@@ -773,17 +777,6 @@ ProcessAutoVacLauncherInterrupts(void)
 		/* rebuild the list in case the naptime changed */
 		rebuild_database_list(InvalidOid);
 	}
-
-	/* Process barrier events */
-	if (ProcSignalBarrierPending)
-		ProcessProcSignalBarrier();
-
-	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
-		ProcessLogMemoryContextInterrupt();
-
-	/* Process sinval catchup interrupts that happened while sleeping */
-	ProcessCatchupInterrupt();
 }
 
 /*
@@ -1350,8 +1343,8 @@ launch_worker(TimestampTz now)
 
 /*
  * Called from postmaster to signal a failure to fork a process to become
- * worker.  The postmaster should kill(SIGUSR2) the launcher shortly
- * after calling this function.
+ * worker.  The postmaster should send INTERRUPT_AUTOVACUUM_WORKER_FINISHED to
+ * the launcher shortly after calling this function.
  */
 void
 AutoVacWorkerFailed(void)
@@ -1363,8 +1356,7 @@ AutoVacWorkerFailed(void)
 static void
 avl_sigusr2_handler(SIGNAL_ARGS)
 {
-	got_SIGUSR2 = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_AUTOVACUUM_WORKER_FINISHED);
 }
 
 
@@ -1399,22 +1391,18 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 	 * backend, so we use the same signal handling.  See equivalent code in
 	 * tcop/postgres.c.
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-
-	/*
-	 * SIGINT is used to signal canceling the current table's vacuum; SIGTERM
-	 * means abort and exit cleanly, and SIGQUIT means abandon ship.
-	 */
-	pqsignal(SIGINT, StatementCancelHandler);
-	pqsignal(SIGTERM, die);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
 
 	InitializeTimeouts();		/* establishes SIGALRM handler */
 
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, SIG_IGN);
-	pqsignal(SIGFPE, FloatExceptionHandler);
+	SetStandardInterruptHandlers();
+
+	/*
+	 * INTERRUPT_QUERY_CANCEL (SIGINT) is used to cancel the current table's
+	 * vacuum; INTERRUPT_TERMINAT (SIGTERM) means abort and exit cleanly as
+	 * usual.
+	 */
+	SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
+	EnableInterrupt(INTERRUPT_QUERY_CANCEL);
 
 	/*
 	 * Create a per-backend PGPROC struct in shared memory.  We must do this
@@ -1545,12 +1533,7 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 		/* wake up the launcher */
 		launcherProc = pg_atomic_read_u32(&ProcGlobal->avLauncherProc);
 		if (launcherProc != INVALID_PROC_NUMBER)
-		{
-			int			pid = GetPGProcByNumber(launcherProc)->pid;
-
-			if (pid != 0)
-				kill(pid, SIGUSR2);
-		}
+			SendInterrupt(INTERRUPT_AUTOVACUUM_WORKER_FINISHED, launcherProc);
 	}
 	else
 	{
@@ -2292,9 +2275,8 @@ do_autovacuum(void)
 		/*
 		 * Check for config changes before processing each collected table.
 		 */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/*
@@ -2452,7 +2434,7 @@ do_autovacuum(void)
 			 * current table (we're done with it, so it would make no sense to
 			 * cancel at this point.)
 			 */
-			QueryCancelPending = false;
+			ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 		}
 		PG_CATCH();
 		{
@@ -2541,9 +2523,8 @@ deleted:
 		 * Check for config changes before acquiring lock for further jobs.
 		 */
 		CHECK_FOR_INTERRUPTS();
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 			VacuumUpdateCosts();
 		}
@@ -2665,7 +2646,7 @@ perform_work_item(AutoVacuumWorkItem *workitem)
 		 * (we're done with it, so it would make no sense to cancel at this
 		 * point.)
 		 */
-		QueryCancelPending = false;
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 	}
 	PG_CATCH();
 	{

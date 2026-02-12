@@ -15,6 +15,7 @@
 
 
 #include "common/hashfn_unstable.h"
+#include "ipc/interrupt.h"
 #include "lib/dshash.h"
 #include "lib/ilist.h"
 #include "pgstat.h"

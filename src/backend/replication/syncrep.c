@@ -76,6 +76,7 @@
 
 #include "access/xact.h"
 #include "common/int.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/syncrep.h"
@@ -265,22 +266,22 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 	/*
 	 * Wait for specified LSN to be confirmed.
 	 *
-	 * Each proc has its own wait latch, so we perform a normal latch
+	 * Each proc has its own wait interrupt vector, so we perform a normal
 	 * check/wait loop here.
 	 */
 	for (;;)
 	{
 		int			rc;
 
-		/* Must reset the latch before testing state. */
-		ResetLatch(MyLatch);
+		/* Must clear the interrupt flag before testing state. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
-		 * Acquiring the lock is not needed, the latch ensures proper
-		 * barriers. If it looks like we're done, we must really be done,
-		 * because once walsender changes the state to SYNC_REP_WAIT_COMPLETE,
-		 * it will never update it again, so we can't be seeing a stale value
-		 * in that case.
+		 * Acquiring the lock is not needed, the interrupt ensures proper
+		 * barriers (FIXME: is that so?). If it looks like we're done, we must
+		 * really be done, because once walsender changes the state to
+		 * SYNC_REP_WAIT_COMPLETE, it will never update it again, so we can't
+		 * be seeing a stale value in that case.
 		 */
 		if (MyProc->syncRepState == SYNC_REP_WAIT_COMPLETE)
 			break;
@@ -294,10 +295,10 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * entitled to assume that an acknowledged commit is also replicated,
 		 * which might not be true. So in this case we issue a WARNING (which
 		 * some clients may be able to interpret) and shut off further output.
-		 * We do NOT reset ProcDiePending, so that the process will die after
-		 * the commit is cleaned up.
+		 * We do NOT clear the interrupt bit, so that the process will die
+		 * after the commit is cleaned up.
 		 */
-		if (ProcDiePending)
+		if (InterruptPending(INTERRUPT_TERMINATE))
 		{
 			ereport(WARNING,
 					(errcode(ERRCODE_ADMIN_SHUTDOWN),
@@ -314,9 +315,8 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 * altogether is not helpful, so we just terminate the wait with a
 		 * suitable warning.
 		 */
-		if (QueryCancelPending)
+		if (ConsumeInterrupt(INTERRUPT_QUERY_CANCEL))
 		{
-			QueryCancelPending = false;
 			ereport(WARNING,
 					(errmsg("canceling wait for synchronous replication due to user request"),
 					 errdetail("The transaction has already committed locally, but might not have been replicated to the standby.")));
@@ -325,11 +325,15 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		}
 
 		/*
-		 * Wait on latch.  Any condition that should wake us up will set the
-		 * latch, so no need for timeout.
+		 * Wait on interrupt.  Any condition that should wake us up will set
+		 * the appropriate interrupt, so no need for timeout.
 		 */
-		rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1,
-					   WAIT_EVENT_SYNC_REP);
+		rc = WaitInterrupt(INTERRUPT_WAIT_WAKEUP |
+						   INTERRUPT_TERMINATE |
+						   INTERRUPT_QUERY_CANCEL,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH,
+						   -1,
+						   WAIT_EVENT_SYNC_REP);
 
 		/*
 		 * If the postmaster dies, we'll probably never get an acknowledgment,
@@ -337,7 +341,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		 */
 		if (rc & WL_POSTMASTER_DEATH)
 		{
-			ProcDiePending = true;
+			RaiseInterrupt(INTERRUPT_TERMINATE);
 			whereToSendOutput = DestNone;
 			SyncRepCancelWait();
 			break;
@@ -944,7 +948,7 @@ SyncRepWakeQueue(bool all, int mode)
 		/*
 		 * Wake only when we have set state and removed from queue.
 		 */
-		SetLatch(&(proc->procLatch));
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(proc));
 
 		numprocs++;
 	}

@@ -32,6 +32,8 @@
 #include <sys/time.h>
 
 #include "common/file_perm.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "lib/stringinfo.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -39,13 +41,11 @@
 #include "pgstat.h"
 #include "pgtime.h"
 #include "port/pg_bitutils.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "postmaster/syslogger.h"
 #include "storage/dsm.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/pg_shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
@@ -272,16 +272,14 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	 * upstream processes are gone, to ensure we don't miss any dying gasps of
 	 * broken backends...
 	 */
-
-	pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
-													 * file */
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGTERM, SIG_IGN);
 	pqsignal(SIGQUIT, SIG_IGN);
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
+
 	pqsignal(SIGUSR1, sigUsr1Handler);	/* request log rotation */
-	pqsignal(SIGUSR2, SIG_IGN);
+
+	SetStandardInterruptHandlers();
+	DisableInterrupt(INTERRUPT_TERMINATE);
 
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
@@ -322,7 +320,7 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	whereToSendOutput = DestNone;
 
 	/*
-	 * Set up a reusable WaitEventSet object we'll use to wait for our latch,
+	 * Set up a reusable WaitEventSet object we'll use to wait for interrupts,
 	 * and (except on Windows) our socket.
 	 *
 	 * Unlike all other postmaster child processes, we'll ignore postmaster
@@ -332,9 +330,12 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 	 * (including the postmaster).
 	 */
 	wes = CreateWaitEventSet(NULL, 2);
-	AddWaitEventToSet(wes, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
+	AddWaitEventToSet(wes, WL_INTERRUPT, PGINVALID_SOCKET,
+					  INTERRUPT_CONFIG_RELOAD |
+					  INTERRUPT_WAIT_WAKEUP,	/* for log rotation */
+					  NULL);
 #ifndef WIN32
-	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], NULL, NULL);
+	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], 0, NULL);
 #endif
 
 	/* main worker loop */
@@ -350,14 +351,13 @@ SysLoggerMain(const void *startup_data, size_t startup_data_len)
 #endif
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 		/*
 		 * Process any requests or signals received recently.
 		 */
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/*
@@ -1182,7 +1182,7 @@ pipeThread(void *arg)
 				 ftello(csvlogFile) >= Log_RotationSize * (pgoff_t) 1024) ||
 				(jsonlogFile != NULL &&
 				 ftello(jsonlogFile) >= Log_RotationSize * (pgoff_t) 1024))
-				SetLatch(MyLatch);
+				RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 		}
 		LeaveCriticalSection(&sysloggerSection);
 	}
@@ -1193,8 +1193,8 @@ pipeThread(void *arg)
 	/* if there's any data left then force it out now */
 	flush_pipe_input(logbuffer, &bytes_in_logbuffer);
 
-	/* set the latch to waken the main thread, which will quit */
-	SetLatch(MyLatch);
+	/* raise the interrupt to waken the main thread, which will quit */
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 	LeaveCriticalSection(&sysloggerSection);
 	_endthread();
@@ -1585,9 +1585,10 @@ RemoveLogrotateSignalFiles(void)
 }
 
 /* SIGUSR1: set flag to rotate logfile */
+/*  TODO: Use an interrupt flag for this */
 static void
 sigUsr1Handler(SIGNAL_ARGS)
 {
 	rotation_requested = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }

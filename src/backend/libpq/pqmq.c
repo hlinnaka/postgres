@@ -14,6 +14,7 @@
 #include "postgres.h"
 
 #include "access/parallel.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
@@ -25,7 +26,6 @@
 
 static shm_mq_handle *pq_mq_handle = NULL;
 static bool pq_mq_busy = false;
-static pid_t pq_mq_parallel_leader_pid = 0;
 static ProcNumber pq_mq_parallel_leader_proc_number = INVALID_PROC_NUMBER;
 
 static void pq_cleanup_redirect_to_shm_mq(dsm_segment *seg, Datum arg);
@@ -75,14 +75,13 @@ pq_cleanup_redirect_to_shm_mq(dsm_segment *seg, Datum arg)
 }
 
 /*
- * Arrange to SendProcSignal() to the parallel leader each time we transmit
+ * Arrange to send an interrupt to the parallel leader each time we transmit
  * message data via the shm_mq.
  */
 void
-pq_set_parallel_leader(pid_t pid, ProcNumber procNumber)
+pq_set_parallel_leader(ProcNumber procNumber)
 {
 	Assert(PqCommMethods == &PqCommMqMethods);
-	pq_mq_parallel_leader_pid = pid;
 	pq_mq_parallel_leader_proc_number = procNumber;
 }
 
@@ -169,27 +168,19 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 		Assert(pq_mq_handle != NULL);
 		result = shm_mq_sendv(pq_mq_handle, iov, 2, true, true);
 
-		if (pq_mq_parallel_leader_pid != 0)
+		if (pq_mq_parallel_leader_proc_number != INVALID_PROC_NUMBER)
 		{
-			if (IsLogicalParallelApplyWorker())
-				SendProcSignal(pq_mq_parallel_leader_pid,
-							   PROCSIG_PARALLEL_APPLY_MESSAGE,
-							   pq_mq_parallel_leader_proc_number);
-			else
-			{
-				Assert(IsParallelWorker());
-				SendProcSignal(pq_mq_parallel_leader_pid,
-							   PROCSIG_PARALLEL_MESSAGE,
-							   pq_mq_parallel_leader_proc_number);
-			}
+			SendInterrupt(INTERRUPT_PARALLEL_MESSAGE,
+						  pq_mq_parallel_leader_proc_number);
 		}
 
 		if (result != SHM_MQ_WOULD_BLOCK)
 			break;
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 	}
 

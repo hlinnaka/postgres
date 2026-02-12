@@ -527,7 +527,6 @@ errfinish(const char *filename, int lineno, const char *funcname)
 		 * should make life easier for most.)
 		 */
 		InterruptHoldoffCount = 0;
-		QueryCancelHoldoffCount = 0;
 
 		CritSectionCount = 0;	/* should be unnecessary, but... */
 

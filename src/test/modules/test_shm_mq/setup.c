@@ -15,6 +15,7 @@
 
 #include "postgres.h"
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
@@ -133,6 +134,7 @@ setup_dynamic_shared_memory(int64 queue_size, int nworkers,
 
 	/* Set up the header region. */
 	hdr = shm_toc_allocate(toc, sizeof(test_shm_mq_header));
+	hdr->leader_proc_number = MyProcNumber;
 	SpinLockInit(&hdr->mutex);
 	hdr->workers_total = nworkers;
 	hdr->workers_attached = 0;
@@ -222,8 +224,6 @@ setup_background_workers(int nworkers, dsm_segment *seg)
 	sprintf(worker.bgw_function_name, "test_shm_mq_main");
 	snprintf(worker.bgw_type, BGW_MAXLEN, "test_shm_mq");
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(seg));
-	/* set bgw_notify_pid, so we can detect if the worker stops */
-	worker.bgw_notify_pid = MyProcPid;
 
 	/* Register the workers. */
 	for (i = 0; i < nworkers; ++i)
@@ -264,6 +264,9 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 	{
 		int			workers_ready;
 
+		/* Clear the interrupt flag so we don't spin. */
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+
 		/* If all the workers are ready, we have succeeded. */
 		SpinLockAcquire(&hdr->mutex);
 		workers_ready = hdr->workers_ready;
@@ -286,11 +289,9 @@ wait_for_workers_to_become_ready(worker_state *wstate,
 			we_bgworker_startup = WaitEventExtensionNew("TestShmMqBgWorkerStartup");
 
 		/* Wait to be signaled. */
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
-						 we_bgworker_startup);
-
-		/* Reset the latch so we don't spin. */
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+							 we_bgworker_startup);
 
 		/* An interrupt may have occurred while we were waiting. */
 		CHECK_FOR_INTERRUPTS();

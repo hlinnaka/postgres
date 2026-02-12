@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #ifdef PROFILE_PID_DIR
 #include "postmaster/autovacuum.h"
@@ -172,13 +173,12 @@ proc_exit_prepare(int code)
 	proc_exit_inprogress = true;
 
 	/*
-	 * Forget any pending cancel or die requests; we're doing our best to
-	 * close up shop already.  Note that the signal handlers will not set
-	 * these flags again, now that proc_exit_inprogress is set.
+	 * Forget any pending cancel or die requests and set InterruptHoldoffCount
+	 * to prevent any more interrupts from being processed; we're doing our
+	 * best to close up shop already.
 	 */
-	InterruptPending = false;
-	ProcDiePending = false;
-	QueryCancelPending = false;
+	ClearInterrupt(INTERRUPT_TERMINATE);
+	ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 	InterruptHoldoffCount = 1;
 	CritSectionCount = 0;
 

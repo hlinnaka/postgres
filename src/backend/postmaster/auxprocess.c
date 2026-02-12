@@ -15,7 +15,6 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "storage/condition_variable.h"
@@ -23,6 +22,7 @@
 #include "storage/proc.h"
 #include "storage/procsignal.h"
 #include "utils/memutils.h"
+#include "utils/resowner.h"
 #include "utils/ps_status.h"
 
 

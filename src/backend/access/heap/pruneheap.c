@@ -24,7 +24,7 @@
 #include "access/xloginsert.h"
 #include "commands/vacuum.h"
 #include "executor/instrument.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/bufmgr.h"
 #include "utils/rel.h"

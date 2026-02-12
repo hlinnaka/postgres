@@ -25,11 +25,12 @@
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_subscription_rel.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "lib/dshash.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
 #include "replication/logicallauncher.h"
 #include "replication/origin.h"
 #include "replication/slot.h"
@@ -58,7 +59,7 @@ LogicalRepWorker *MyLogicalRepWorker = NULL;
 typedef struct LogicalRepCtxStruct
 {
 	/* Supervisor process. */
-	pid_t		launcher_pid;
+	ProcNumber	launcher_procno;
 
 	/* Hash table holding last start times of subscriptions' apply workers. */
 	dsa_handle	last_start_dsa;
@@ -183,7 +184,6 @@ WaitForReplicationWorkerAttach(LogicalRepWorker *worker,
 							   BackgroundWorkerHandle *handle)
 {
 	bool		result = false;
-	bool		dropped_latch = false;
 
 	for (;;)
 	{
@@ -219,27 +219,28 @@ WaitForReplicationWorkerAttach(LogicalRepWorker *worker,
 		}
 
 		/*
-		 * We need timeout because we generally don't get notified via latch
-		 * about the worker attach.  But we don't expect to have to wait long.
+		 * We need timeout because we generally don't get notified via an
+		 * interrupt about the worker attach.  But we don't expect to have to
+		 * wait long.
 		 */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   10L, WAIT_EVENT_BGWORKER_STARTUP);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
-			dropped_latch = true;
 		}
 	}
 
 	/*
-	 * If we had to clear a latch event in order to wait, be sure to restore
-	 * it before exiting.  Otherwise caller may miss events.
+	 * XXX: We used to have to restore the process latch, because the launcher
+	 * relied on the same latch to wait for other status changes. But We now
+	 * use INTERRUPT_SUBSCRIPTION_CHANGE for that. But for clariy, perhaps we
+	 * should use a designed interrupt for this wait too?
 	 */
-	if (dropped_latch)
-		SetLatch(MyLatch);
 
 	return result;
 }
@@ -473,6 +474,7 @@ retry:
 	worker->relstate_lsn = InvalidXLogRecPtr;
 	worker->stream_fileset = NULL;
 	worker->leader_pid = is_parallel_apply_worker ? MyProcPid : InvalidPid;
+	worker->leader_pgprocno = is_parallel_apply_worker ? MyProcNumber : INVALID_PROC_NUMBER;
 	worker->parallel_apply = is_parallel_apply_worker;
 	worker->oldest_nonremovable_xid = retain_dead_tuples
 		? MyReplicationSlot->data.xmin
@@ -539,7 +541,6 @@ retry:
 	}
 
 	bgw.bgw_restart_time = BGW_NEVER_RESTART;
-	bgw.bgw_notify_pid = MyProcPid;
 	bgw.bgw_main_arg = Int32GetDatum(slot);
 
 	if (!RegisterDynamicBackgroundWorker(&bgw, &bgw_handle))
@@ -566,7 +567,7 @@ retry:
  * slot.
  */
 static void
-logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
+logicalrep_worker_stop_internal(LogicalRepWorker *worker, InterruptMask interrupt)
 {
 	uint16		generation;
 
@@ -589,13 +590,14 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   10L, WAIT_EVENT_BGWORKER_STARTUP);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   10L, WAIT_EVENT_BGWORKER_STARTUP);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 
@@ -616,7 +618,7 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 	}
 
 	/* Now terminate the worker ... */
-	kill(worker->proc->pid, signo);
+	SendInterrupt(interrupt, GetNumberFromPGProc(worker->proc));
 
 	/* ... and wait for it to die. */
 	for (;;)
@@ -630,13 +632,14 @@ logicalrep_worker_stop_internal(LogicalRepWorker *worker, int signo)
 		LWLockRelease(LogicalRepWorkerLock);
 
 		/* Wait a bit --- we don't expect to have to wait long. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   10L, WAIT_EVENT_BGWORKER_SHUTDOWN);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   10L, WAIT_EVENT_BGWORKER_SHUTDOWN);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			CHECK_FOR_INTERRUPTS();
 		}
 
@@ -663,7 +666,7 @@ logicalrep_worker_stop(LogicalRepWorkerType wtype, Oid subid, Oid relid)
 	if (worker)
 	{
 		Assert(!isParallelApplyWorker(worker));
-		logicalrep_worker_stop_internal(worker, SIGTERM);
+		logicalrep_worker_stop_internal(worker, INTERRUPT_TERMINATE);
 	}
 
 	LWLockRelease(LogicalRepWorkerLock);
@@ -672,8 +675,9 @@ logicalrep_worker_stop(LogicalRepWorkerType wtype, Oid subid, Oid relid)
 /*
  * Stop the given logical replication parallel apply worker.
  *
- * Node that the function sends SIGUSR2 instead of SIGTERM to the parallel apply
- * worker so that the worker exits cleanly.
+ * Node that the function sends INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER
+ * instead of INTERRUPT_TERMINATE to the parallel apply worker so that the
+ * worker exits more cleanly. (FIXME: what's the difference really?)
  */
 void
 logicalrep_pa_worker_stop(ParallelApplyWorkerInfo *winfo)
@@ -710,13 +714,13 @@ logicalrep_pa_worker_stop(ParallelApplyWorkerInfo *winfo)
 	 * Only stop the worker if the generation matches and the worker is alive.
 	 */
 	if (worker->generation == generation && worker->proc)
-		logicalrep_worker_stop_internal(worker, SIGUSR2);
+		logicalrep_worker_stop_internal(worker, INTERRUPT_SHUTDOWN_PARALLEL_APPLY_WORKER);
 
 	LWLockRelease(LogicalRepWorkerLock);
 }
 
 /*
- * Wake up (using latch) any logical replication worker that matches the
+ * Wake up (using interrupt) any logical replication worker that matches the
  * specified worker type, subscription id, and relation id.
  */
 void
@@ -738,7 +742,7 @@ logicalrep_worker_wakeup(LogicalRepWorkerType wtype, Oid subid, Oid relid)
 }
 
 /*
- * Wake up (using latch) the specified logical replication worker.
+ * Wake up (using interrupt) the specified logical replication worker.
  *
  * Caller must hold lock, else worker->proc could change under us.
  */
@@ -747,7 +751,7 @@ logicalrep_worker_wakeup_ptr(LogicalRepWorker *worker)
 {
 	Assert(LWLockHeldByMe(LogicalRepWorkerLock));
 
-	SetLatch(&worker->proc->procLatch);
+	SendInterrupt(INTERRUPT_WAIT_WAKEUP, GetNumberFromPGProc(worker->proc));
 }
 
 /*
@@ -815,7 +819,7 @@ logicalrep_worker_detach(void)
 			LogicalRepWorker *w = (LogicalRepWorker *) lfirst(lc);
 
 			if (isParallelApplyWorker(w))
-				logicalrep_worker_stop_internal(w, SIGTERM);
+				logicalrep_worker_stop_internal(w, INTERRUPT_TERMINATE);
 		}
 
 		LWLockRelease(LogicalRepWorkerLock);
@@ -847,6 +851,7 @@ logicalrep_worker_cleanup(LogicalRepWorker *worker)
 	worker->subid = InvalidOid;
 	worker->relid = InvalidOid;
 	worker->leader_pid = InvalidPid;
+	worker->leader_pgprocno = INVALID_PROC_NUMBER;
 	worker->parallel_apply = false;
 }
 
@@ -858,7 +863,7 @@ logicalrep_worker_cleanup(LogicalRepWorker *worker)
 static void
 logicalrep_launcher_onexit(int code, Datum arg)
 {
-	LogicalRepCtx->launcher_pid = 0;
+	LogicalRepCtx->launcher_procno = INVALID_PROC_NUMBER;
 }
 
 /*
@@ -1019,7 +1024,6 @@ ApplyLauncherRegister(void)
 	snprintf(bgw.bgw_type, BGW_MAXLEN,
 			 "logical replication launcher");
 	bgw.bgw_restart_time = 5;
-	bgw.bgw_notify_pid = 0;
 	bgw.bgw_main_arg = (Datum) 0;
 
 	RegisterBackgroundWorker(&bgw);
@@ -1045,6 +1049,7 @@ ApplyLauncherShmemInit(void)
 
 		memset(LogicalRepCtx, 0, ApplyLauncherShmemSize());
 
+		LogicalRepCtx->launcher_procno = INVALID_PROC_NUMBER;
 		LogicalRepCtx->last_start_dsa = DSA_HANDLE_INVALID;
 		LogicalRepCtx->last_start_dsh = DSHASH_HANDLE_INVALID;
 
@@ -1193,8 +1198,12 @@ ApplyLauncherWakeupAtCommit(void)
 void
 ApplyLauncherWakeup(void)
 {
-	if (LogicalRepCtx->launcher_pid != 0)
-		kill(LogicalRepCtx->launcher_pid, SIGUSR1);
+	volatile LogicalRepCtxStruct *repctx = LogicalRepCtx;
+	ProcNumber	launcher_procno;
+
+	launcher_procno = repctx->launcher_procno;
+	if (launcher_procno != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_SUBSCRIPTION_CHANGE, launcher_procno);
 }
 
 /*
@@ -1208,12 +1217,15 @@ ApplyLauncherMain(Datum main_arg)
 
 	before_shmem_exit(logicalrep_launcher_onexit, (Datum) 0);
 
-	Assert(LogicalRepCtx->launcher_pid == 0);
-	LogicalRepCtx->launcher_pid = MyProcPid;
+	Assert(LogicalRepCtx->launcher_procno == INVALID_PROC_NUMBER);
+	LogicalRepCtx->launcher_procno = MyProcNumber;
 
-	/* Establish signal handlers. */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	/* Establish interrupt handlers. */
 	BackgroundWorkerUnblockSignals();
+
+	SetStandardInterruptHandlers();
+	SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
+	EnableInterrupt(INTERRUPT_QUERY_CANCEL);
 
 	/*
 	 * Establish connection to nailed catalogs (we only ever access
@@ -1256,6 +1268,7 @@ ApplyLauncherMain(Datum main_arg)
 		 * detection if one of the subscription enables retain_dead_tuples
 		 * option.
 		 */
+		ClearInterrupt(INTERRUPT_SUBSCRIPTION_CHANGE);
 		sublist = get_subscription_list();
 		foreach(lc, sublist)
 		{
@@ -1416,21 +1429,19 @@ ApplyLauncherMain(Datum main_arg)
 		MemoryContextDelete(subctx);
 
 		/* Wait for more work. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   wait_time,
-					   WAIT_EVENT_LOGICAL_LAUNCHER_MAIN);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_CONFIG_RELOAD |
+						   INTERRUPT_SUBSCRIPTION_CHANGE,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   wait_time,
+						   WAIT_EVENT_LOGICAL_LAUNCHER_MAIN);
 
-		if (rc & WL_LATCH_SET)
+		if (rc & WL_INTERRUPT)
 		{
-			ResetLatch(MyLatch);
 			CHECK_FOR_INTERRUPTS();
-		}
 
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
-			ProcessConfigFile(PGC_SIGHUP);
+			if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
+				ProcessConfigFile(PGC_SIGHUP);
 		}
 	}
 
@@ -1585,7 +1596,7 @@ CreateConflictDetectionSlot(void)
 bool
 IsLogicalLauncher(void)
 {
-	return LogicalRepCtx->launcher_pid == MyProcPid;
+	return LogicalRepCtx->launcher_procno == MyProcNumber;
 }
 
 /*

@@ -539,10 +539,8 @@ PostmasterMain(int argc, char *argv[])
 	 * Set up signal handlers for the postmaster process.
 	 *
 	 * CAUTION: when changing this list, check for side-effects on the signal
-	 * handling setup of child processes.  See tcop/postgres.c,
-	 * bootstrap/bootstrap.c, postmaster/bgwriter.c, postmaster/walwriter.c,
-	 * postmaster/autovacuum.c, postmaster/pgarch.c, postmaster/syslogger.c,
-	 * postmaster/bgworker.c and postmaster/checkpointer.c.
+	 * handling setup of child processes.  See
+	 * SetPostmasterChildSignalHandlers()
 	 */
 	pqinitmask();
 	sigprocmask(SIG_SETMASK, &BlockSig, NULL);
@@ -559,7 +557,6 @@ PostmasterMain(int argc, char *argv[])
 
 	/* This may configure SIGURG, depending on platform. */
 	InitializeWaitEventSupport();
-	InitProcessLocalLatch();
 
 	/*
 	 * No other place in Postgres should touch SIGTTIN/SIGTTOU handling.  We
@@ -579,6 +576,8 @@ PostmasterMain(int argc, char *argv[])
 #ifdef SIGXFSZ
 	pqsignal(SIGXFSZ, SIG_IGN); /* ignored */
 #endif
+
+	/* note: we do not install the standard interrupt handlers in postmaster */
 
 	/* Begin accepting signals. */
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
@@ -1645,14 +1644,15 @@ ConfigurePostmasterWaitSet(bool accept_connections)
 
 	pm_wait_set = CreateWaitEventSet(NULL,
 									 accept_connections ? (1 + NumListenSockets) : 1);
-	AddWaitEventToSet(pm_wait_set, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch,
+	AddWaitEventToSet(pm_wait_set, WL_INTERRUPT, PGINVALID_SOCKET,
+					  INTERRUPT_CONFIG_RELOAD | INTERRUPT_WAIT_WAKEUP,
 					  NULL);
 
 	if (accept_connections)
 	{
 		for (int i = 0; i < NumListenSockets; i++)
 			AddWaitEventToSet(pm_wait_set, WL_SOCKET_ACCEPT, ListenSockets[i],
-							  NULL, NULL);
+							  0, NULL);
 	}
 }
 
@@ -1681,19 +1681,20 @@ ServerLoop(void)
 								   0 /* postmaster posts no wait_events */ );
 
 		/*
-		 * Latch set by signal handler, or new connection pending on any of
-		 * our sockets? If the latter, fork a child process to deal with it.
+		 * Interrupt raised by signal handler, or new connection pending on
+		 * any of our sockets?  If the latter, fork a child process to deal
+		 * with it.
 		 */
 		for (int i = 0; i < nevents; i++)
 		{
-			if (events[i].events & WL_LATCH_SET)
-				ResetLatch(MyLatch);
+			if (events[i].events & WL_INTERRUPT)
+				ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 			/*
 			 * The following requests are handled unconditionally, even if we
-			 * didn't see WL_LATCH_SET.  This gives high priority to shutdown
-			 * and reload requests where the latch happens to appear later in
-			 * events[] or will be reported by a later call to
+			 * didn't see WL_INTERRUPT.  This gives high priority to shutdown
+			 * and reload requests where the interrupt event happens to appear
+			 * later in events[] or will be reported by a later call to
 			 * WaitEventSetWait().
 			 */
 			if (pending_pm_shutdown_request)
@@ -1985,7 +1986,7 @@ static void
 handle_pm_pmsignal_signal(SIGNAL_ARGS)
 {
 	pending_pm_pmsignal = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -1995,7 +1996,7 @@ static void
 handle_pm_reload_request_signal(SIGNAL_ARGS)
 {
 	pending_pm_reload_request = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -2072,7 +2073,7 @@ handle_pm_shutdown_request_signal(SIGNAL_ARGS)
 			pending_pm_shutdown_request = true;
 			break;
 	}
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -2233,7 +2234,7 @@ static void
 handle_pm_child_exit_signal(SIGNAL_ARGS)
 {
 	pending_pm_child_exit = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -2581,6 +2582,7 @@ CleanupBackend(PMChild *bp,
 	bool		crashed = false;
 	bool		logged = false;
 	pid_t		bp_pid;
+	int			bp_child_slot;
 	bool		bp_bgworker_notify;
 	BackendType bp_bkend_type;
 	RegisteredBgWorker *rw;
@@ -2628,6 +2630,7 @@ CleanupBackend(PMChild *bp,
 	 * detached cleanly.
 	 */
 	bp_pid = bp->pid;
+	bp_child_slot = bp->child_slot;
 	bp_bgworker_notify = bp->bgworker_notify;
 	bp_bkend_type = bp->bkend_type;
 	rw = bp->rw;
@@ -2655,14 +2658,14 @@ CleanupBackend(PMChild *bp,
 	}
 
 	/*
-	 * This backend may have been slated to receive SIGUSR1 when some
-	 * background worker started or stopped.  Cancel those notifications, as
-	 * we don't want to signal PIDs that are not PostgreSQL backends.  This
+	 * This backend may have been slated to receive INTERRUPT_WAIT_WAKEUP when
+	 * some background worker started or stopped.  Cancel those notifications,
+	 * as we don't want to signal PIDs that are not PostgreSQL backends.  This
 	 * gets skipped in the (probably very common) case where the backend has
 	 * never requested any such notifications.
 	 */
 	if (bp_bgworker_notify)
-		BackgroundWorkerStopNotifications(bp_pid);
+		BackgroundWorkerStopNotifications(bp_child_slot);
 
 	/*
 	 * If it was an autovacuum worker, wake up the launcher so that it can
@@ -3921,7 +3924,7 @@ process_pm_pmsignal(void)
  * but we do use in backends.  If we were to SIG_IGN such signals in the
  * postmaster, then a newly started backend might drop a signal that arrives
  * before it's able to reconfigure its signal processing.  (See notes in
- * tcop/postgres.c.)
+ * tcop/postgres.c.) XXX: where are those notes now?
  */
 static void
 dummy_handler(SIGNAL_ARGS)
@@ -4297,15 +4300,15 @@ maybe_start_bgworkers(void)
 		{
 			if (rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART)
 			{
-				int			notify_pid;
+				ProcNumber	notify_proc_number;
 
-				notify_pid = rw->rw_worker.bgw_notify_pid;
+				notify_proc_number = GetNotifyProcNumberForRegisteredWorker(rw);
 
 				ForgetBackgroundWorker(rw);
 
 				/* Report worker is gone now. */
-				if (notify_pid != 0)
-					kill(notify_pid, SIGUSR1);
+				if (notify_proc_number != INVALID_PROC_NUMBER)
+					SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 
 				continue;
 			}

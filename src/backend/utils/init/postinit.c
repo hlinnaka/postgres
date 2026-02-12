@@ -33,6 +33,7 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_db_role_setting.h"
 #include "catalog/pg_tablespace.h"
+#include "ipc/interrupt.h"
 #include "libpq/auth.h"
 #include "libpq/libpq-be.h"
 #include "mb/pg_wchar.h"
@@ -1371,20 +1372,19 @@ ShutdownPostgres(int code, Datum arg)
 static void
 StatementTimeoutHandler(void)
 {
-	int			sig = SIGINT;
-
 	/*
 	 * During authentication the timeout is used to deal with
 	 * authentication_timeout - we want to quit in response to such timeouts.
 	 */
 	if (ClientAuthInProgress)
-		sig = SIGTERM;
+		RaiseInterrupt(INTERRUPT_TERMINATE);
+	else
+		RaiseInterrupt(INTERRUPT_QUERY_CANCEL);
 
-#ifdef HAVE_SETSID
-	/* try to signal whole process group */
-	kill(-MyProcPid, sig);
-#endif
-	kill(MyProcPid, sig);
+	/*
+	 * FIXME: we used to signal the whole process group. Is that important, if
+	 * we're e.g. executing archive_command ?
+	 */
 }
 
 /*
@@ -1393,51 +1393,37 @@ StatementTimeoutHandler(void)
 static void
 LockTimeoutHandler(void)
 {
-#ifdef HAVE_SETSID
-	/* try to signal whole process group */
-	kill(-MyProcPid, SIGINT);
-#endif
-	kill(MyProcPid, SIGINT);
+	RaiseInterrupt(INTERRUPT_QUERY_CANCEL);
 }
 
 static void
 TransactionTimeoutHandler(void)
 {
-	TransactionTimeoutPending = true;
-	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_TRANSACTION_TIMEOUT);
 }
 
 static void
 IdleInTransactionSessionTimeoutHandler(void)
 {
-	IdleInTransactionSessionTimeoutPending = true;
-	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_IDLE_IN_TRANSACTION_SESSION_TIMEOUT);
 }
 
 static void
 IdleSessionTimeoutHandler(void)
 {
-	IdleSessionTimeoutPending = true;
-	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_IDLE_SESSION_TIMEOUT);
 }
 
 static void
 IdleStatsUpdateTimeoutHandler(void)
 {
-	IdleStatsUpdateTimeoutPending = true;
-	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_IDLE_STATS_TIMEOUT);
 }
 
 static void
 ClientCheckTimeoutHandler(void)
 {
-	CheckClientConnectionPending = true;
-	InterruptPending = true;
-	SetLatch(MyLatch);
+	RaiseInterrupt(INTERRUPT_CLIENT_CHECK_TIMEOUT);
 }
 
 /*

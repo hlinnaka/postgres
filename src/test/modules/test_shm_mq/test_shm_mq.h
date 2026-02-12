@@ -28,6 +28,8 @@
  */
 typedef struct
 {
+	ProcNumber	leader_proc_number;
+
 	slock_t		mutex;
 	int			workers_total;
 	int			workers_attached;

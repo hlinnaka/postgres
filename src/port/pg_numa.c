@@ -16,7 +16,10 @@
 #include "c.h"
 #include <unistd.h>
 
-#include "miscadmin.h"
+#ifndef FRONTEND
+#include "postgres.h"
+#include "ipc/interrupt.h"
+#endif
 #include "port/pg_numa.h"
 
 /*

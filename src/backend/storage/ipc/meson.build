@@ -7,7 +7,6 @@ backend_sources += files(
   'dsm_registry.c',
   'ipc.c',
   'ipci.c',
-  'latch.c',
   'pmsignal.c',
   'procarray.c',
   'procsignal.c',

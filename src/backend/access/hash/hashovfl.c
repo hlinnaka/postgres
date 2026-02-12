@@ -20,7 +20,7 @@
 #include "access/hash.h"
 #include "access/hash_xlog.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/rel.h"
 
 

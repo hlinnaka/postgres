@@ -22,6 +22,7 @@
 #include "access/xloginsert.h"
 #include "access/xlogrecovery.h"
 #include "access/xlogutils.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/slot.h"
@@ -596,7 +597,7 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
  * ResolveRecoveryConflictWithLock is called from ProcSleep()
  * to resolve conflicts with other backends holding relation locks.
  *
- * The WaitLatch sleep normally done in ProcSleep()
+ * The WaitInterrupt sleep normally done in ProcSleep()
  * (when not InHotStandby) is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or set a timeout to wake us at
@@ -698,7 +699,11 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	}
 
 	/* Wait to be signaled by the release of the Relation Lock */
-	ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+	WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  PG_WAIT_LOCK | locktag.locktag_type);
+	CHECK_FOR_INTERRUPTS();
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 	/*
 	 * Exit if ltime is reached. Then all the backends holding conflicting
@@ -746,7 +751,11 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * until the relation locks are released or ltime is reached.
 		 */
 		got_standby_deadlock_timeout = false;
-		ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+		WaitInterrupt(CheckForInterruptsMask |
+					  INTERRUPT_WAIT_WAKEUP, WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+					  PG_WAIT_LOCK | locktag.locktag_type);
+		CHECK_FOR_INTERRUPTS();
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 cleanup:
@@ -766,15 +775,16 @@ cleanup:
  * ResolveRecoveryConflictWithBufferPin is called from LockBufferForCleanup()
  * to resolve conflicts with other backends holding buffer pins.
  *
- * The ProcWaitForSignal() sleep normally done in LockBufferForCleanup()
- * (when not InHotStandby) is performed here, for code clarity.
+ * The WaitInterrupt sleep normally done in LockBufferForCleanup() (when not
+ * InHotStandby) is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or set a timeout to wake us at
  * the limit of our patience.
  *
- * Resolve conflicts by sending a PROCSIG signal to all backends to check if
- * they hold one of the buffer pins that is blocking Startup process. If so,
- * those backends will take an appropriate error action, ERROR or FATAL.
+ * Resolve conflicts by sending RECOVERY_CONFLICT_BUFFERPIN to all
+ * backends to check if they hold one of the buffer pins that is blocking
+ * Startup process. If so, those backends will take an appropriate error
+ * action, ERROR or FATAL.
  *
  * We also must check for deadlocks.  Deadlocks occur because if queries
  * wait on a lock, that must be behind an AccessExclusiveLock, which can only
@@ -838,9 +848,19 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 * We assume that only UnpinBuffer() and the timeout requests established
 	 * above can wake us up here. WakeupRecovery() called by walreceiver or
 	 * SIGHUP signal handler, etc cannot do that because it uses the different
-	 * latch from that ProcWaitForSignal() waits on.
+	 * interrupt flag.
+	 *
+	 * FIXME: seems like a shaky assumption. WakeupRecovery() indeed uses a
+	 * different interrupt flag (different latch earlier), but other
+	 * interrupts currently in CheckForInterruptsMask could surely wake us up
+	 * too. However, the caller loops if the buffer is still pinned, so this
+	 * isn't completely broken. The timeouts get reset though.
 	 */
-	ProcWaitForSignal(WAIT_EVENT_BUFFER_CLEANUP);
+	WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+				  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+				  WAIT_EVENT_BUFFER_CLEANUP);
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+	CHECK_FOR_INTERRUPTS();
 
 	if (got_standby_delay_timeout)
 		SendRecoveryConflictWithBufferPin(RECOVERY_CONFLICT_BUFFERPIN);
@@ -936,6 +956,7 @@ void
 StandbyDeadLockHandler(void)
 {
 	got_standby_deadlock_timeout = true;
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -945,6 +966,7 @@ void
 StandbyTimeoutHandler(void)
 {
 	got_standby_delay_timeout = true;
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*
@@ -954,6 +976,7 @@ void
 StandbyLockTimeoutHandler(void)
 {
 	got_standby_lock_timeout = true;
+	RaiseInterrupt(INTERRUPT_WAIT_WAKEUP);
 }
 
 /*

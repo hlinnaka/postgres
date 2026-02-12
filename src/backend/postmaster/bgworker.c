@@ -13,6 +13,8 @@
 #include "postgres.h"
 
 #include "access/parallel.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -22,12 +24,10 @@
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/ascii.h"
@@ -79,6 +79,8 @@ typedef struct BackgroundWorkerSlot
 	pid_t		pid;			/* InvalidPid = not started yet; 0 = dead */
 	uint64		generation;		/* incremented when slot is recycled */
 	BackgroundWorker worker;
+	int			notify_pmchild;
+	ProcNumber	notify_proc_number;
 } BackgroundWorkerSlot;
 
 /*
@@ -202,8 +204,9 @@ BackgroundWorkerShmemInit(void)
 			slot->terminate = false;
 			slot->pid = InvalidPid;
 			slot->generation = 0;
+			slot->notify_pmchild = 0;
+			slot->notify_proc_number = INVALID_PROC_NUMBER;
 			rw->rw_shmem_slot = slotno;
-			rw->rw_worker.bgw_notify_pid = 0;	/* might be reinit after crash */
 			memcpy(&slot->worker, &rw->rw_worker, sizeof(BackgroundWorker));
 			++slotno;
 		}
@@ -242,6 +245,19 @@ FindRegisteredWorkerBySlotNumber(int slotno)
 	}
 
 	return NULL;
+}
+
+ProcNumber
+GetNotifyProcNumberForRegisteredWorker(RegisteredBgWorker *rw)
+{
+	BackgroundWorkerSlot *slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
+
+	/*
+	 * FIXME: be extra paranoid and sanity check the proc number, since this
+	 * runs in the postmaster
+	 */
+
+	return slot->notify_proc_number;
 }
 
 /*
@@ -325,20 +341,20 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 		/*
 		 * If the worker is marked for termination, we don't need to add it to
 		 * the registered workers list; we can just free the slot. However, if
-		 * bgw_notify_pid is set, the process that registered the worker may
-		 * need to know that we've processed the terminate request, so be sure
-		 * to signal it.
+		 * bgw_notify_proc_number is set, the process that registered the
+		 * worker may need to know that we've processed the terminate request,
+		 * so be sure to signal it.
 		 */
 		if (slot->terminate)
 		{
-			int			notify_pid;
+			ProcNumber	notify_proc_number;
 
 			/*
 			 * We need a memory barrier here to make sure that the load of
-			 * bgw_notify_pid and the update of parallel_terminate_count
-			 * complete before the store to in_use.
+			 * bgw_notify_proc_number and the update of
+			 * parallel_terminate_count complete before the store to in_use.
 			 */
-			notify_pid = slot->worker.bgw_notify_pid;
+			notify_proc_number = slot->notify_proc_number;
 			if ((slot->worker.bgw_flags & BGWORKER_CLASS_PARALLEL) != 0)
 				BackgroundWorkerData->parallel_terminate_count++;
 			slot->pid = 0;
@@ -346,8 +362,8 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 			pg_memory_barrier();
 			slot->in_use = false;
 
-			if (notify_pid != 0)
-				kill(notify_pid, SIGUSR1);
+			if (notify_proc_number != INVALID_PROC_NUMBER)
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 
 			continue;
 		}
@@ -393,23 +409,6 @@ BackgroundWorkerStateChange(bool allow_new_workers)
 		rw->rw_worker.bgw_main_arg = slot->worker.bgw_main_arg;
 		memcpy(rw->rw_worker.bgw_extra, slot->worker.bgw_extra, BGW_EXTRALEN);
 
-		/*
-		 * Copy the PID to be notified about state changes, but only if the
-		 * postmaster knows about a backend with that PID.  It isn't an error
-		 * if the postmaster doesn't know about the PID, because the backend
-		 * that requested the worker could have died (or been killed) just
-		 * after doing so.  Nonetheless, at least until we get some experience
-		 * with how this plays out in the wild, log a message at a relative
-		 * high debug level.
-		 */
-		rw->rw_worker.bgw_notify_pid = slot->worker.bgw_notify_pid;
-		if (!PostmasterMarkPIDForWorkerNotify(rw->rw_worker.bgw_notify_pid))
-		{
-			elog(DEBUG1, "worker notification PID %d is not valid",
-				 (int) rw->rw_worker.bgw_notify_pid);
-			rw->rw_worker.bgw_notify_pid = 0;
-		}
-
 		/* Initialize postmaster bookkeeping. */
 		rw->rw_pid = 0;
 		rw->rw_crashed_at = 0;
@@ -431,7 +430,7 @@ BackgroundWorkerStateChange(bool allow_new_workers)
  * NOTE: The entry is unlinked from BackgroundWorkerList.  If the caller is
  * iterating through it, better use a mutable iterator!
  *
- * Caller is responsible for notifying bgw_notify_pid, if appropriate.
+ * Caller is responsible for notifying bgw_notify_proc_number, if appropriate.
  *
  * This function must be invoked only in the postmaster.
  */
@@ -476,8 +475,8 @@ ReportBackgroundWorkerPID(RegisteredBgWorker *rw)
 	slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
 	slot->pid = rw->rw_pid;
 
-	if (rw->rw_worker.bgw_notify_pid != 0)
-		kill(rw->rw_worker.bgw_notify_pid, SIGUSR1);
+	if (slot->notify_proc_number != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, slot->notify_proc_number);
 }
 
 /*
@@ -493,12 +492,12 @@ void
 ReportBackgroundWorkerExit(RegisteredBgWorker *rw)
 {
 	BackgroundWorkerSlot *slot;
-	int			notify_pid;
+	ProcNumber	notify_proc_number;
 
 	Assert(rw->rw_shmem_slot < max_worker_processes);
 	slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
 	slot->pid = rw->rw_pid;
-	notify_pid = rw->rw_worker.bgw_notify_pid;
+	notify_proc_number = slot->notify_proc_number;
 
 	/*
 	 * If this worker is slated for deregistration, do that before notifying
@@ -511,27 +510,34 @@ ReportBackgroundWorkerExit(RegisteredBgWorker *rw)
 		rw->rw_worker.bgw_restart_time == BGW_NEVER_RESTART)
 		ForgetBackgroundWorker(rw);
 
-	if (notify_pid != 0)
-		kill(notify_pid, SIGUSR1);
+	if (notify_proc_number != INVALID_PROC_NUMBER)
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 }
 
 /*
- * Cancel SIGUSR1 notifications for a PID belonging to an exiting backend.
+ * Cancel notifications for a bgworker belonging to an exiting backend.
  *
  * This function should only be called from the postmaster.
  */
 void
-BackgroundWorkerStopNotifications(pid_t pid)
+BackgroundWorkerStopNotifications(int pmchild)
 {
 	dlist_iter	iter;
 
 	dlist_foreach(iter, &BackgroundWorkerList)
 	{
 		RegisteredBgWorker *rw;
+		BackgroundWorkerSlot *slot;
 
 		rw = dlist_container(RegisteredBgWorker, rw_lnode, iter.cur);
-		if (rw->rw_worker.bgw_notify_pid == pid)
-			rw->rw_worker.bgw_notify_pid = 0;
+		Assert(rw->rw_shmem_slot < max_worker_processes);
+		slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
+
+		if (slot->notify_pmchild == pmchild)
+		{
+			slot->notify_pmchild = 0;
+			slot->notify_proc_number = INVALID_PROC_NUMBER;
+		}
 	}
 }
 
@@ -563,14 +569,14 @@ ForgetUnstartedBackgroundWorkers(void)
 
 		/* If it's not yet started, and there's someone waiting ... */
 		if (slot->pid == InvalidPid &&
-			rw->rw_worker.bgw_notify_pid != 0)
+			slot->notify_proc_number != INVALID_PROC_NUMBER)
 		{
 			/* ... then zap it, and notify the waiter */
-			int			notify_pid = rw->rw_worker.bgw_notify_pid;
+			ProcNumber	notify_proc_number = slot->notify_proc_number;
 
 			ForgetBackgroundWorker(rw);
-			if (notify_pid != 0)
-				kill(notify_pid, SIGUSR1);
+			if (notify_proc_number != INVALID_PROC_NUMBER)
+				SendInterrupt(INTERRUPT_WAIT_WAKEUP, notify_proc_number);
 		}
 	}
 }
@@ -624,11 +630,6 @@ ResetBackgroundWorkerCrashTimes(void)
 			 */
 			rw->rw_crashed_at = 0;
 			rw->rw_pid = 0;
-
-			/*
-			 * If there was anyone waiting for it, they're history.
-			 */
-			rw->rw_worker.bgw_notify_pid = 0;
 		}
 	}
 }
@@ -756,31 +757,27 @@ BackgroundWorkerMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Set up signal handlers.
 	 */
+	SetStandardInterruptHandlers();
 	if (worker->bgw_flags & BGWORKER_BACKEND_DATABASE_CONNECTION)
 	{
 		/*
-		 * SIGINT is used to signal canceling the current action
+		 * Enable query cancellation by default. The background worker may
+		 * disable for more control on when cancellations are accepted.
 		 */
-		pqsignal(SIGINT, StatementCancelHandler);
-		pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-		pqsignal(SIGFPE, FloatExceptionHandler);
+		SetInterruptHandler(INTERRUPT_QUERY_CANCEL, ProcessQueryCancelInterrupt);
+		EnableInterrupt(INTERRUPT_QUERY_CANCEL);
 
-		/* XXX Any other handlers needed here? */
+		/* like in regular backends */
+		pqsignal(SIGFPE, FloatExceptionHandler);
 	}
 	else
 	{
+		/* no cancellation in backends that don't run queries */
 		pqsignal(SIGINT, SIG_IGN);
-		pqsignal(SIGUSR1, SIG_IGN);
 		pqsignal(SIGFPE, SIG_IGN);
 	}
-	pqsignal(SIGTERM, die);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGHUP, SIG_IGN);
 
 	InitializeTimeouts();		/* establishes SIGALRM handler */
-
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR2, SIG_IGN);
 
 	/*
 	 * If an exception is encountered, processing resumes here.
@@ -987,15 +984,6 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
 	if (!SanityCheckBackgroundWorker(worker, LOG))
 		return;
 
-	if (worker->bgw_notify_pid != 0)
-	{
-		ereport(LOG,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("background worker \"%s\": only dynamic background workers can request notification",
-						worker->bgw_name)));
-		return;
-	}
-
 	/*
 	 * Enforce maximum number of workers.  Note this is overly restrictive: we
 	 * could allow more non-shmem-connected workers, because these don't count
@@ -1111,6 +1099,25 @@ RegisterDynamicBackgroundWorker(BackgroundWorker *worker,
 			if (parallel)
 				BackgroundWorkerData->parallel_register_count++;
 
+			if ((slot->worker.bgw_flags & BGWORKER_SHMEM_ACCESS) != 0 &&
+				(slot->worker.bgw_flags & BGWORKER_NO_NOTIFY) == 0)
+			{
+				/*
+				 * Set notify_proc_number so that postmaster will send us an
+				 * interrupt. Also remember the pmchild slot number;
+				 * postmaster needs it to detect when we exit, to disarm the
+				 * notification.
+				 */
+				slot->notify_pmchild = MyPMChildSlot;
+				slot->notify_proc_number = MyProcNumber;
+			}
+			else
+			{
+				/* No notifications. */
+				slot->notify_pmchild = 0;
+				slot->notify_proc_number = INVALID_PROC_NUMBER;
+			}
+
 			/*
 			 * Make sure postmaster doesn't see the slot as in use before it
 			 * sees the new contents.
@@ -1211,8 +1218,9 @@ GetBackgroundWorkerPid(BackgroundWorkerHandle *handle, pid_t *pidp)
  * BGWH_POSTMASTER_DIED, since it that case we know that startup will not
  * take place.
  *
- * The caller *must* have set our PID as the worker's bgw_notify_pid,
- * else we will not be awoken promptly when the worker's state changes.
+ * This works only if the worker was registered with BGWORKER_SHMEM_ACCESS and
+ * without BGWORKER_NO_NOTIFY, else we will not be awoken promptly when the
+ * worker's state changes.
  */
 BgwHandleStatus
 WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
@@ -1232,9 +1240,9 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 		if (status != BGWH_NOT_YET_STARTED)
 			break;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
-					   WAIT_EVENT_BGWORKER_STARTUP);
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
+						   WAIT_EVENT_BGWORKER_STARTUP);
 
 		if (rc & WL_POSTMASTER_DEATH)
 		{
@@ -1242,7 +1250,7 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
 			break;
 		}
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	return status;
@@ -1256,8 +1264,9 @@ WaitForBackgroundWorkerStartup(BackgroundWorkerHandle *handle, pid_t *pidp)
  * up and return BGWH_POSTMASTER_DIED, because it's the postmaster that
  * notifies us when a worker's state changes.
  *
- * The caller *must* have set our PID as the worker's bgw_notify_pid,
- * else we will not be awoken promptly when the worker's state changes.
+ * This works only if the worker was registered with BGWORKER_SHMEM_ACCESS and
+ * without BGWORKER_NO_NOTIFY, else we will not be awoken promptly when the
+ * worker's state changes.
  */
 BgwHandleStatus
 WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
@@ -1275,9 +1284,9 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		if (status == BGWH_STOPPED)
 			break;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
-					   WAIT_EVENT_BGWORKER_SHUTDOWN);
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
+						   WAIT_EVENT_BGWORKER_SHUTDOWN);
 
 		if (rc & WL_POSTMASTER_DEATH)
 		{
@@ -1285,7 +1294,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 			break;
 		}
 
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	return status;

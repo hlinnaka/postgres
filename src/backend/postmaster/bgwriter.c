@@ -32,12 +32,13 @@
 #include "postgres.h"
 
 #include "access/xlog.h"
+#include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/bgwriter.h"
-#include "postmaster/interrupt.h"
 #include "storage/aio_subsys.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
@@ -97,16 +98,11 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 	AuxiliaryProcessMainCommon();
 
 	/*
-	 * Properly accept or ignore signals that might be sent to us.
+	 * Set up interrupt handling
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, SIG_IGN);
-	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, SIG_IGN);
+	SetStandardInterruptHandlers();
+	SetInterruptHandler(INTERRUPT_TERMINATE, ProcessAuxProcessShutdownInterrupt);
+	EnableInterrupt(INTERRUPT_CONFIG_RELOAD);
 
 	/*
 	 * We just started, assume there has been either a shutdown or
@@ -220,9 +216,9 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 		int			rc;
 
 		/* Clear any already-pending wakeups */
-		ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
-		ProcessMainLoopInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * Do one cycle of dirty-buffer writing.
@@ -295,22 +291,22 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 		 * will call it every BgWriterDelay msec.  While it's not critical for
 		 * correctness that that be exact, the feedback loop might misbehave
 		 * if we stray too far from that.  Hence, avoid loading this process
-		 * down with latch events that are likely to happen frequently during
-		 * normal operation.
+		 * down with interrupt events that are likely to happen frequently
+		 * during normal operation.
 		 */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
+		rc = WaitInterrupt(CheckForInterruptsMask,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						   BgWriterDelay /* ms */ , WAIT_EVENT_BGWRITER_MAIN);
 
 		/*
-		 * If no latch event and BgBufferSync says nothing's happening, extend
+		 * If no interrupt and BgBufferSync says nothing's happening, extend
 		 * the sleep in "hibernation" mode, where we sleep for much longer
 		 * than bgwriter_delay says.  Fewer wakeups save electricity.  When a
-		 * backend starts using buffers again, it will wake us up by setting
-		 * our latch.  Because the extra sleep will persist only as long as no
-		 * buffer allocations happen, this should not distort the behavior of
-		 * BgBufferSync's control loop too badly; essentially, it will think
-		 * that the system-wide idle interval didn't exist.
+		 * backend starts using buffers again, it will wake us up by sending
+		 * us an interrupt.  Because the extra sleep will persist only as long
+		 * as no buffer allocations happen, this should not distort the
+		 * behavior of BgBufferSync's control loop too badly; essentially, it
+		 * will think that the system-wide idle interval didn't exist.
 		 *
 		 * There is a race condition here, in that a backend might allocate a
 		 * buffer between the time BgBufferSync saw the alloc count as zero
@@ -325,10 +321,11 @@ BackgroundWriterMain(const void *startup_data, size_t startup_data_len)
 			/* Ask for notification at next buffer allocation */
 			StrategyNotifyBgWriter(MyProcNumber);
 			/* Sleep ... */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 BgWriterDelay * HIBERNATE_FACTOR,
-							 WAIT_EVENT_BGWRITER_HIBERNATE);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_WAIT_WAKEUP,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 BgWriterDelay * HIBERNATE_FACTOR,
+								 WAIT_EVENT_BGWRITER_HIBERNATE);
 			/* Reset the notification request in case we timed out */
 			StrategyNotifyBgWriter(-1);
 		}

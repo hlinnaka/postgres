@@ -24,9 +24,10 @@
  *
  *		In addition, the least-awaited LSN for each type is cached in the
  *		minWaitedLSN array.  The waiter process publishes information about
- *		itself to the shared memory and waits on the latch until it is woken
- *		up by the appropriate process, standby is promoted, or the postmaster
- *		dies.  Then, it cleans information about itself in the shared memory.
+ *		itself to the shared memory and waits on INTERRUPT_WAIT_WAKEUP until
+ *		it is woken up by the appropriate process, standby is promoted, or the
+ *		postmaster dies.  Then, it cleans information about itself in the
+ *		shared memory.
  *
  *		On standby servers:
  *		- After replaying a WAL record, the startup process performs a fast
@@ -54,7 +55,6 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/walreceiver.h"
-#include "storage/latch.h"
 #include "storage/proc.h"
 #include "storage/shmem.h"
 #include "utils/fmgrprotos.h"
@@ -68,7 +68,7 @@ static int	waitlsn_cmp(const pairingheap_node *a, const pairingheap_node *b,
 struct WaitLSNState *waitLSNState = NULL;
 
 /*
- * Wait event for each WaitLSNType, used with WaitLatch() to report
+ * Wait event for each WaitLSNType, used with WaitInterrupt() to report
  * the wait in pg_stat_activity.
  */
 static const uint32 WaitLSNWaitEvents[] = {
@@ -241,9 +241,9 @@ deleteLSNWaiter(WaitLSNType lsnType)
 #define	WAKEUP_PROC_STATIC_ARRAY_SIZE (16)
 
 /*
- * Remove waiters whose LSN has been reached from the heap and set their
- * latches.  If InvalidXLogRecPtr is given, remove all waiters from the heap
- * and set latches for all waiters.
+ * Remove waiters whose LSN has been reached from the heap and wake them up.
+ * If InvalidXLogRecPtr is given, remove all waiters from the heap and wake
+ * them all up.
  *
  * This function first accumulates waiters to wake up into an array, then
  * wakes them up without holding a WaitLSNLock.  The array size is static and
@@ -298,14 +298,13 @@ wakeupWaiters(WaitLSNType lsnType, XLogRecPtr currentLSN)
 		LWLockRelease(WaitLSNLock);
 
 		/*
-		 * Set latches for processes whose waited LSNs have been reached.
-		 * Since SetLatch() is a time-consuming operation, we do this outside
-		 * of WaitLSNLock. This is safe because procLatch is never freed, so
-		 * at worst we may set a latch for the wrong process or for no process
-		 * at all, which is harmless.
+		 * Wake up processes whose waited LSNs have been reached.  Since
+		 * SendInterrupt is a time-consuming operation, we do this outside of
+		 * WaitLSNLock. (If the backend exits or is no longer waiting, we'll
+		 * send spurious wakeup, but that's harmless)
 		 */
 		for (j = 0; j < numWakeUpProcs; j++)
-			SetLatch(&GetPGProcByNumber(wakeUpProcs[j])->procLatch);
+			SendInterrupt(INTERRUPT_WAIT_WAKEUP, wakeUpProcs[j]);
 
 	} while (numWakeUpProcs == WAKEUP_PROC_STATIC_ARRAY_SIZE);
 }
@@ -364,7 +363,7 @@ WaitLSNTypeRequiresRecovery(WaitLSNType t)
 }
 
 /*
- * Wait using MyLatch till the given LSN is reached, the replica gets
+ * Wait using WaitInterrupt till the given LSN is reached, the replica gets
  * promoted, or the postmaster dies.
  *
  * Returns WAIT_LSN_RESULT_SUCCESS if target LSN was reached.
@@ -376,7 +375,7 @@ WaitForLSN(WaitLSNType lsnType, XLogRecPtr targetLSN, int64 timeout)
 {
 	XLogRecPtr	currentLSN;
 	TimestampTz endtime = 0;
-	int			wake_events = WL_LATCH_SET | WL_POSTMASTER_DEATH;
+	int			wake_events = WL_INTERRUPT | WL_POSTMASTER_DEATH;
 
 	/* Shouldn't be called when shmem isn't initialized */
 	Assert(waitLSNState);
@@ -434,8 +433,9 @@ WaitForLSN(WaitLSNType lsnType, XLogRecPtr targetLSN, int64 timeout)
 
 		CHECK_FOR_INTERRUPTS();
 
-		rc = WaitLatch(MyLatch, wake_events, delay_ms,
-					   WaitLSNWaitEvents[lsnType]);
+		rc = WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						   wake_events, delay_ms,
+						   WaitLSNWaitEvents[lsnType]);
 
 		/*
 		 * Emergency bailout if postmaster has died.  This is to avoid the
@@ -447,8 +447,7 @@ WaitForLSN(WaitLSNType lsnType, XLogRecPtr targetLSN, int64 timeout)
 					errmsg("terminating connection due to unexpected postmaster exit"),
 					errcontext("while waiting for LSN"));
 
-		if (rc & WL_LATCH_SET)
-			ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	/*
