@@ -277,7 +277,6 @@ typedef struct AutoVacuumWorkItem
  * struct and the array of WorkerInfo structs.  This struct keeps:
  *
  * av_signal		set by other processes to indicate various conditions
- * av_launcherpid	the PID of the autovacuum launcher
  * av_freeWorkers	the WorkerInfo freelist
  * av_runningWorkers the WorkerInfo non-free queue
  * av_startingWorker pointer to WorkerInfo currently being started (cleared by
@@ -293,7 +292,6 @@ typedef struct AutoVacuumWorkItem
 typedef struct
 {
 	sig_atomic_t av_signal[AutoVacNumSignals];
-	pid_t		av_launcherpid;
 	dclist_head av_freeWorkers;
 	dlist_head	av_runningWorkers;
 	WorkerInfo	av_startingWorker;
@@ -563,8 +561,6 @@ AutoVacLauncherMain(const void *startup_data, size_t startup_data_len)
 		proc_exit(0);			/* done */
 	}
 
-	AutoVacuumShmem->av_launcherpid = MyProcPid;
-
 	/*
 	 * Create the initial database list.  The invariant we want this list to
 	 * keep is that it's ordered by decreasing next_worker.  As soon as an
@@ -798,8 +794,6 @@ AutoVacLauncherShutdown(void)
 {
 	ereport(DEBUG1,
 			(errmsg_internal("autovacuum launcher shutting down")));
-	AutoVacuumShmem->av_launcherpid = 0;
-
 	proc_exit(0);				/* done */
 }
 
@@ -1529,6 +1523,8 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 	 */
 	if (AutoVacuumShmem->av_startingWorker != NULL)
 	{
+		ProcNumber	launcherProc;
+
 		MyWorkerInfo = AutoVacuumShmem->av_startingWorker;
 		dbid = MyWorkerInfo->wi_dboid;
 		MyWorkerInfo->wi_proc = MyProc;
@@ -1547,8 +1543,14 @@ AutoVacWorkerMain(const void *startup_data, size_t startup_data_len)
 		on_shmem_exit(FreeWorkerInfo, 0);
 
 		/* wake up the launcher */
-		if (AutoVacuumShmem->av_launcherpid != 0)
-			kill(AutoVacuumShmem->av_launcherpid, SIGUSR2);
+		launcherProc = pg_atomic_read_u32(&ProcGlobal->avLauncherProc);
+		if (launcherProc != INVALID_PROC_NUMBER)
+		{
+			int			pid = GetPGProcByNumber(launcherProc)->pid;
+
+			if (pid != 0)
+				kill(pid, SIGUSR2);
+		}
 	}
 	else
 	{
@@ -3391,7 +3393,6 @@ AutoVacuumShmemInit(void)
 
 		Assert(!found);
 
-		AutoVacuumShmem->av_launcherpid = 0;
 		dclist_init(&AutoVacuumShmem->av_freeWorkers);
 		dlist_init(&AutoVacuumShmem->av_runningWorkers);
 		AutoVacuumShmem->av_startingWorker = NULL;
