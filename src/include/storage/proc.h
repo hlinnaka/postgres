@@ -325,7 +325,7 @@ struct PGPROC
 	dlist_node	lockGroupLink;	/* my member link, if I'm a member */
 
 	/* Bit mask of pending interrupts, waiting to be processed */
-	pg_atomic_uint64 pendingInterrupts;
+	PendingInterrupts pendingInterrupts;
 
 	/*
 	 * While in hot standby mode, shows that a conflict signal has been sent

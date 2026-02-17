@@ -1073,6 +1073,15 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 #endif
 
 	/*
+	 * There are no CHECK_FOR_INTERRUPTS() calls below, but hold interrupts so
+	 * that if a signal is received, the signal handler doesn't try to change
+	 * CheckForInterruptsMask. That trips the assertion in
+	 * RECHECK_CFI_ATTENTION() that it isn't caled while the
+	 * SLEEPING_ON_INTERRUPTS flag is set.
+	 */
+	HOLD_INTERRUPTS();
+
+	/*
 	 * Atomically check if the interrupt is already pending and advertise that
 	 * we are about to start sleeping. If it was already pending, avoid
 	 * blocking altogether.
@@ -1084,26 +1093,24 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 	 */
 	if (set->interrupt_mask != 0)
 	{
-		InterruptMask old_mask;
 		bool		already_pending = false;
 
 		/*
 		 * Perform a plain atomic read first as a fast path for the case that
 		 * an interrupt is already pending.
 		 */
-		old_mask = pg_atomic_read_u64(MyPendingInterrupts);
-		already_pending = ((old_mask & set->interrupt_mask) != 0);
+		already_pending = InterruptPending(set->interrupt_mask);
 
 		if (!already_pending)
 		{
 			/*
-			 * Atomically set the SLEEPING_ON_INTERRUPTS bit and re-check if
-			 * an interrupt is already pending. The atomic op provides
-			 * synchronization so that if an interrupt bit is set after this,
-			 * the setter will wake us up.
+			 * Set the SLEEPING_ON_INTERRUPTS bit and re-check if an interrupt
+			 * is already pending. The atomic op provides synchronization so
+			 * that if an interrupt bit is set after setting the bit, the
+			 * setter will wake us up.
 			 */
-			old_mask = pg_atomic_fetch_or_u64(MyPendingInterrupts, SLEEPING_ON_INTERRUPTS);
-			already_pending = ((old_mask & set->interrupt_mask) != 0);
+			(void) pg_atomic_fetch_or_u32(&MyPendingInterrupts->flags, PI_FLAG_SLEEPING_ON_INTERRUPTS);
+			already_pending = InterruptPending(set->interrupt_mask);
 
 			/* remember to clear the SLEEPING_ON_INTERRUPTS flag later */
 			sleeping_flag_armed = true;
@@ -1177,7 +1184,9 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 
 	/* If we set the SLEEPING_ON_INTERRUPTS flag, reset it again */
 	if (sleeping_flag_armed)
-		pg_atomic_fetch_and_u64(MyPendingInterrupts, ~((uint32) SLEEPING_ON_INTERRUPTS));
+		pg_atomic_fetch_and_u32(&MyPendingInterrupts->flags, ~PI_FLAG_SLEEPING_ON_INTERRUPTS);
+
+	RESUME_INTERRUPTS();
 
 #ifndef WIN32
 	waiting = false;
@@ -1255,7 +1264,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			/* Drain the signalfd. */
 			drain();
 
-			if (set->interrupt_mask != 0 && (pg_atomic_read_u64(MyPendingInterrupts) & set->interrupt_mask) != 0)
+			if (set->interrupt_mask != 0 && InterruptPending(set->interrupt_mask))
 			{
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_INTERRUPT;
@@ -1414,7 +1423,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		if (cur_event->events == WL_INTERRUPT &&
 			cur_kqueue_event->filter == EVFILT_SIGNAL)
 		{
-			if (set->interrupt_mask != 0 && (pg_atomic_read_u32(MyPendingInterrupts) & set->interrupt_mask) != 0)
+			if (set->interrupt_mask != 0 && InterruptPending(set->interrupt_mask))
 			{
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_INTERRUPT;
@@ -1539,7 +1548,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			/* There's data in the self-pipe, clear it. */
 			drain();
 
-			if (set->interrupt_mask != 0 && (pg_atomic_read_u32(MyPendingInterrupts) & set->interrupt_mask) != 0)
+			if (set->interrupt_mask != 0 && InterruptPending(set->interrupt_mask))
 			{
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_INTERRUPT;
@@ -1760,7 +1769,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			if (!ResetEvent(set->handles[cur_event->pos + 1]))
 				elog(ERROR, "ResetEvent failed: error code %lu", GetLastError());
 
-			if (set->interrupt_mask != 0 && (pg_atomic_read_u32(MyPendingInterrupts) & set->interrupt_mask) != 0)
+			if (set->interrupt_mask != 0 && InterruptPending(set->interrupt_mask))
 			{
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_INTERRUPT;

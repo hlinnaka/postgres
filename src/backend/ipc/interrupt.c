@@ -53,9 +53,9 @@ static WaitEventSet *InterruptWaitSet;
 #define InterruptWaitSetInterruptPos 0
 #define InterruptWaitSetPostmasterDeathPos 1
 
-static pg_atomic_uint64 LocalPendingInterrupts;
+static PendingInterrupts LocalPendingInterrupts;
 
-pg_atomic_uint64 *MyPendingInterrupts = &LocalPendingInterrupts;
+PendingInterrupts *MyPendingInterrupts = &LocalPendingInterrupts;
 
 static int	nextAddinInterruptBit = BEGIN_ADDIN_INTERRUPTS;
 
@@ -94,10 +94,12 @@ EnableInterrupt(InterruptMask interruptMask)
 			Assert(interrupt_handlers[i] != NULL);
 	}
 #endif
-
 	EnabledInterruptsMask |= interruptMask;
 	if (InterruptHoldoffCount == 0 && CritSectionCount == 0)
+	{
 		CheckForInterruptsMask = EnabledInterruptsMask;
+		RECHECK_CFI_ATTENTION();
+	}
 }
 
 /*
@@ -113,7 +115,10 @@ DisableInterrupt(InterruptMask interruptMask)
 {
 	EnabledInterruptsMask &= ~interruptMask;
 	if (InterruptHoldoffCount == 0 && CritSectionCount == 0)
+	{
 		CheckForInterruptsMask = EnabledInterruptsMask;
+		RECHECK_CFI_ATTENTION();
+	}
 }
 
 /*
@@ -132,34 +137,113 @@ DisableInterrupt(InterruptMask interruptMask)
 void
 ProcessInterrupts(void)
 {
+	uint64		pending;
 	InterruptMask interruptsToProcess;
 
-	Assert(InterruptHoldoffCount == 0 && CritSectionCount == 0);
+	/*
+	 * This shouldn't be called while sleeping. CHECK_FOR_INTERRUPTS() relies
+	 * on there being no CHECK_FOR_INTERRUPTS() calls in the code that runs
+	 * while PI_FLAG_SLEEPING_ON_INTERRUPTS is set. That assumption allows
+	 * CHECK_FOR_INTERRUPTS() to check "MyPendingInterrupts->flags == 0",
+	 * which is slightly less expensive than "(MyPendingInterrupts->flags &
+	 * PI_FLAG_CFI_ATTENTION) == 0".
+	 */
+	Assert((pg_atomic_read_u32(&MyPendingInterrupts->flags) &
+			PI_FLAG_SLEEPING_ON_INTERRUPTS) == 0);
 
 	/* Check once what interrupts are pending */
-	interruptsToProcess =
-		pg_atomic_read_u64(MyPendingInterrupts) & CheckForInterruptsMask;
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	pending = pg_atomic_read_u64(&MyPendingInterrupts->interrupts);
+#else
+	pending = (uint64) pg_atomic_read_u32(&MyPendingInterrupts->interrupts_lo);
+	pending |= (uint64) pg_atomic_read_u32(&MyPendingInterrupts->interrupts_hi) << 32;
+#endif
+	interruptsToProcess = pending & CheckForInterruptsMask;
 
-	for (int i = 0; i < lengthof(interrupt_handlers); i++)
+	if (interruptsToProcess != 0)
 	{
-		if ((interruptsToProcess & UINT64_BIT(i)) != 0)
-		{
-			/*
-			 * Clear the interrupt *before* calling the handler function, so
-			 * that if the interrupt is received again while the handler
-			 * function is being executed, we won't miss it.
-			 *
-			 * For similar reasons, we also clear the flags one by one even if
-			 * multiple interrupts are pending.  Otherwise if one of the
-			 * interrupt handlers bail out with an ERROR, we would have
-			 * already cleared the other bits, and would miss processing them.
-			 */
-			ClearInterrupt(UINT64_BIT(i));
+		Assert(InterruptHoldoffCount == 0 && CritSectionCount == 0);
 
-			/* Call the handler function */
-			(*interrupt_handlers[i]) ();
+		for (int i = 0; i < lengthof(interrupt_handlers); i++)
+		{
+			if ((interruptsToProcess & UINT64_BIT(i)) != 0)
+			{
+				/*
+				 * Clear the interrupt *before* calling the handler function,
+				 * so that if the interrupt is received again while the
+				 * handler function is being executed, we won't miss it.
+				 *
+				 * For similar reasons, we also clear the flags one by one
+				 * even if multiple interrupts are pending.  Otherwise if one
+				 * of the interrupt handlers bail out with an ERROR, we would
+				 * have already cleared the other bits, and would miss
+				 * processing them.
+				 */
+				ClearInterrupt(UINT64_BIT(i));
+
+				/* Call the handler function */
+				(*interrupt_handlers[i]) ();
+			}
 		}
 	}
+
+	/*
+	 * We can clear the CFI_ATTENTION flag now (unless new interrupts arrived
+	 * while we were processing).
+	 */
+	RECHECK_CFI_ATTENTION();
+}
+
+
+/*
+ * Move all the bits from *src to *dst, clearing all the bits in *dst.
+ */
+static void
+SwitchMyPendingInterruptsPtr(PendingInterrupts *new_ptr)
+{
+	PendingInterrupts *old_ptr = MyPendingInterrupts;
+
+	/* should not be called while sleeping */
+	Assert((pg_atomic_read_u32(&MyPendingInterrupts->flags) & PI_FLAG_SLEEPING_ON_INTERRUPTS) == 0);
+
+	if (new_ptr == old_ptr)
+		return;
+
+	MyPendingInterrupts = new_ptr;
+
+	/*
+	 * Make sure that SIGALRM handlers that call RaiseInterrupt() are now
+	 * seeing the new MyPendingInterrupts destination.
+	 */
+	pg_memory_barrier();
+
+	/*
+	 * Mix in the interrupts that we have received already in 'new_ptr', while
+	 * atomically clearing them from 'old_ptr'.  Other backends may continue
+	 * to set bits in 'old_ptr' after this point, but we've atomically
+	 * transferred the existing bits to our local vector so we won't get
+	 * duplicated interrupts later if we switch back.
+	 */
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	{
+		uint64		old_interrupts;
+
+		old_interrupts = pg_atomic_exchange_u64(&old_ptr->interrupts, 0);
+		pg_atomic_fetch_or_u64(&new_ptr->interrupts, old_interrupts);
+	}
+#else
+	{
+		uint32		old_interrupts_lo;
+		uint32		old_interrupts_hi;
+
+		old_interrupts_lo = pg_atomic_exchange_u32(&old_ptr->interrupts_lo, 0);
+		old_interrupts_hi = pg_atomic_exchange_u32(&old_ptr->interrupts_hi, 0);
+		pg_atomic_fetch_or_u32(&new_ptr->interrupts_lo, old_interrupts_lo);
+		pg_atomic_fetch_or_u32(&new_ptr->interrupts_hi, old_interrupts_hi);
+	}
+#endif
+
+	RECHECK_CFI_ATTENTION();
 }
 
 /*
@@ -169,26 +253,7 @@ ProcessInterrupts(void)
 void
 SwitchToLocalInterrupts(void)
 {
-	if (MyPendingInterrupts == &LocalPendingInterrupts)
-		return;
-
-	MyPendingInterrupts = &LocalPendingInterrupts;
-
-	/*
-	 * Make sure that SIGALRM handlers that call RaiseInterrupt() are now
-	 * seeing the new MyPendingInterrupts destination.
-	 */
-	pg_memory_barrier();
-
-	/*
-	 * Mix in the interrupts that we have received already in our shared
-	 * interrupt vector, while atomically clearing it.  Other backends may
-	 * continue to set bits in it after this point, but we've atomically
-	 * transferred the existing bits to our local vector so we won't get
-	 * duplicated interrupts later if we switch back.
-	 */
-	pg_atomic_fetch_or_u64(MyPendingInterrupts,
-						   pg_atomic_exchange_u64(&MyProc->pendingInterrupts, 0));
+	SwitchMyPendingInterruptsPtr(&LocalPendingInterrupts);
 }
 
 /*
@@ -198,20 +263,40 @@ SwitchToLocalInterrupts(void)
 void
 SwitchToSharedInterrupts(void)
 {
-	if (MyPendingInterrupts == &MyProc->pendingInterrupts)
-		return;
+	SwitchMyPendingInterruptsPtr(&MyProc->pendingInterrupts);
+}
 
-	MyPendingInterrupts = &MyProc->pendingInterrupts;
+static bool
+SendOrRaiseInterrupt(PendingInterrupts *ptr, InterruptMask interruptMask)
+{
+	uint64		old_pending;
+	uint32		old_flags;
+
+	/* Set the given bits, and atomically read the old ones */
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	old_pending = pg_atomic_fetch_or_u64(&ptr->interrupts, interruptMask);
+#else
+	old_pending = (uint64) pg_atomic_fetch_or_u32(&ptr->interrupts_lo, (uint32) interruptMask);
+	old_pending |= (uint64) pg_atomic_fetch_or_u32(&ptr->interrupts_hi,(uint32) (interruptMask >> 32)) << 32;
+#endif
+
+	if ((old_pending & interruptMask) == interruptMask)
+		return false;			/* no new bits were set */
 
 	/*
-	 * Make sure that SIGALRM handlers that call RaiseInterrupt() are now
-	 * seeing the new MyPendingInterrupts destination.
+	 * We set some bits. Set the CFI_ATTENTION flag too, so that the
+	 * CHECK_FOR_INTERRUPTS() call knows to check for the interrupt.
 	 */
-	pg_memory_barrier();
+	old_flags = pg_atomic_fetch_or_u32(&ptr->flags, PI_FLAG_CFI_ATTENTION);
 
-	/* Mix in any unhandled bits from LocalPendingInterrupts. */
-	pg_atomic_fetch_or_u64(MyPendingInterrupts,
-						   pg_atomic_exchange_u64(&LocalPendingInterrupts, 0));
+	/*
+	 * Furthermore, if the process is currently blocked waiting for an
+	 * interrupt to arrive, wake it up.
+	 */
+	if ((old_flags & PI_FLAG_SLEEPING_ON_INTERRUPTS) != 0)
+		return true;
+	else
+		return false;
 }
 
 /*
@@ -223,15 +308,7 @@ SwitchToSharedInterrupts(void)
 void
 RaiseInterrupt(InterruptMask interruptMask)
 {
-	uint64		old_pending;
-
-	old_pending = pg_atomic_fetch_or_u64(MyPendingInterrupts, interruptMask);
-
-	/*
-	 * If the process is currently blocked waiting for an interrupt to arrive,
-	 * and the interrupt wasn't already pending, wake it up.
-	 */
-	if ((old_pending & (interruptMask | SLEEPING_ON_INTERRUPTS)) == SLEEPING_ON_INTERRUPTS)
+	if (SendOrRaiseInterrupt(MyPendingInterrupts, interruptMask))
 		WakeupMyProc();
 }
 
@@ -248,14 +325,12 @@ void
 SendInterrupt(InterruptMask interruptMask, ProcNumber pgprocno)
 {
 	PGPROC	   *proc;
-	uint64		old_pending;
 
 	Assert(pgprocno != INVALID_PROC_NUMBER);
 	Assert(pgprocno >= 0);
 	Assert(pgprocno < ProcGlobal->allProcCount);
 
 	proc = &ProcGlobal->allProcs[pgprocno];
-	old_pending = pg_atomic_fetch_or_u64(&proc->pendingInterrupts, interruptMask);
 
 	elog(DEBUG1, "sending interrupt 0x016%" PRIx64 " to pid %d", interruptMask, proc->pid);
 
@@ -263,7 +338,7 @@ SendInterrupt(InterruptMask interruptMask, ProcNumber pgprocno)
 	 * If the process is currently blocked waiting for an interrupt to arrive,
 	 * and the interrupt wasn't already pending, wake it up.
 	 */
-	if ((old_pending & (interruptMask | SLEEPING_ON_INTERRUPTS)) == SLEEPING_ON_INTERRUPTS)
+	if (SendOrRaiseInterrupt(&proc->pendingInterrupts, interruptMask))
 		WakeupOtherProc(proc);
 }
 

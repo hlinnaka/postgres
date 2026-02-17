@@ -23,14 +23,63 @@
  * needed which are needed by all callers of WaitInterrupt, so include it
  * here.
  *
- * Note: InterruptMask is defind in waiteventset.h to avoid circular dependency
+ * Note: InterruptMask is defined in waiteventset.h to avoid circular dependency
  */
 #include "storage/waiteventset.h"
 
+/*
+ * PendingInterrupts is a bitmask representing interrupts that are currently
+ * pending for a process, and some flags to help with signaling when the
+ * interrupt bits are altered.
+ *
+ * We support up to 64 different interrupts.  That way, the currently pending
+ * interrupts can be conveniently stored as on 64-bit atomic bitmask, on
+ * systems with 64-bit atomics.  On other systems, it's split into two 32-bit
+ * atomic fields.  That's good enough because we don't rely on atomicity
+ * between different interrupt bits.  (Note that the simulated 64-bit atomics
+ * are not good enough for this, because the simulation relies on spinlocks,
+ * which creates a deadlock risk when used from signal handlers.)
+ *
+ * Two signaling flags are defined:
+ *
+ * PI_FLAG_SLEEPING_ON_INTERRUPTS indicates that the backend is currently
+ * blocked waiting for an interrupt.  If set, the backend needs to be woken up
+ * when a bit in the 'interrupts' mask is set.
+ *
+ * PI_FLAG_CFI_ATTENTION indicates that some interrupt bits have been changed
+ * since the last ProcessInterupts() call.  It's set whenever any 'interrupts'
+ * bit is set.  It's checked by CHECK_FOR_INTERRUPTS() as a fastpath check to
+ * determine if there can be any interrupts pending that need processing, and
+ * cleared in ProcessInterrupts().  It must also be cleared / re-evaluated
+ * whenever CheckForInterruptsMask changes (see RECHECK_CFI_ATTENTION()).
+ */
+typedef struct
+{
+	pg_atomic_uint32 flags;
+
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	pg_atomic_uint64 interrupts;
+#else
+	pg_atomic_uint32 interrupts_lo;
+	pg_atomic_uint32 interrupts_hi;
+#endif
+} PendingInterrupts;
+
+#define PI_FLAG_SLEEPING_ON_INTERRUPTS	0x01
+#define PI_FLAG_CFI_ATTENTION			0x02
 
 /*
- * Flags in the pending interrupts bitmask. Each value is a different bit, so that
- * these can be conveniently OR'd together.
+ * Interrupt vector currently in use for this process.  Most of the time this
+ * points to MyProc->pendingInterrupts, but in processes that have no PGPROC
+ * entry (yet), it points to a process-private variable, so that interrupts
+ * can nevertheless be used from signal handlers in the same process.
+ */
+extern PGDLLIMPORT PendingInterrupts *MyPendingInterrupts;
+
+
+/*
+ * Interrupt bits that used in PendingIntrrupts->interrupts bitmask.  Each
+ * value is a different bit, so that these can be conveniently OR'd together.
  */
 #define UINT64_BIT(shift) (UINT64_C(1) << (shift))
 
@@ -191,18 +240,7 @@
  * extensions
  ***********************************************************************/
 #define BEGIN_ADDIN_INTERRUPTS 25
-#define END_ADDIN_INTERRUPTS 63
-
-/*
- * SLEEPING_ON_INTERRUPTS indicates that the backend is currently blocked
- * waiting for an interrupt.  If set, the backend needs to be woken up when a
- * bit in the pending interrupts mask is set.  It's used internally by the
- * interrupt machinery, and cannot be used directly in the public functions.
- * It's named differently to distinguish it from the actual interrupt flags.
- */
-#define SLEEPING_ON_INTERRUPTS UINT64_BIT(63)
-
-extern PGDLLIMPORT pg_atomic_uint64 *MyPendingInterrupts;
+#define END_ADDIN_INTERRUPTS 64
 
 /*
  * Test an interrupt flag (or flags).
@@ -214,12 +252,25 @@ InterruptPending(InterruptMask interruptMask)
 	 * Note that there is no memory barrier here. This is used in
 	 * CHECK_FOR_INTERRUPTS(), so we want this to be as cheap as possible.
 	 *
+	 * FIXME: that's not true anymore, this is no longer called from
+	 * CHECK_FOR_INTERRUPTS(). Still seems correct and a good choice to not
+	 * force a barrier here. Just update the comment?
+	 *
 	 * That means that if the interrupt is concurrently set by another
 	 * process, we might miss it. That should be OK, because the next
 	 * WaitInterrupt() or equivalent call acts as a synchronization barrier.
 	 * We will see the updated value before sleeping.
 	 */
-	return (pg_atomic_read_u64(MyPendingInterrupts) & interruptMask) != 0;
+	uint64		pending;
+
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	pending = pg_atomic_read_u64(&MyPendingInterrupts->interrupts);
+#else
+	pending = (uint64) pg_atomic_read_u32(&MyPendingInterrupts->interrupts_lo);
+	pending |= (uint64) pg_atomic_read_u32(&MyPendingInterrupts->interrupts_hi) << 32;
+#endif
+
+	return (pending & interruptMask) != 0;
 }
 
 /*
@@ -228,7 +279,14 @@ InterruptPending(InterruptMask interruptMask)
 static inline void
 ClearInterrupt(InterruptMask interruptMask)
 {
-	pg_atomic_fetch_and_u64(MyPendingInterrupts, ~interruptMask);
+	uint64		mask = ~interruptMask;
+
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	(void) pg_atomic_fetch_and_u64(&MyPendingInterrupts->interrupts, mask);
+#else
+	(void) pg_atomic_fetch_and_u32(&MyPendingInterrupts->interrupts_lo, (uint32) mask);
+	(void) pg_atomic_fetch_and_u32(&MyPendingInterrupts->interrupts_hi, (uint32) (mask >> 32));
+#endif
 }
 
 /*
@@ -310,13 +368,47 @@ extern void ProcessInterrupts(void);
 #define INTERRUPTS_CAN_BE_PROCESSED(mask) \
 	(((mask) & CheckForInterruptsMask) == (mask))
 
-/* Service interrupt, if one is pending and it's safe to service it now */
+/*
+ * Service an interrupt, if one is pending and it's safe to service it now.
+ *
+ * NB: This is called from all over the codebase, and in fairly tight loops,
+ * so this needs to be very short and fast when there is no work to do!
+ */
 #define CHECK_FOR_INTERRUPTS()					\
 do { \
-	if (INTERRUPTS_PENDING_CONDITION(CheckForInterruptsMask)) \
+	if (unlikely(pg_atomic_read_u32(&MyPendingInterrupts->flags) != 0)) \
 		ProcessInterrupts();											\
 } while(0)
 
+/*
+ * Set/clear the PI_FLAG_CFI_ATTENTION according to the currently pending
+ * interrupts and CheckForInterruptsMask. This should be called every time
+ * after enabling new bits in CheckForInterruptsMask, so that the next
+ * CHECK_FOR_INTERRUPTS() will react correctly to the newly enabled
+ * interrupts.
+ */
+static inline void
+RECHECK_CFI_ATTENTION(void)
+{
+	/*
+	 * This should not be called while sleeping. No other process sets the
+	 * flag, so when we clear/set 'flags' below, we don't need to worry about
+	 * overwriting it.
+	 */
+	Assert((pg_atomic_read_u32(&MyPendingInterrupts->flags) & PI_FLAG_SLEEPING_ON_INTERRUPTS) == 0);
+
+	/* clear the flag first */
+	(void) pg_atomic_write_u32(&MyPendingInterrupts->flags, 0);
+
+	/*
+	 * Ensure that if a concurrent process sets an interrupt from now on, the
+	 * flag will be set again.
+	 */
+	pg_memory_barrier();
+
+	if (InterruptPending(CheckForInterruptsMask))
+		(void) pg_atomic_write_u32(&MyPendingInterrupts->flags, PI_FLAG_CFI_ATTENTION);
+}
 
 /*****************************************************************************
  *	  Critical section and interrupt holdoff mechanism
@@ -344,7 +436,10 @@ RESUME_INTERRUPTS(void)
 	Assert(InterruptHoldoffCount > 0);
 	InterruptHoldoffCount--;
 	if (InterruptHoldoffCount == 0 && CritSectionCount == 0)
+	{
 		CheckForInterruptsMask = EnabledInterruptsMask;
+		RECHECK_CFI_ATTENTION();
+	}
 	else
 		Assert(CheckForInterruptsMask == 0);
 }
@@ -362,7 +457,10 @@ END_CRIT_SECTION(void)
 	Assert(CritSectionCount > 0);
 	CritSectionCount--;
 	if (InterruptHoldoffCount == 0 && CritSectionCount == 0)
+	{
 		CheckForInterruptsMask = EnabledInterruptsMask;
+		RECHECK_CFI_ATTENTION();
+	}
 	else
 		Assert(CheckForInterruptsMask == 0);
 }

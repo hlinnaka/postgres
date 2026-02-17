@@ -2184,6 +2184,7 @@ PatternInfoArray
 Pattern_Prefix_Status
 Pattern_Type
 PendingFsyncEntry
+PendingInterrupts
 PendingListenAction
 PendingListenEntry
 PendingRelDelete
