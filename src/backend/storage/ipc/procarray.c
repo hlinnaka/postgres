@@ -103,6 +103,19 @@ typedef struct ProcArrayStruct
 	int			pgprocnos[FLEXIBLE_ARRAY_MEMBER];
 } ProcArrayStruct;
 
+static void ProcArrayShmemInit(void *arg);
+static void ProcArrayShmemAttach(void *arg);
+
+static ProcArrayStruct *procArray;
+
+static ShmemStructDesc ProcArrayShmemDesc = {
+	.name = "Proc Array",
+	.size = 0,					/* calculated later */
+	.init_fn = ProcArrayShmemInit,
+	.attach_fn = ProcArrayShmemAttach,
+	.ptr = (void **) &procArray,
+};
+
 /*
  * State for the GlobalVisTest* family of functions. Those functions can
  * e.g. be used to decide if a deleted row can be removed without violating
@@ -269,9 +282,6 @@ typedef enum KAXCompressReason
 	KAX_STARTUP_PROCESS_IDLE,	/* startup process is about to sleep */
 } KAXCompressReason;
 
-
-static ProcArrayStruct *procArray;
-
 static PGPROC *allProcs;
 
 /*
@@ -282,8 +292,25 @@ static TransactionId cachedXidIsNotInProgress = InvalidTransactionId;
 /*
  * Bookkeeping for tracking emulated transactions in recovery
  */
+
 static TransactionId *KnownAssignedXids;
+
+static ShmemStructDesc KnownAssignedXidsShmemDesc = {
+	.name = "KnownAssignedXids",
+	.size = 0,					/* calculated later */
+	.init_fn = NULL,			/* no initialization needed */
+	.ptr = (void **) &KnownAssignedXids,
+};
+
 static bool *KnownAssignedXidsValid;
+
+static ShmemStructDesc KnownAssignedXidsValidShmemDesc = {
+	.name = "KnownAssignedXidsValid",
+	.size = 0,					/* calculated later */
+	.init_fn = NULL,			/* no initialization needed */
+	.ptr = (void **) &KnownAssignedXidsValid,
+};
+
 static TransactionId latestObservedXid = InvalidTransactionId;
 
 /*
@@ -374,18 +401,18 @@ static inline FullTransactionId FullXidRelativeTo(FullTransactionId rel,
 static void GlobalVisUpdateApply(ComputeXidHorizonsResult *horizons);
 
 /*
- * Report shared-memory space needed by ProcArrayShmemInit
+ * Register the shared PGPROC array during postmaster startup.
  */
-Size
-ProcArrayShmemSize(void)
+void
+ProcArrayShmemRegister(void)
 {
-	Size		size;
-
-	/* Size of the ProcArray structure itself */
 #define PROCARRAY_MAXPROCS	(MaxBackends + max_prepared_xacts)
 
-	size = offsetof(ProcArrayStruct, pgprocnos);
-	size = add_size(size, mul_size(sizeof(int), PROCARRAY_MAXPROCS));
+	/* Register the ProcArray shared structure */
+	ProcArrayShmemDesc.size =
+		add_size(offsetof(ProcArrayStruct, pgprocnos),
+				 mul_size(sizeof(int), PROCARRAY_MAXPROCS));
+	ShmemRegisterStruct(&ProcArrayShmemDesc);
 
 	/*
 	 * During Hot Standby processing we have a data structure called
@@ -405,64 +432,41 @@ ProcArrayShmemSize(void)
 
 	if (EnableHotStandby)
 	{
-		size = add_size(size,
-						mul_size(sizeof(TransactionId),
-								 TOTAL_MAX_CACHED_SUBXIDS));
-		size = add_size(size,
-						mul_size(sizeof(bool), TOTAL_MAX_CACHED_SUBXIDS));
-	}
+		KnownAssignedXidsShmemDesc.size =
+			mul_size(sizeof(TransactionId),
+					 TOTAL_MAX_CACHED_SUBXIDS);
+		ShmemRegisterStruct(&KnownAssignedXidsShmemDesc);
 
-	return size;
+		KnownAssignedXidsValidShmemDesc.size =
+			mul_size(sizeof(bool), TOTAL_MAX_CACHED_SUBXIDS);
+		ShmemRegisterStruct(&KnownAssignedXidsValidShmemDesc);
+	}
 }
 
 /*
  * Initialize the shared PGPROC array during postmaster startup.
  */
-void
-ProcArrayShmemInit(void)
+static void
+ProcArrayShmemInit(void *arg)
 {
-	bool		found;
-
-	/* Create or attach to the ProcArray shared structure */
-	procArray = (ProcArrayStruct *)
-		ShmemInitStruct("Proc Array",
-						add_size(offsetof(ProcArrayStruct, pgprocnos),
-								 mul_size(sizeof(int),
-										  PROCARRAY_MAXPROCS)),
-						&found);
-
-	if (!found)
-	{
-		/*
-		 * We're the first - initialize.
-		 */
-		procArray->numProcs = 0;
-		procArray->maxProcs = PROCARRAY_MAXPROCS;
-		procArray->maxKnownAssignedXids = TOTAL_MAX_CACHED_SUBXIDS;
-		procArray->numKnownAssignedXids = 0;
-		procArray->tailKnownAssignedXids = 0;
-		procArray->headKnownAssignedXids = 0;
-		procArray->lastOverflowedXid = InvalidTransactionId;
-		procArray->replication_slot_xmin = InvalidTransactionId;
-		procArray->replication_slot_catalog_xmin = InvalidTransactionId;
-		TransamVariables->xactCompletionCount = 1;
-	}
+	procArray->numProcs = 0;
+	procArray->maxProcs = PROCARRAY_MAXPROCS;
+	procArray->maxKnownAssignedXids = TOTAL_MAX_CACHED_SUBXIDS;
+	procArray->numKnownAssignedXids = 0;
+	procArray->tailKnownAssignedXids = 0;
+	procArray->headKnownAssignedXids = 0;
+	procArray->lastOverflowedXid = InvalidTransactionId;
+	procArray->replication_slot_xmin = InvalidTransactionId;
+	procArray->replication_slot_catalog_xmin = InvalidTransactionId;
+	TransamVariables->xactCompletionCount = 1;
 
 	allProcs = ProcGlobal->allProcs;
+}
 
-	/* Create or attach to the KnownAssignedXids arrays too, if needed */
-	if (EnableHotStandby)
-	{
-		KnownAssignedXids = (TransactionId *)
-			ShmemInitStruct("KnownAssignedXids",
-							mul_size(sizeof(TransactionId),
-									 TOTAL_MAX_CACHED_SUBXIDS),
-							&found);
-		KnownAssignedXidsValid = (bool *)
-			ShmemInitStruct("KnownAssignedXidsValid",
-							mul_size(sizeof(bool), TOTAL_MAX_CACHED_SUBXIDS),
-							&found);
-	}
+static void
+ProcArrayShmemAttach(void *arg)
+{
+	allProcs = ProcGlobal->allProcs;
 }
 
 /*

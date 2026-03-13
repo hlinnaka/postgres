@@ -203,7 +203,16 @@ typedef struct SISeg
  */
 #define NumProcStateSlots	(MaxBackends + NUM_AUXILIARY_PROCS)
 
+static void SharedInvalShmemInit(void *arg);
+
 static SISeg *shmInvalBuffer;	/* pointer to the shared inval buffer */
+
+static ShmemStructDesc SharedInvalShmemDesc = {
+	.name = "shmInvalBuffer",
+	.size = 0,					/* calculated later */
+	.init_fn = SharedInvalShmemInit,
+	.ptr = (void **) &shmInvalBuffer,
+};
 
 
 static LocalTransactionId nextLocalTransactionId;
@@ -212,10 +221,11 @@ static void CleanupInvalidationState(int status, Datum arg);
 
 
 /*
- * SharedInvalShmemSize --- return shared-memory space needed
+ * SharedInvalShmemRegister
+ *		Register shared memory needs for the SI message buffer
  */
-Size
-SharedInvalShmemSize(void)
+void
+SharedInvalShmemRegister(void)
 {
 	Size		size;
 
@@ -223,26 +233,16 @@ SharedInvalShmemSize(void)
 	size = add_size(size, mul_size(sizeof(ProcState), NumProcStateSlots));	/* procState */
 	size = add_size(size, mul_size(sizeof(int), NumProcStateSlots));	/* pgprocnos */
 
-	return size;
+	SharedInvalShmemDesc.size = size;
+	ShmemRegisterStruct(&SharedInvalShmemDesc);
 }
 
-/*
- * SharedInvalShmemInit
- *		Create and initialize the SI message buffer
- */
-void
-SharedInvalShmemInit(void)
+static void
+SharedInvalShmemInit(void *arg)
 {
 	int			i;
-	bool		found;
 
-	/* Allocate space in shared memory */
-	shmInvalBuffer = (SISeg *)
-		ShmemInitStruct("shmInvalBuffer", SharedInvalShmemSize(), &found);
-	if (found)
-		return;
-
-	/* Clear message counters, save size of procState array, init spinlock */
+	/* Clear message counters, init spinlock */
 	shmInvalBuffer->minMsgNum = 0;
 	shmInvalBuffer->maxMsgNum = 0;
 	shmInvalBuffer->nextThreshold = CLEANUP_MIN;

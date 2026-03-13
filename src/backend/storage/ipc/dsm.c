@@ -110,6 +110,15 @@ static bool dsm_init_done = false;
 /* Preallocated DSM space in the main shared memory region. */
 static void *dsm_main_space_begin = NULL;
 
+static void dsm_main_space_init(void *);
+
+static ShmemStructDesc dsm_main_space_shmem_desc = {
+	.name = "Preallocated DSM",
+	.size = 0,					/* calculated later */
+	.init_fn = dsm_main_space_init,
+	.ptr = &dsm_main_space_begin,
+};
+
 /*
  * List of dynamic shared memory segments used by this backend.
  *
@@ -464,42 +473,36 @@ dsm_set_control_handle(dsm_handle h)
 #endif
 
 /*
- * Reserve some space in the main shared memory segment for DSM segments.
- */
-size_t
-dsm_estimate_size(void)
-{
-	return 1024 * 1024 * (size_t) min_dynamic_shared_memory;
-}
-
-/*
- * Initialize space in the main shared memory segment for DSM segments.
+ * Reserve space in the main shared memory segment for DSM segments.
  */
 void
-dsm_shmem_init(void)
+dsm_shmem_register(void)
 {
-	size_t		size = dsm_estimate_size();
-	bool		found;
+	size_t		size = 1024 * 1024 * (size_t) min_dynamic_shared_memory;
 
 	if (size == 0)
 		return;
 
-	dsm_main_space_begin = ShmemInitStruct("Preallocated DSM", size, &found);
-	if (!found)
-	{
-		FreePageManager *fpm = (FreePageManager *) dsm_main_space_begin;
-		size_t		first_page = 0;
-		size_t		pages;
+	dsm_main_space_shmem_desc.size = size;
+	ShmemRegisterStruct(&dsm_main_space_shmem_desc);
+}
 
-		/* Reserve space for the FreePageManager. */
-		while (first_page * FPM_PAGE_SIZE < sizeof(FreePageManager))
-			++first_page;
+static void
+dsm_main_space_init(void *arg)
+{
+	size_t		size = dsm_main_space_shmem_desc.size;
+	FreePageManager *fpm = (FreePageManager *) dsm_main_space_begin;
+	size_t		first_page = 0;
+	size_t		pages;
 
-		/* Initialize it and give it all the rest of the space. */
-		FreePageManagerInitialize(fpm, dsm_main_space_begin);
-		pages = (size / FPM_PAGE_SIZE) - first_page;
-		FreePageManagerPut(fpm, first_page, pages);
-	}
+	/* Reserve space for the FreePageManager. */
+	while (first_page * FPM_PAGE_SIZE < sizeof(FreePageManager))
+		++first_page;
+
+	/* Initialize it and give it all the rest of the space. */
+	FreePageManagerInitialize(fpm, dsm_main_space_begin);
+	pages = (size / FPM_PAGE_SIZE) - first_page;
+	FreePageManagerPut(fpm, first_page, pages);
 }
 
 /*

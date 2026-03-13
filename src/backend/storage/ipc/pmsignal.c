@@ -83,6 +83,15 @@ struct PMSignalData
 /* PMSignalState pointer is valid in both postmaster and child processes */
 NON_EXEC_STATIC volatile PMSignalData *PMSignalState = NULL;
 
+static void PMSignalShmemInit(void *);
+
+static ShmemStructDesc PMSignalShmemDesc = {
+	.name = "PMSignalState",
+	.size = 0,					/* calculated later */
+	.init_fn = PMSignalShmemInit,
+	.ptr = (void **) &PMSignalState,
+};
+
 /*
  * Local copy of PMSignalState->num_child_flags, only valid in the
  * postmaster.  Postmaster keeps a local copy so that it doesn't need to
@@ -123,39 +132,29 @@ postmaster_death_handler(SIGNAL_ARGS)
 static void MarkPostmasterChildInactive(int code, Datum arg);
 
 /*
- * PMSignalShmemSize
- *		Compute space needed for pmsignal.c's shared memory
+ * PMSignalShmemRegister - Register pmsignal.c's shared memory needs
  */
-Size
-PMSignalShmemSize(void)
+void
+PMSignalShmemRegister(void)
 {
 	Size		size;
 
-	size = offsetof(PMSignalData, PMChildFlags);
-	size = add_size(size, mul_size(MaxLivePostmasterChildren(),
-								   sizeof(sig_atomic_t)));
+	num_child_flags = MaxLivePostmasterChildren();
 
-	return size;
+	size = offsetof(PMSignalData, PMChildFlags);
+	size = add_size(size, mul_size(num_child_flags, sizeof(sig_atomic_t)));
+	PMSignalShmemDesc.size = size;
+	ShmemRegisterStruct(&PMSignalShmemDesc);
 }
 
-/*
- * PMSignalShmemInit - initialize during shared-memory creation
- */
-void
-PMSignalShmemInit(void)
+static void
+PMSignalShmemInit(void *arg)
 {
-	bool		found;
-
-	PMSignalState = (PMSignalData *)
-		ShmemInitStruct("PMSignalState", PMSignalShmemSize(), &found);
-
-	if (!found)
-	{
-		/* initialize all flags to zeroes */
-		MemSet(unvolatize(PMSignalData *, PMSignalState), 0, PMSignalShmemSize());
-		num_child_flags = MaxLivePostmasterChildren();
-		PMSignalState->num_child_flags = num_child_flags;
-	}
+	/* initialize all flags to zeroes */
+	Assert(PMSignalState);
+	MemSet(unvolatize(PMSignalData *, PMSignalState), 0, PMSignalShmemDesc.size);
+	Assert(num_child_flags > 0);
+	PMSignalState->num_child_flags = num_child_flags;
 }
 
 /*

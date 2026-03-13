@@ -345,8 +345,7 @@ extern TransactionId TransactionIdLatest(TransactionId mainxid,
 extern XLogRecPtr TransactionIdGetCommitLSN(TransactionId xid);
 
 /* in transam/varsup.c */
-extern Size VarsupShmemSize(void);
-extern void VarsupShmemInit(void);
+extern void VarsupShmemRegister(void);
 extern FullTransactionId GetNewTransactionId(bool isSubXact);
 extern void AdvanceNextFullTransactionIdPastXid(TransactionId xid);
 extern FullTransactionId ReadNextFullTransactionId(void);

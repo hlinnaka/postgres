@@ -28,8 +28,7 @@
 /*
  * prototypes for functions in sinvaladt.c
  */
-extern Size SharedInvalShmemSize(void);
-extern void SharedInvalShmemInit(void);
+extern void SharedInvalShmemRegister(void);
 extern void SharedInvalBackendInit(bool sendOnly);
 
 extern void SIInsertDataEntries(const SharedInvalidationMessage *data, int n);

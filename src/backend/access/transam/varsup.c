@@ -30,35 +30,32 @@
 /* Number of OIDs to prefetch (preallocate) per XLOG write */
 #define VAR_OID_PREFETCH		8192
 
+static void VarsupShmemInit(void *arg);
+
 /* pointer to variables struct in shared memory */
 TransamVariablesData *TransamVariables = NULL;
 
+static ShmemStructDesc TransamVariablesShmemDesc = {
+	.name = "TransamVariables",
+	.size = sizeof(TransamVariablesData),
+	.init_fn = VarsupShmemInit,
+	.ptr = (void **) &TransamVariables,
+};
 
 /*
  * Initialization of shared memory for TransamVariables.
  */
-Size
-VarsupShmemSize(void)
+void
+VarsupShmemRegister(void)
 {
-	return sizeof(TransamVariablesData);
+	ShmemRegisterStruct(&TransamVariablesShmemDesc);
 }
 
-void
-VarsupShmemInit(void)
-{
-	bool		found;
+static void
+VarsupShmemInit(void *arg)
 
-	/* Initialize our shared state struct */
-	TransamVariables = ShmemInitStruct("TransamVariables",
-									   sizeof(TransamVariablesData),
-									   &found);
-	if (!IsUnderPostmaster)
-	{
-		Assert(!found);
-		memset(TransamVariables, 0, sizeof(TransamVariablesData));
-	}
-	else
-		Assert(found);
+{
+	memset(TransamVariables, 0, sizeof(TransamVariablesData));
 }
 
 /*

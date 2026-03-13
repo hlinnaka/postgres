@@ -69,8 +69,40 @@ PGPROC	   *MyProc = NULL;
 
 /* Pointers to shared-memory structures */
 PROC_HDR   *ProcGlobal = NULL;
+static void *tmpAllProcs;
+static void *tmpFastPathLockArray;
 NON_EXEC_STATIC PGPROC *AuxiliaryProcs = NULL;
 PGPROC	   *PreparedXactProcs = NULL;
+
+static void ProcGlobalShmemInit(void *arg);
+
+static ShmemStructDesc ProcGlobalShmemDesc = {
+	.name = "Proc Header",
+	.size = sizeof(PROC_HDR),
+	.init_fn = ProcGlobalShmemInit,
+
+	/*
+	 * ProcGlobal is registered here in .ptr as usual, but it needs to be
+	 * propagated specially in EXEC_BACKEND mode, because ProcGlobal needs to
+	 * be accessed early at backend startup, before ShmemAttachRegistered()
+	 * has been called.
+	 */
+	.ptr = (void **) &ProcGlobal,
+};
+
+static ShmemStructDesc ProcGlobalAllProcsShmemDesc = {
+	.name = "PGPROC structures",
+	.size = 0,					/* calculated later */
+	.ptr = (void **) &tmpAllProcs,
+};
+
+static ShmemStructDesc FastPathLockArrayShmemDesc = {
+	.name = "Fast-Path Lock Array",
+	.size = 0,					/* calculated later */
+	.ptr = (void **) &tmpFastPathLockArray,
+};
+
+static uint32 TotalProcs;
 
 /* Is a deadlock check pending? */
 static volatile sig_atomic_t got_deadlock_timeout;
@@ -82,32 +114,12 @@ static DeadLockState CheckDeadLock(void);
 
 
 /*
- * Report shared-memory space needed by PGPROC.
- */
-static Size
-PGProcShmemSize(void)
-{
-	Size		size = 0;
-	Size		TotalProcs =
-		add_size(MaxBackends, add_size(NUM_AUXILIARY_PROCS, max_prepared_xacts));
-
-	size = add_size(size, mul_size(TotalProcs, sizeof(PGPROC)));
-	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->xids)));
-	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->subxidStates)));
-	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->statusFlags)));
-
-	return size;
-}
-
-/*
  * Report shared-memory space needed by Fast-Path locks.
  */
 static Size
 FastPathLockShmemSize(void)
 {
 	Size		size = 0;
-	Size		TotalProcs =
-		add_size(MaxBackends, add_size(NUM_AUXILIARY_PROCS, max_prepared_xacts));
 	Size		fpLockBitsSize,
 				fpRelIdSize;
 
@@ -119,25 +131,6 @@ FastPathLockShmemSize(void)
 	fpRelIdSize = MAXALIGN(FastPathLockSlotsPerBackend() * sizeof(Oid));
 
 	size = add_size(size, mul_size(TotalProcs, (fpLockBitsSize + fpRelIdSize)));
-
-	return size;
-}
-
-/*
- * Report shared-memory space needed by InitProcGlobal.
- */
-Size
-ProcGlobalShmemSize(void)
-{
-	Size		size = 0;
-
-	/* ProcGlobal */
-	size = add_size(size, sizeof(PROC_HDR));
-	size = add_size(size, sizeof(slock_t));
-
-	size = add_size(size, PGSemaphoreShmemSize(ProcGlobalSemas()));
-	size = add_size(size, PGProcShmemSize());
-	size = add_size(size, FastPathLockShmemSize());
 
 	return size;
 }
@@ -156,7 +149,50 @@ ProcGlobalSemas(void)
 }
 
 /*
- * InitProcGlobal -
+ * ProcGlobalShmemRegister -
+ *	  Register shared memory needs.
+ *
+ * This is called during postmaster or standalone backend startup, and also
+ * during backend startup in EXEC_BACKEND mode.
+ */
+void
+ProcGlobalShmemRegister(void)
+{
+	Size		size = 0;
+
+	/*
+	 * Reserve all the PGPROC structures we'll need.  There are six separate
+	 * consumers: (1) normal backends, (2) autovacuum workers and special
+	 * workers, (3) background workers, (4) walsenders, (5) auxiliary
+	 * processes, and (6) prepared transactions.  (For largely-historical
+	 * reasons, we combine autovacuum and special workers into one category
+	 * with a single freelist.)  Each PGPROC structure is dedicated to exactly
+	 * one of these purposes, and they do not move between groups.
+	 */
+	TotalProcs =
+		add_size(MaxBackends, add_size(NUM_AUXILIARY_PROCS, max_prepared_xacts));
+
+	size = add_size(size, mul_size(TotalProcs, sizeof(PGPROC)));
+	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->xids)));
+	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->subxidStates)));
+	size = add_size(size, mul_size(TotalProcs, sizeof(*ProcGlobal->statusFlags)));
+
+	ProcGlobalAllProcsShmemDesc.size = size;
+	ShmemRegisterStruct(&ProcGlobalAllProcsShmemDesc);
+
+	FastPathLockArrayShmemDesc.size = FastPathLockShmemSize();
+	ShmemRegisterStruct(&FastPathLockArrayShmemDesc);
+
+	/*
+	 * Register the ProcGlobal shared structure last.  Its init callback
+	 * initializes the others too.
+	 */
+	ShmemRegisterStruct(&ProcGlobalShmemDesc);
+}
+
+
+/*
+ * ProcGlobalShmemInit -
  *	  Initialize the global process table during postmaster or standalone
  *	  backend startup.
  *
@@ -175,36 +211,23 @@ ProcGlobalSemas(void)
  *	  Another reason for creating semaphores here is that the semaphore
  *	  implementation typically requires us to create semaphores in the
  *	  postmaster, not in backends.
- *
- * Note: this is NOT called by individual backends under a postmaster,
- * not even in the EXEC_BACKEND case.  The ProcGlobal and AuxiliaryProcs
- * pointers must be propagated specially for EXEC_BACKEND operation.
  */
-void
-InitProcGlobal(void)
+static void
+ProcGlobalShmemInit(void *arg)
 {
+	char	   *ptr;
+	size_t		requestSize;
 	PGPROC	   *procs;
 	int			i,
 				j;
-	bool		found;
-	uint32		TotalProcs = MaxBackends + NUM_AUXILIARY_PROCS + max_prepared_xacts;
 
 	/* Used for setup of per-backend fast-path slots. */
 	char	   *fpPtr,
 			   *fpEndPtr PG_USED_FOR_ASSERTS_ONLY;
 	Size		fpLockBitsSize,
 				fpRelIdSize;
-	Size		requestSize;
-	char	   *ptr;
 
-	/* Create the ProcGlobal shared structure */
-	ProcGlobal = (PROC_HDR *)
-		ShmemInitStruct("Proc Header", sizeof(PROC_HDR), &found);
-	Assert(!found);
-
-	/*
-	 * Initialize the data structures.
-	 */
+	Assert(ProcGlobal);
 	ProcGlobal->spins_per_delay = DEFAULT_SPINS_PER_DELAY;
 	SpinLockInit(&ProcGlobal->freeProcsLock);
 	dlist_init(&ProcGlobal->freeProcs);
@@ -217,23 +240,12 @@ InitProcGlobal(void)
 	pg_atomic_init_u32(&ProcGlobal->procArrayGroupFirst, INVALID_PROC_NUMBER);
 	pg_atomic_init_u32(&ProcGlobal->clogGroupFirst, INVALID_PROC_NUMBER);
 
-	/*
-	 * Create and initialize all the PGPROC structures we'll need.  There are
-	 * six separate consumers: (1) normal backends, (2) autovacuum workers and
-	 * special workers, (3) background workers, (4) walsenders, (5) auxiliary
-	 * processes, and (6) prepared transactions.  (For largely-historical
-	 * reasons, we combine autovacuum and special workers into one category
-	 * with a single freelist.)  Each PGPROC structure is dedicated to exactly
-	 * one of these purposes, and they do not move between groups.
-	 */
-	requestSize = PGProcShmemSize();
-
-	ptr = ShmemInitStruct("PGPROC structures",
-						  requestSize,
-						  &found);
-
+	Assert(tmpAllProcs);
+	ptr = tmpAllProcs;
+	requestSize = ProcGlobalAllProcsShmemDesc.size;
 	MemSet(ptr, 0, requestSize);
 
+	/* Carve out the allProcs array from the shared memory area */
 	procs = (PGPROC *) ptr;
 	ptr = ptr + TotalProcs * sizeof(PGPROC);
 
@@ -242,7 +254,7 @@ InitProcGlobal(void)
 	ProcGlobal->allProcCount = MaxBackends + NUM_AUXILIARY_PROCS;
 
 	/*
-	 * Allocate arrays mirroring PGPROC fields in a dense manner. See
+	 * Carve out arrays mirroring PGPROC fields in a dense manner. See
 	 * PROC_HDR.
 	 *
 	 * XXX: It might make sense to increase padding for these arrays, given
@@ -257,30 +269,24 @@ InitProcGlobal(void)
 	ProcGlobal->statusFlags = (uint8 *) ptr;
 	ptr = ptr + (TotalProcs * sizeof(*ProcGlobal->statusFlags));
 
-	/* make sure wer didn't overflow */
+	/* make sure we didn't overflow */
 	Assert((ptr > (char *) procs) && (ptr <= (char *) procs + requestSize));
 
 	/*
-	 * Allocate arrays for fast-path locks. Those are variable-length, so
+	 * Initialize arrays for fast-path locks. Those are variable-length, so
 	 * can't be included in PGPROC directly. We allocate a separate piece of
 	 * shared memory and then divide that between backends.
 	 */
 	fpLockBitsSize = MAXALIGN(FastPathLockGroupsPerBackend * sizeof(uint64));
 	fpRelIdSize = MAXALIGN(FastPathLockSlotsPerBackend() * sizeof(Oid));
 
-	requestSize = FastPathLockShmemSize();
-
-	fpPtr = ShmemInitStruct("Fast-Path Lock Array",
-							requestSize,
-							&found);
-
-	MemSet(fpPtr, 0, requestSize);
+	Assert(tmpFastPathLockArray);
+	fpPtr = tmpFastPathLockArray;
+	requestSize = FastPathLockArrayShmemDesc.size;
+	memset(fpPtr, 0, requestSize);
 
 	/* For asserts checking we did not overflow. */
 	fpEndPtr = fpPtr + requestSize;
-
-	/* Reserve space for semaphores. */
-	PGReserveSemaphores(ProcGlobalSemas());
 
 	for (i = 0; i < TotalProcs; i++)
 	{

@@ -552,7 +552,7 @@ extern PGDLLIMPORT PGPROC *AuxiliaryProcs;
  * Function Prototypes
  */
 extern int	ProcGlobalSemas(void);
-extern Size ProcGlobalShmemSize(void);
+extern void ProcGlobalShmemRegister(void);
 extern void InitProcGlobal(void);
 extern void InitProcess(void);
 extern void InitProcessPhase2(void);

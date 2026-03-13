@@ -79,6 +79,30 @@ typedef struct WaitEventCustomEntryByName
 	uint32		wait_event_info;
 } WaitEventCustomEntryByName;
 
+static ShmemHashDesc WaitEventCustomHashByInfoDesc =
+{
+	.name = "WaitEventCustom hash by wait event information",
+	.ptr = &WaitEventCustomHashByInfo,
+
+	.init_size = WAIT_EVENT_CUSTOM_HASH_INIT_SIZE,
+	.max_size = WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
+	.hash_info.keysize = sizeof(uint32),
+	.hash_info.entrysize = sizeof(WaitEventCustomEntryByInfo),
+	.hash_flags = HASH_ELEM | HASH_BLOBS,
+};
+
+static ShmemHashDesc WaitEventCustomHashByNameDesc =
+{
+	.name = "WaitEventCustom hash by name",
+	.ptr = &WaitEventCustomHashByName,
+
+	.init_size = WAIT_EVENT_CUSTOM_HASH_INIT_SIZE,
+	.max_size = WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
+	/* key is a NULL-terminated string */
+	.hash_info.keysize = sizeof(char[NAMEDATALEN]),
+	.hash_info.entrysize = sizeof(WaitEventCustomEntryByName),
+	.hash_flags = HASH_ELEM | HASH_STRINGS,
+};
 
 /* dynamic allocation counter for custom wait events */
 typedef struct WaitEventCustomCounterData
@@ -90,6 +114,16 @@ typedef struct WaitEventCustomCounterData
 /* pointer to the shared memory */
 static WaitEventCustomCounterData *WaitEventCustomCounter;
 
+static void WaitEventCustomCounterDataShmemInit(void *arg);
+
+static ShmemStructDesc WaitEventCustomCounterShmemDesc =
+{
+	.name = "WaitEventCustomCounterData",
+	.size = sizeof(WaitEventCustomCounterData),
+	.init_fn = WaitEventCustomCounterDataShmemInit,
+	.ptr = (void **) &WaitEventCustomCounter,
+};
+
 /* first event ID of custom wait events */
 #define WAIT_EVENT_CUSTOM_INITIAL_ID	1
 
@@ -97,60 +131,22 @@ static uint32 WaitEventCustomNew(uint32 classId, const char *wait_event_name);
 static const char *GetWaitEventCustomIdentifier(uint32 wait_event_info);
 
 /*
- *  Return the space for dynamic shared hash tables and dynamic allocation counter.
- */
-Size
-WaitEventCustomShmemSize(void)
-{
-	Size		sz;
-
-	sz = MAXALIGN(sizeof(WaitEventCustomCounterData));
-	sz = add_size(sz, hash_estimate_size(WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
-										 sizeof(WaitEventCustomEntryByInfo)));
-	sz = add_size(sz, hash_estimate_size(WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
-										 sizeof(WaitEventCustomEntryByName)));
-	return sz;
-}
-
-/*
- * Allocate shmem space for dynamic shared hash and dynamic allocation counter.
+ * Register shmem space for dynamic shared hash and dynamic allocation counter.
  */
 void
-WaitEventCustomShmemInit(void)
+WaitEventCustomShmemRegister(void)
 {
-	bool		found;
-	HASHCTL		info;
+	ShmemRegisterStruct(&WaitEventCustomCounterShmemDesc);
+	ShmemRegisterHash(&WaitEventCustomHashByInfoDesc);
+	ShmemRegisterHash(&WaitEventCustomHashByNameDesc);
+}
 
-	WaitEventCustomCounter = (WaitEventCustomCounterData *)
-		ShmemInitStruct("WaitEventCustomCounterData",
-						sizeof(WaitEventCustomCounterData), &found);
-
-	if (!found)
-	{
-		/* initialize the allocation counter and its spinlock. */
-		WaitEventCustomCounter->nextId = WAIT_EVENT_CUSTOM_INITIAL_ID;
-		SpinLockInit(&WaitEventCustomCounter->mutex);
-	}
-
-	/* initialize or attach the hash tables to store custom wait events */
-	info.keysize = sizeof(uint32);
-	info.entrysize = sizeof(WaitEventCustomEntryByInfo);
-	WaitEventCustomHashByInfo =
-		ShmemInitHash("WaitEventCustom hash by wait event information",
-					  WAIT_EVENT_CUSTOM_HASH_INIT_SIZE,
-					  WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
-					  &info,
-					  HASH_ELEM | HASH_BLOBS);
-
-	/* key is a NULL-terminated string */
-	info.keysize = sizeof(char[NAMEDATALEN]);
-	info.entrysize = sizeof(WaitEventCustomEntryByName);
-	WaitEventCustomHashByName =
-		ShmemInitHash("WaitEventCustom hash by name",
-					  WAIT_EVENT_CUSTOM_HASH_INIT_SIZE,
-					  WAIT_EVENT_CUSTOM_HASH_MAX_SIZE,
-					  &info,
-					  HASH_ELEM | HASH_STRINGS);
+static void
+WaitEventCustomCounterDataShmemInit(void *arg)
+{
+	/* initialize the allocation counter and its spinlock. */
+	WaitEventCustomCounter->nextId = WAIT_EVENT_CUSTOM_INITIAL_ID;
+	SpinLockInit(&WaitEventCustomCounter->mutex);
 }
 
 /*

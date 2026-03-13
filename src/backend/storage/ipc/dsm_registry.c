@@ -56,6 +56,16 @@ typedef struct DSMRegistryCtxStruct
 
 static DSMRegistryCtxStruct *DSMRegistryCtx;
 
+static void DSMRegistryCtxShmemInit(void *arg);
+
+static ShmemStructDesc DSMRegistryCtxShmemDesc = {
+	.name = "DSM Registry Data",
+	.size = sizeof(DSMRegistryCtxStruct),
+	.init_fn = DSMRegistryCtxShmemInit,
+	.ptr = (void **) &DSMRegistryCtx,
+};
+
+
 typedef struct NamedDSMState
 {
 	dsm_handle	handle;
@@ -113,27 +123,17 @@ static const dshash_parameters dsh_params = {
 static dsa_area *dsm_registry_dsa;
 static dshash_table *dsm_registry_table;
 
-Size
-DSMRegistryShmemSize(void)
+void
+DSMRegistryShmemRegister(void)
 {
-	return MAXALIGN(sizeof(DSMRegistryCtxStruct));
+	ShmemRegisterStruct(&DSMRegistryCtxShmemDesc);
 }
 
-void
-DSMRegistryShmemInit(void)
+static void
+DSMRegistryCtxShmemInit(void *arg)
 {
-	bool		found;
-
-	DSMRegistryCtx = (DSMRegistryCtxStruct *)
-		ShmemInitStruct("DSM Registry Data",
-						DSMRegistryShmemSize(),
-						&found);
-
-	if (!found)
-	{
-		DSMRegistryCtx->dsah = DSA_HANDLE_INVALID;
-		DSMRegistryCtx->dshh = DSHASH_HANDLE_INVALID;
-	}
+	DSMRegistryCtx->dsah = DSA_HANDLE_INVALID;
+	DSMRegistryCtx->dshh = DSHASH_HANDLE_INVALID;
 }
 
 /*

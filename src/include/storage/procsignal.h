@@ -63,8 +63,7 @@ typedef enum
 /*
  * prototypes for functions in procsignal.c
  */
-extern Size ProcSignalShmemSize(void);
-extern void ProcSignalShmemInit(void);
+extern void ProcSignalShmemRegister(void);
 
 extern void ProcSignalInit(const uint8 *cancel_key, int cancel_key_len);
 extern int	SendProcSignal(pid_t pid, ProcSignalReason reason,

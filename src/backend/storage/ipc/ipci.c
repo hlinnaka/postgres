@@ -101,16 +101,11 @@ CalculateShmemSize(void)
 	size = 100000;
 	size = add_size(size, ShmemRegisteredSize());
 
-	size = add_size(size, dsm_estimate_size());
-	size = add_size(size, DSMRegistryShmemSize());
-
 	/* legacy subsystems */
 	size = add_size(size, BufferManagerShmemSize());
 	size = add_size(size, LockManagerShmemSize());
 	size = add_size(size, PredicateLockShmemSize());
-	size = add_size(size, ProcGlobalShmemSize());
 	size = add_size(size, XLogPrefetchShmemSize());
-	size = add_size(size, VarsupShmemSize());
 	size = add_size(size, XLOGShmemSize());
 	size = add_size(size, XLogRecoveryShmemSize());
 	size = add_size(size, CLOGShmemSize());
@@ -120,11 +115,7 @@ CalculateShmemSize(void)
 	size = add_size(size, BackgroundWorkerShmemSize());
 	size = add_size(size, MultiXactShmemSize());
 	size = add_size(size, LWLockShmemSize());
-	size = add_size(size, ProcArrayShmemSize());
 	size = add_size(size, BackendStatusShmemSize());
-	size = add_size(size, SharedInvalShmemSize());
-	size = add_size(size, PMSignalShmemSize());
-	size = add_size(size, ProcSignalShmemSize());
 	size = add_size(size, CheckpointerShmemSize());
 	size = add_size(size, AutoVacuumShmemSize());
 	size = add_size(size, ReplicationSlotsShmemSize());
@@ -138,7 +129,6 @@ CalculateShmemSize(void)
 	size = add_size(size, SyncScanShmemSize());
 	size = add_size(size, AsyncShmemSize());
 	size = add_size(size, StatsShmemSize());
-	size = add_size(size, WaitEventCustomShmemSize());
 	size = add_size(size, InjectionPointShmemSize());
 	size = add_size(size, SlotSyncShmemSize());
 	size = add_size(size, AioShmemSize());
@@ -246,11 +236,28 @@ void
 RegisterShmemStructs(void)
 {
 	/*
-	 * TODO: Not used in any built-in subsystems yet.  In the future, most of
-	 * the calls *ShmemInit() calls in CreateOrAttachShmemStructs(), and
-	 * *ShmemSize() calls in CalculateShmemSize() will be replaced by calls
-	 * into the subsystems from here.
+	 * TODO: In the future, all the calls *ShmemInit() calls in
+	 * CreateOrAttachShmemStructs(), and all the *ShmemSize() calls in
+	 * CalculateShmemSize() will be replaced by calls into the subsystems from
+	 * here.
 	 */
+
+	/*
+	 * Note: there are some inter-dependencies between these, so the order of
+	 * some of these matter.
+	 */
+
+	DSMRegistryShmemRegister();
+	dsm_shmem_register();
+
+	ProcGlobalShmemRegister();
+	VarsupShmemRegister();
+	ProcArrayShmemRegister();
+	SharedInvalShmemRegister();
+	PMSignalShmemRegister();
+	ProcSignalShmemRegister();
+
+	WaitEventCustomShmemRegister();
 }
 
 /*
@@ -292,13 +299,9 @@ CreateOrAttachShmemStructs(void)
 		ShmemInitRegistered();
 	}
 
-	dsm_shmem_init();
-	DSMRegistryShmemInit();
-
 	/*
 	 * Set up xlog, clog, and buffers
 	 */
-	VarsupShmemInit();
 	XLOGShmemInit();
 	XLogPrefetchShmemInit();
 	XLogRecoveryShmemInit();
@@ -321,23 +324,13 @@ CreateOrAttachShmemStructs(void)
 	/*
 	 * Set up process table
 	 */
-	if (!IsUnderPostmaster)
-		InitProcGlobal();
-	ProcArrayShmemInit();
 	BackendStatusShmemInit();
 	TwoPhaseShmemInit();
 	BackgroundWorkerShmemInit();
 
 	/*
-	 * Set up shared-inval messaging
-	 */
-	SharedInvalShmemInit();
-
-	/*
 	 * Set up interprocess signaling mechanisms
 	 */
-	PMSignalShmemInit();
-	ProcSignalShmemInit();
 	CheckpointerShmemInit();
 	AutoVacuumShmemInit();
 	ReplicationSlotsShmemInit();
@@ -356,7 +349,6 @@ CreateOrAttachShmemStructs(void)
 	SyncScanShmemInit();
 	AsyncShmemInit();
 	StatsShmemInit();
-	WaitEventCustomShmemInit();
 	InjectionPointShmemInit();
 	AioShmemInit();
 	WaitLSNShmemInit();
