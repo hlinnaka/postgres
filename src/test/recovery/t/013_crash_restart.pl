@@ -21,6 +21,15 @@ my $psql_timeout = IPC::Run::timer($PostgreSQL::Test::Utils::timeout_default);
 
 my $node = PostgreSQL::Test::Cluster->new('primary');
 $node->init(allows_streaming => 1);
+
+# Enable pg_stat_statements to test restart of shared_preload_libraries.
+$node->append_conf(
+	'postgresql.conf',
+	qq{shared_preload_libraries = 'pg_stat_statements'
+pg_stat_statements.max = 50000
+compute_query_id = 'regress'
+});
+
 $node->start();
 
 # by default PostgreSQL::Test::Cluster doesn't restart after a crash
