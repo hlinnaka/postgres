@@ -958,6 +958,9 @@ PostmasterMain(int argc, char *argv[])
 	 */
 	InitializeFastPathLocks();
 
+	/* Register the shared memory needs of all core subsystems. */
+	RegisterShmemStructs();
+
 	/*
 	 * Give preloaded libraries a chance to request additional shared memory.
 	 */
@@ -3235,7 +3238,13 @@ PostmasterStateMachine(void)
 		/* re-read control file into local memory */
 		LocalProcessControlFile(true);
 
-		/* re-create shared memory and semaphores */
+		/*
+		 * Re-initialize shared memory and semaphores.  Note: We don't call
+		 * RegisterShmemStructs() here, we keep the old registrations.  In
+		 * order to re-register structs in extensions, we'd need to reload
+		 * shared preload libraries, and we don't want to do that.
+		 */
+		ResetShmemAllocator();
 		CreateSharedMemoryAndSemaphores();
 
 		UpdatePMState(PM_STARTUP);

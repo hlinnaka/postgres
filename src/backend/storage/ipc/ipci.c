@@ -99,10 +99,12 @@ CalculateShmemSize(void)
 	 * during the actual allocation phase.
 	 */
 	size = 100000;
-	size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,
-											 sizeof(ShmemIndexEnt)));
+	size = add_size(size, ShmemRegisteredSize());
+
 	size = add_size(size, dsm_estimate_size());
 	size = add_size(size, DSMRegistryShmemSize());
+
+	/* legacy subsystems */
 	size = add_size(size, BufferManagerShmemSize());
 	size = add_size(size, LockManagerShmemSize());
 	size = add_size(size, PredicateLockShmemSize());
@@ -218,6 +220,10 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	InitShmemAllocator(seghdr);
 
+	/* Reserve space for semaphores. */
+	if (!IsUnderPostmaster)
+		PGReserveSemaphores(ProcGlobalSemas());
+
 	/* Initialize subsystems */
 	CreateOrAttachShmemStructs();
 
@@ -229,6 +235,22 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	if (shmem_startup_hook)
 		shmem_startup_hook();
+}
+
+/*
+ * Early initialization of various subsystems, giving them a chance to
+ * register their shared memory needs before the shared memory segment is
+ * allocated.
+ */
+void
+RegisterShmemStructs(void)
+{
+	/*
+	 * TODO: Not used in any built-in subsystems yet.  In the future, most of
+	 * the calls *ShmemInit() calls in CreateOrAttachShmemStructs(), and
+	 * *ShmemSize() calls in CalculateShmemSize() will be replaced by calls
+	 * into the subsystems from here.
+	 */
 }
 
 /*
@@ -249,10 +271,26 @@ CreateSharedMemoryAndSemaphores(void)
 static void
 CreateOrAttachShmemStructs(void)
 {
-	/*
-	 * Now initialize LWLocks, which do shared memory allocation.
-	 */
-	CreateLWLocks();
+#ifdef EXEC_BACKEND
+	if (IsUnderPostmaster)
+	{
+		/*
+		 * ShmemAttachRegistered() uses LWLocks. Fortunately, LWLocks don't
+		 * need any special attaching.
+		 */
+		ShmemAttachRegistered();
+	}
+	else
+#endif
+	{
+		/*
+		 * Initialize LWLocks first, in case any of the shmem init function
+		 * use LWLocks.  (Nothing else can be running during startup, so they
+		 * don't need to do any locking yet, but we nevertheless allow it.)
+		 */
+		CreateLWLocks();
+		ShmemInitRegistered();
+	}
 
 	dsm_shmem_init();
 	DSMRegistryShmemInit();

@@ -3628,59 +3628,87 @@ CREATE FUNCTION make_array(anyelement) RETURNS anyarray
       Add-ins can reserve shared memory on server startup.  To do so, the
       add-in's shared library must be preloaded by specifying it in
       <xref linkend="guc-shared-preload-libraries"/><indexterm><primary>shared_preload_libraries</primary></indexterm>.
-      The shared library should also register a
-      <literal>shmem_request_hook</literal> in its
-      <function>_PG_init</function> function.  This
-      <literal>shmem_request_hook</literal> can reserve shared memory by
-      calling:
+      The shared library should register the shared memory allocation in
+      its <function>_PG_init</function> function.  Here is an example:
 <programlisting>
-void RequestAddinShmemSpace(Size size)
-</programlisting>
-      Each backend should obtain a pointer to the reserved shared memory by
-      calling:
-<programlisting>
-void *ShmemInitStruct(const char *name, Size size, bool *foundPtr)
-</programlisting>
-      If this function sets <literal>foundPtr</literal> to
-      <literal>false</literal>, the caller should proceed to initialize the
-      contents of the reserved shared memory.  If <literal>foundPtr</literal>
-      is set to <literal>true</literal>, the shared memory was already
-      initialized by another backend, and the caller need not initialize
-      further.
-     </para>
+typedef struct MyShmemData {
+    LWLock      lock;    /* protects the fields below */
 
-     <para>
-      To avoid race conditions, each backend should use the LWLock
-      <function>AddinShmemInitLock</function> when initializing its allocation
-      of shared memory, as shown here:
-<programlisting>
-static mystruct *ptr = NULL;
-bool        found;
+    ... shared memory contents ...
+} MyShmemData;
 
-LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-ptr = ShmemInitStruct("my struct name", size, &amp;found);
-if (!found)
+static MyShmemData *MyShmem;    /* pointer to the struct in shared memory */
+
+static void my_shmem_init(void *arg);
+
+static ShmemStructDesc MyShmemDesc = {
+    .name = "My shmem area",
+    .size = sizeof(MyShmemData),
+    .init_fn = my_shmem_init,
+    .ptr = (void **) &amp;MyShmem,
+};
+
+/*
+ * Module load callback
+ */
+void
+_PG_init(void)
 {
-    ... initialize contents of shared memory ...
-    ptr->locks = GetNamedLWLockTranche("my tranche name");
-}
-LWLockRelease(AddinShmemInitLock);
-</programlisting>
-      <literal>shmem_startup_hook</literal> provides a convenient place for the
-      initialization code, but it is not strictly required that all such code
-      be placed in this hook.  On Windows (and anywhere else where
-      <literal>EXEC_BACKEND</literal> is defined), each backend executes the
-      registered <literal>shmem_startup_hook</literal> shortly after it
-      attaches to shared memory, so add-ins should still acquire
-      <function>AddinShmemInitLock</function> within this hook, as shown in the
-      example above.  On other platforms, only the postmaster process executes
-      the <literal>shmem_startup_hook</literal>, and each backend automatically
-      inherits the pointers to shared memory.
-     </para>
+    /*
+     * In order to create our shared memory area, we have to be loaded via
+     * shared_preload_libraries.
+     */
+    if (!process_shared_preload_libraries_in_progress)
+        return;
 
+    /* Register our shared memory needs */
+    ShmemRegisterStruct(&amp;MyShmemDesc);
+}
+
+/* callback to initialize the contents of the MyShmem area at startup */
+static void
+my_shmem_init(void *arg)
+{
+    int         tranche_id;
+
+    /* Initialize the lock */
+    tranche_id = LWLockNewTrancheId("my tranche name");
+    LWLockInitialize(&amp;MyShmem->lock, tranche_id);
+
+    ... initialize the rest of MyShmem fields ...
+}
+
+</programlisting>
+      The <function>ShmemRegisterStruct()</function> call doesn't immediately
+      allocate or initialize the memory, it merely registers the space to be
+      allocated later in the startup sequence.  If the size of the allocation
+      depends on <varname>MaxBackends</varname> or other variables that are
+      not yet initialized when <function>_PG_init()</function> is called, the
+      size can still be adjusted later by registering a
+      <literal>shmem_request_hook</literal> and changing the descriptor there.
+      When the memory is allocated, the registered
+      <function>init_fn</function> callback is called to initialize it.
+     </para>
      <para>
-      An example of a <literal>shmem_request_hook</literal> and
-      <literal>shmem_startup_hook</literal> can be found in
+      The <function>init_fn()</function> callback is normally called at
+      postmaster startup, when no other processes are running yet and no
+      locking is required.  However, if a shared memory area is registered
+      after system start, e.g. in an extension that is not in
+      <xref linkend="guc-shared-preload-libraries"/><indexterm><primary>shared_preload_libraries</primary></indexterm>,
+      <function>ShmemRegisterStruct()</function> will immediately call
+      the <function>init_fn</function> callback.  In that case, it holds a
+      lock internally that prevents concurrent shmem allocations.
+     </para>
+     <para>
+      On Windows, the <function>attach_fn</function> callback is additionally
+      called at every backend startup.  It can be used for initializing
+      additional per-backend state related to the shared memory area that is
+      inherited via <function>fork()</function> on other systems.  On other
+      platforms, the <function>attach_fn</function> callback is only called
+      for structs that are registered after system startup.
+     </para>
+     <para>
+      An example of allocating shared memory can be found in
       <filename>contrib/pg_stat_statements/pg_stat_statements.c</filename> in
       the <productname>PostgreSQL</productname> source tree.
      </para>
@@ -3691,8 +3719,7 @@ LWLockRelease(AddinShmemInitLock);
 
      <para>
       There is another, more flexible method of reserving shared memory that
-      can be done after server startup and outside a
-      <literal>shmem_request_hook</literal>.  To do so, each backend that will
+      can be done after server startup.  To do so, each backend that will
       use the shared memory should obtain a pointer to it by calling:
 <programlisting>
 void *GetNamedDSMSegment(const char *name, size_t size,
@@ -3711,10 +3738,7 @@ void *GetNamedDSMSegment(const char *name, size_t size,
      </para>
 
      <para>
-      Unlike shared memory reserved at server startup, there is no need to
-      acquire <function>AddinShmemInitLock</function> or otherwise take action
-      to avoid race conditions when reserving shared memory with
-      <function>GetNamedDSMSegment</function>.  This function ensures that only
+      <function>GetNamedDSMSegment</function> ensures that only
       one backend allocates and initializes the segment and that all other
       backends receive a pointer to the fully allocated and initialized
       segment.

@@ -4162,6 +4162,9 @@ PostgresSingleUserMain(int argc, char *argv[],
 	/* Initialize size of fast-path lock cache. */
 	InitializeFastPathLocks();
 
+	/* Register the shared memory needs of all core subsystems. */
+	RegisterShmemStructs();
+
 	/*
 	 * Give preloaded libraries a chance to request additional shared memory.
 	 */

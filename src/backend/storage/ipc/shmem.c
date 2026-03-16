@@ -19,48 +19,101 @@
  * methods).  The routines in this file are used for allocating and
  * binding to shared memory data structures.
  *
- * NOTES:
- *		(a) There are three kinds of shared memory data structures
- *	available to POSTGRES: fixed-size structures, queues and hash
- *	tables.  Fixed-size structures contain things like global variables
- *	for a module and should never be allocated after the shared memory
- *	initialization phase.  Hash tables have a fixed maximum size, but
- *	their actual size can vary dynamically.  When entries are added
- *	to the table, more space is allocated.  Queues link data structures
- *	that have been allocated either within fixed-size structures or as hash
- *	buckets.  Each shared data structure has a string name to identify
- *	it (assigned in the module that declares it).
+ * Two kinds of shared memory data structures are handled by this module:
+ * fixed-size structures and hash tables.  Fixed-size structures contain
+ * things like variables shared between all backend processes.  Hash tables
+ * have a fixed maximum size, but their actual size can vary dynamically.
+ * When entries are added to the table, more space is allocated.  Each shared
+ * data structure and hash has a string name to identify it, specified in the
+ * descriptor when its registered.
  *
- *		(b) During initialization, each module looks for its
- *	shared data structures in a hash table called the "Shmem Index".
- *	If the data structure is not present, the caller can allocate
- *	a new one and initialize it.  If the data structure is present,
- *	the caller "attaches" to the structure by initializing a pointer
- *	in the local address space.
- *		The shmem index has two purposes: first, it gives us
- *	a simple model of how the world looks when a backend process
- *	initializes.  If something is present in the shmem index,
- *	it is initialized.  If it is not, it is uninitialized.  Second,
- *	the shmem index allows us to allocate shared memory on demand
- *	instead of trying to preallocate structures and hard-wire the
- *	sizes and locations in header files.  If you are using a lot
- *	of shared memory in a lot of different places (and changing
- *	things during development), this is important.
+ * Shared memory structs and hash tables should not be allocated after
+ * postmaster startup, although we do allow small allocations later for the
+ * benefit of extension modules that loaded after startup.  Despite that
+ * allowance, extensions that need shared memory should be added in
+ * shared_preload_libraries, because the allowance is quite small and there is
+ * no guarantee that any memory is available after startup.
  *
- *		(c) In standard Unix-ish environments, individual backends do not
- *	need to re-establish their local pointers into shared memory, because
- *	they inherit correct values of those variables via fork() from the
- *	postmaster.  However, this does not work in the EXEC_BACKEND case.
- *	In ports using EXEC_BACKEND, new backends have to set up their local
- *	pointers using the method described in (b) above.
+ * Nowadays, there is also third way to allocate shared memory called Dynamic
+ * Shared Memory.  See dsm.c for that facility.  One big difference between
+ * traditional shared memory handled by shmem.c and dynamic shared memory is
+ * that traditional shared memory areas are mapped to the same address in all
+ * processes, so you can use normal pointers in shared memory structs.  With
+ * Dynamic Shared Memory, you must use offsets or DSA pointers instead.
  *
- *		(d) memory allocation model: shared memory can never be
- *	freed, once allocated.   Each hash table has its own free list,
- *	so hash buckets can be reused when an item is deleted.  However,
- *	if one hash table grows very large and then shrinks, its space
- *	cannot be redistributed to other tables.  We could build a simple
- *	hash bucket garbage collector if need be.  Right now, it seems
- *	unnecessary.
+ * Shared memory managed by shmem.c can never be freed, once allocated.  Each
+ * hash table has its own free list, so hash buckets can be reused when an
+ * item is deleted.  However, if one hash table grows very large and then
+ * shrinks, its space cannot be redistributed to other tables.  We could build
+ * a simple hash bucket garbage collector if need be.  Right now, it seems
+ * unnecessary.
+ *
+ * Usage
+ * -----
+ *
+ * To allocate a shared memory area, fill in the name, size, and any other
+ * options in ShmemStructDesc, and call ShmemRegisterStruct().  Leave any
+ * unused fields as zeros.
+ *
+ *	typedef struct MyShmemData {
+ *		...
+ *	} MyShmemData;
+ *
+ *	static MyShmemData *MyShmem;
+ *
+ *	static void my_shmem_init(void *arg);
+ *
+ *	static ShmemStructDesc MyShmemDesc = {
+ *		.name = "My shmem area",
+ *		.size = sizeof(MyShmemData),
+ *		.init_fn = my_shmem_init,
+ *		.ptr = &MyShmem,
+ *	};
+ *
+ * In the subsystem's initialization code (or in _PG_init() in extensions),
+ * call ShmemRegisterStruct(&MyShmemDesc).
+ *
+ * Lifecycle
+ * ---------
+ *
+ * RegisterShmemStructs() is called at postmaster startup before calculating
+ * the size of the global shared memory segment.  Once all the registrations
+ * have been done, postmaster calls ShmemRegisteredSize() to add up the sizes
+ * of all the registered areas.  After allocating the shared memory segment,
+ * postmaster calls ShmemInitRegistered(), which calls the init_fn callback,
+ * if any, of each registered area, in the order that they were registered.
+ *
+ * In standard Unix-ish environments, individual backends do not need to
+ * re-establish their local pointers into shared memory, because they inherit
+ * correct values of those variables via fork() from the postmaster.  However,
+ * this does not work in the EXEC_BACKEND case.  In ports using EXEC_BACKEND,
+ * backend startup also calls RegisterShmemStructs(), followed by
+ * ShmemAttachRegistered(), which re-establishes the pointer variables
+ * (*ShmemStructDesc->ptr), and calls the attach_fn callback, if any, for
+ * additional per-backend setup.
+ *
+ * Legacy ShmemInitStruct()/ShmemInitHash() functions
+ * --------------------------------------------------
+ *
+ * ShmemInitStruct()/ShmemInitHash() is another way of registring shmem areas.
+ * It pre-dates the ShmemRegisterStruct()/ShmemRegisterHash() functions, and
+ * should not be used in new code, but as of this writing it is still widely
+ * used in extensions.
+ *
+ * To allocate a shmem area with ShmemInitStruct(), you need to separately
+ * register the size needed for the area by calling RequestAddinShmemSpace()
+ * from the extension's shmem_request_hook, and allocate the area by calling
+ * ShmemInitStruct() from the extension's shmem_startup_hook.  There are no
+ * init/attach callbacks.  Instead, the caller of ShmemInitStruct() must check
+ * the return status of ShmemInitStruct() and initialize the struct if it was
+ * not previously initialized.
+ *
+ * Calling ShmemAlloc() directly
+ * -----------------------------
+ *
+ * There's a more low-level way of allocating shared memory too: you can call
+ * ShmemAlloc() directly.  It's used to implement the higher level mechanisms,
+ * and should generally not be called directly.
  */
 
 #include "postgres.h"
@@ -75,6 +128,28 @@
 #include "storage/shmem.h"
 #include "storage/spin.h"
 #include "utils/builtins.h"
+
+/*
+ * Array of registered shared memory areas.
+ *
+ * This is in process private memory, although on Unix-like systems, we expect
+ * all the registrations to happen at postmaster startup time and be inherited
+ * by all the child processes via fork().  Extensions may register additional
+ * areas after startup, but only areas registered at postmaster startup are
+ * included in the estimate for the total memory needed for shared memory.  If
+ * any non-trivial allocations are made after startup, there might not be
+ * enough shared memory available.
+ */
+static struct
+{
+	ShmemStructDesc *desc;		/* registered descriptor */
+	bool		legacy;			/* legacy ShmemInitStruct/Hash entry? */
+} *registered_shmem_areas;
+static int	num_registered_shmem_areas = 0;
+static int	max_registered_shmem_areas = 0; /* allocated size of the array */
+
+/* estimated size of registered_shmem_areas (not a hard limit) */
+#define INITIAL_REGISTRY_SIZE		 (64)
 
 /*
  * This is the first data structure stored in the shared memory segment, at
@@ -93,7 +168,12 @@ typedef struct ShmemAllocatorData
 	slock_t		shmem_lock;
 } ShmemAllocatorData;
 
+static bool ShmemRegisterStructInternal(ShmemStructDesc *desc, bool legacy);
+static bool ShmemRegisterHashInternal(ShmemHashDesc *desc, bool legacy);
 static void *ShmemAllocRaw(Size size, Size *allocated_size);
+
+static void shmem_hash_init(void *arg);
+static void shmem_hash_attach(void *arg);
 
 /* shared memory global variables */
 
@@ -103,7 +183,32 @@ static void *ShmemEnd;			/* end+1 address of shared memory */
 
 static ShmemAllocatorData *ShmemAllocator;
 slock_t    *ShmemLock;			/* points to ShmemAllocator->shmem_lock */
-static HTAB *ShmemIndex = NULL; /* primary index hashtable for shmem */
+
+static bool shmem_initialized = false;
+
+/*
+ * ShmemIndex is a global directory of shmem areas, itself also stored in the
+ * shared memory.
+ */
+static HTAB *ShmemIndex;
+
+ /* max size of data structure string name */
+#define SHMEM_INDEX_KEYSIZE		 (48)
+
+/*
+ * # of additional entries to reserve in the shmem index table, for allocations
+ * after postmaster startup (not a hard limit)
+ */
+#define SHMEM_INDEX_ADDITIONAL_SIZE		 (64)
+
+/* this is a hash bucket in the shmem index table */
+typedef struct
+{
+	char		key[SHMEM_INDEX_KEYSIZE];	/* string name */
+	void	   *location;		/* location in shared mem */
+	Size		size;			/* # bytes requested for the structure */
+	Size		allocated_size; /* # bytes actually allocated */
+} ShmemIndexEnt;
 
 /* To get reliable results for NUMA inquiry we need to "touch pages" once */
 static bool firstNumaTouch = true;
@@ -111,12 +216,299 @@ static bool firstNumaTouch = true;
 Datum		pg_numa_available(PG_FUNCTION_ARGS);
 
 /*
+ *	ShmemRegisterStruct() --- register a shared memory struct
+ *
+ * Subsystems call this to register their shared memory needs.  That should be
+ * done early in postmaster startup, before the shared memory segment has been
+ * created, so that the size can be included in the estimate for total amount
+ * of shared memory needed.  We set aside a small amount of memory for
+ * allocations that happen later, for the benefit of non-preloaded extensions,
+ * but that should not be relied upon.
+ *
+ * In core subsystems, each subsystem's registration function is called from
+ * RegisterShmemStructs().  In extensions, this should be called from the
+ * _PG_init() function.  In EXEC_BACKEND mode, this also needs to be called in
+ * each child process, to reattach and set the pointer to the shared memory
+ * area, usually in a global variable.  Calling this from the _PG_init()
+ * initializer takes care of that too.
+ *
+ * When called during postmaster startup, before the shared memory has been
+ * allocated, the function merely remembers the registered descriptor, but the
+ * descriptor may still be changed later, until the shared memory segment has
+ * been allocated.  That means that an extension may still modify the
+ * already-registered descriptor in the shmem_request_hook.  A common example
+ * of when that's useful is when the size depends on MaxBackends: you can
+ * leave the size empty in the ShmemRegisterStruct() call and fill it later in
+ * the shmem_request_hook.
+ *
+ * Returns true if the struct was already initialized in shared memory and we
+ * merely attached to it.
+ */
+bool
+ShmemRegisterStruct(ShmemStructDesc *desc)
+{
+	return ShmemRegisterStructInternal(desc, false);
+}
+
+static bool
+ShmemRegisterStructInternal(ShmemStructDesc *desc, bool legacy)
+{
+	bool		found;
+
+	/* Check that it's not already registered in this process */
+	for (int i = 0; i < num_registered_shmem_areas; i++)
+	{
+		ShmemStructDesc *existing = registered_shmem_areas[i].desc;
+
+		if (strcmp(existing->name, desc->name) == 0)
+			ereport(ERROR,
+					(errmsg("shared memory struct \"%s\" is already registered",
+							desc->name),
+					 errbacktrace()));
+	}
+
+	/* desc->ptr can be non-NULL when re-initializing after crash */
+	if (!IsUnderPostmaster && desc->ptr)
+		*desc->ptr = NULL;
+
+	/* Add the descriptor to the array, growing the array if needed */
+	if (num_registered_shmem_areas == max_registered_shmem_areas)
+	{
+		int			new_size;
+
+		if (registered_shmem_areas)
+		{
+			new_size = max_registered_shmem_areas * 2;
+			registered_shmem_areas = repalloc(registered_shmem_areas,
+											  new_size * sizeof(*registered_shmem_areas));
+		}
+		else
+		{
+			new_size = INITIAL_REGISTRY_SIZE;
+			registered_shmem_areas = MemoryContextAlloc(TopMemoryContext,
+														new_size * sizeof(*registered_shmem_areas));
+		}
+		max_registered_shmem_areas = new_size;
+	}
+	registered_shmem_areas[num_registered_shmem_areas].desc = desc;
+	registered_shmem_areas[num_registered_shmem_areas].legacy = legacy;
+	num_registered_shmem_areas++;
+
+	/*
+	 * If called after postmaster startup, we need to immediately also
+	 * initialize or attach to the area.
+	 */
+	if (shmem_initialized)
+	{
+		ShmemIndexEnt *index_entry;
+
+		LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
+
+		/* look it up in the shmem index */
+		index_entry = (ShmemIndexEnt *)
+			hash_search(ShmemIndex, desc->name, HASH_ENTER_NULL, &found);
+		if (!index_entry)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("could not create ShmemIndex entry for data structure \"%s\"",
+							desc->name)));
+		}
+		if (found)
+		{
+			/* Already present, just attach to it */
+			if (index_entry->size != desc->size)
+				elog(ERROR, "shared memory struct \"%s\" is already registered with different size",
+					 desc->name);
+			if (desc->ptr)
+				*desc->ptr = index_entry->location;
+			if (desc->attach_fn)
+				desc->attach_fn(desc->attach_fn_arg);
+		}
+		else
+		{
+			/*
+			 * This is the first time.  Initialize it like
+			 * ShmemInitRegistered() would
+			 */
+			size_t		allocated_size;
+			void	   *structPtr;
+
+			structPtr = ShmemAllocRaw(desc->size, &allocated_size);
+			if (structPtr == NULL)
+			{
+				/* out of memory; remove the failed ShmemIndex entry */
+				hash_search(ShmemIndex, desc->name, HASH_REMOVE, NULL);
+				ereport(ERROR,
+						(errcode(ERRCODE_OUT_OF_MEMORY),
+						 errmsg("not enough shared memory for data structure"
+								" \"%s\" (%zu bytes requested)",
+								desc->name, desc->size)));
+			}
+			index_entry->size = desc->size;
+			index_entry->allocated_size = allocated_size;
+			index_entry->location = structPtr;
+			if (desc->ptr)
+				*desc->ptr = index_entry->location;
+
+			/*
+			 * XXX: if this errors out, the area is left in a half-initialized
+			 * state
+			 */
+			if (desc->init_fn)
+				desc->init_fn(desc->init_fn_arg);
+		}
+
+		LWLockRelease(ShmemIndexLock);
+	}
+	else
+		found = false;
+
+	return found;
+}
+
+/*
+ *	ShmemRegisteredSize() --- estimate the total size of all registered shared
+ *                            memory structures.
+ *
+ * This is called once at postmaster startup, before the shared memory segment
+ * has been created.
+ */
+size_t
+ShmemRegisteredSize(void)
+{
+	size_t		size;
+
+	/* memory needed for the ShmemIndex */
+	size = hash_estimate_size(num_registered_shmem_areas + SHMEM_INDEX_ADDITIONAL_SIZE,
+							  sizeof(ShmemIndexEnt));
+
+	/* memory needed for all the registered areas */
+	for (int i = 0; i < num_registered_shmem_areas; i++)
+	{
+		ShmemStructDesc *desc = registered_shmem_areas[i].desc;
+
+		size = add_size(size, desc->size);
+		size = add_size(size, desc->extra_size);
+	}
+
+	return size;
+}
+
+/*
+ *	ShmemInitRegistered() --- allocate and initialize pre-registered shared
+ *                            memory structures.
+ *
+ * This is called once at postmaster startup, after the shared memory segment
+ * has been created.
+ */
+void
+ShmemInitRegistered(void)
+{
+	/* Should be called only by the postmaster or a standalone backend. */
+	Assert(!IsUnderPostmaster);
+	Assert(!shmem_initialized);
+
+	/*
+	 * Initialize all the registered memory areas.  There are no concurrent
+	 * processes yet, so no need for locking.
+	 */
+	for (int i = 0; i < num_registered_shmem_areas; i++)
+	{
+		ShmemStructDesc *desc = registered_shmem_areas[i].desc;
+		size_t		allocated_size;
+		void	   *structPtr;
+		bool		found;
+		ShmemIndexEnt *index_entry;
+
+		/* look it up in the shmem index */
+		index_entry = (ShmemIndexEnt *)
+			hash_search(ShmemIndex, desc->name, HASH_ENTER_NULL, &found);
+		if (!index_entry)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("could not create ShmemIndex entry for data structure \"%s\"",
+							desc->name)));
+		}
+		if (found)
+			elog(ERROR, "shared memory struct \"%s\" is already initialized", desc->name);
+
+		/* allocate and initialize it */
+		structPtr = ShmemAllocRaw(desc->size, &allocated_size);
+		if (structPtr == NULL)
+		{
+			/* out of memory; remove the failed ShmemIndex entry */
+			hash_search(ShmemIndex, desc->name, HASH_REMOVE, NULL);
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("not enough shared memory for data structure"
+							" \"%s\" (%zu bytes requested)",
+							desc->name, desc->size)));
+		}
+		index_entry->size = desc->size;
+		index_entry->allocated_size = allocated_size;
+		index_entry->location = structPtr;
+
+		*(desc->ptr) = structPtr;
+		if (desc->init_fn)
+			desc->init_fn(desc->init_fn_arg);
+	}
+
+	shmem_initialized = true;
+}
+
+/*
+ * Call the attach_fn callbacks of all registered shmem areas
+ *
+ * This is called at backend startup, in EXEC_BACKEND mode.
+ */
+#ifdef EXEC_BACKEND
+void
+ShmemAttachRegistered(void)
+{
+	/* Must be initializing a (non-standalone) backend */
+	Assert(IsUnderPostmaster);
+	Assert(ShmemAllocator->index != NULL);
+
+	LWLockAcquire(ShmemIndexLock, LW_SHARED);
+
+	for (int i = 0; i < num_registered_shmem_areas; i++)
+	{
+		ShmemStructDesc *desc = registered_shmem_areas[i].desc;
+		bool		found;
+		ShmemIndexEnt *result;
+
+		/* look it up in the shmem index */
+		result = (ShmemIndexEnt *)
+			hash_search(ShmemIndex, desc->name, HASH_FIND, &found);
+		if (!found)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OUT_OF_MEMORY),
+					 errmsg("could not find ShmemIndex entry for data structure \"%s\"",
+							desc->name)));
+		}
+
+		if (desc->ptr)
+			*desc->ptr = result->location;
+		if (desc->attach_fn)
+			desc->attach_fn(desc->attach_fn_arg);
+	}
+
+	LWLockRelease(ShmemIndexLock);
+
+	shmem_initialized = true;
+}
+#endif
+
+/*
  *	InitShmemAllocator() --- set up basic pointers to shared memory.
  *
  * Called at postmaster or stand-alone backend startup, to initialize the
  * allocator's data structure in the shared memory segment.  In EXEC_BACKEND,
- * this is also called at backend startup, to set up pointers to the shared
- * memory areas.
+ * this is also called at backend startup, to set up pointers to the
+ * already-initialized data structure.
  */
 void
 InitShmemAllocator(PGShmemHeader *seghdr)
@@ -127,6 +519,7 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	int			hash_flags;
 	size_t		size;
 
+	Assert(!shmem_initialized);
 	Assert(seghdr != NULL);
 
 	/*
@@ -171,7 +564,7 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	 * use ShmemInitHash() here because it relies on ShmemIndex being already
 	 * initialized.
 	 */
-	hash_size = SHMEM_INDEX_SIZE;
+	hash_size = num_registered_shmem_areas + SHMEM_INDEX_ADDITIONAL_SIZE;
 
 	info.keysize = SHMEM_INDEX_KEYSIZE;
 	info.entrysize = sizeof(ShmemIndexEnt);
@@ -188,6 +581,38 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	info.hctl = ShmemAllocator->index;
 	ShmemIndex = hash_create("ShmemIndex", hash_size, &info, hash_flags);
 	Assert(ShmemIndex != NULL);
+}
+
+/*
+ * Reset the shmem struct registry on postmaster crash restart.
+ */
+void
+ResetShmemAllocator(void)
+{
+	int			num_retained;
+
+	shmem_initialized = false;
+
+	/*
+	 * Shared memory areas will not be registered again after a crash restart.
+	 * We don't call RegisterShmemStructs() on crash restart, which would
+	 * re-register core subsystems, and we don't reload
+	 * shared_preload_libraries either.
+	 *
+	 * However, we do expect the legacy ShmemInitStruct() function will be
+	 * called again for each area, so remove those from the registry.
+	 */
+	num_retained = 0;
+	for (int i = 0; i < num_registered_shmem_areas; i++)
+	{
+		if (!registered_shmem_areas[i].legacy)
+		{
+			if (num_retained != i)
+				registered_shmem_areas[num_retained] = registered_shmem_areas[i];
+			num_retained++;
+		}
+	}
+	num_registered_shmem_areas = num_retained;
 }
 
 /*
@@ -287,6 +712,112 @@ ShmemAddrIsValid(const void *addr)
 }
 
 /*
+ * ShmemRegisterHash -- Register a shared memory hash table.
+ *
+ * Similar to ShmemRegisterStruct(), but registers a hash table instead of an
+ * opaque area.
+ */
+bool
+ShmemRegisterHash(ShmemHashDesc *desc)
+{
+	return ShmemRegisterHashInternal(desc, false);
+}
+
+static bool
+ShmemRegisterHashInternal(ShmemHashDesc *desc, bool legacy)
+{
+	/*
+	 * Hash tables allocated in shared memory have a fixed directory; it can't
+	 * grow or other backends wouldn't be able to find it. So, make sure we
+	 * make it big enough to start with.
+	 *
+	 * The shared memory allocator must be specified too.
+	 */
+	desc->hash_info.dsize = desc->hash_info.max_dsize = hash_select_dirsize(desc->max_size);
+	desc->hash_info.alloc = ShmemAllocNoError;
+	desc->hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
+
+	/* Set up the base struct descriptor */
+	memset(&desc->base_desc, 0, sizeof(desc->base_desc));
+	desc->base_desc.name = desc->name;
+	desc->base_desc.size = hash_get_shared_size(&desc->hash_info, desc->hash_flags);
+	desc->base_desc.init_fn = shmem_hash_init;
+	desc->base_desc.init_fn_arg = desc;
+	desc->base_desc.attach_fn = shmem_hash_attach;
+	desc->base_desc.attach_fn_arg = desc;
+
+	/*
+	 * We need a stable pointer to hold the pointer to the shared memory.  Use
+	 * the one passed in the descriptor now.  It will be replaced with the
+	 * hash table header by init or attach function.
+	 */
+	desc->base_desc.ptr = (void **) desc->ptr;
+
+	desc->base_desc.extra_size = hash_estimate_size(desc->max_size, desc->hash_info.entrysize) - desc->base_desc.size;
+
+	return ShmemRegisterStructInternal(&desc->base_desc, legacy);
+}
+
+static void
+shmem_hash_init(void *arg)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) arg;
+	int			hash_flags = desc->hash_flags;
+
+	/* Pass location of hashtable header to hash_create */
+	desc->hash_info.hctl = (HASHHDR *) *desc->base_desc.ptr;
+
+	*desc->ptr = hash_create(desc->name, desc->init_size, &desc->hash_info, hash_flags);
+}
+
+static void
+shmem_hash_attach(void *arg)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) arg;
+	int			hash_flags = desc->hash_flags;
+
+	/* attach to it rather than allocate and initialize new space */
+	hash_flags |= HASH_ATTACH;
+
+	/* Pass location of hashtable header to hash_create */
+	desc->hash_info.hctl = (HASHHDR *) *desc->base_desc.ptr;
+
+	*desc->ptr = hash_create(desc->name, desc->init_size, &desc->hash_info, hash_flags);
+}
+
+/*
+ * ShmemInitStruct -- Create/attach to a structure in shared memory.
+ *
+ *		This is called during initialization to find or allocate
+ *		a data structure in shared memory.  If no other process
+ *		has created the structure, this routine allocates space
+ *		for it.  If it exists already, a pointer to the existing
+ *		structure is returned.
+ *
+ *	Returns: pointer to the object.  *foundPtr is set true if the object was
+ *		already in the shmem index (hence, already initialized).
+ *
+ * Note: This is a legacy interface, kept for backwards compatibility with
+ * extensions.  Use ShmemRegisterStruct() in new code!
+ */
+void *
+ShmemInitStruct(const char *name, Size size, bool *foundPtr)
+{
+	ShmemStructDesc *desc;
+
+	Assert(shmem_initialized);
+
+	desc = MemoryContextAllocZero(TopMemoryContext, sizeof(ShmemStructDesc) + sizeof(void *));
+	desc->name = name;
+	desc->size = size;
+	desc->ptr = (void *) (((char *) desc) + sizeof(ShmemStructDesc));
+
+	*foundPtr = ShmemRegisterStructInternal(desc, true);
+	Assert(*desc->ptr != NULL);
+	return *desc->ptr;
+}
+
+/*
  * ShmemInitHash -- Create and initialize, or attach to, a
  *		shared memory hash table.
  *
@@ -309,9 +840,8 @@ ShmemAddrIsValid(const void *addr)
  * to shared-memory hash tables are added here, except that callers may
  * choose to specify HASH_PARTITION and/or HASH_FIXED_SIZE.
  *
- * Note: before Postgres 9.0, this function returned NULL for some failure
- * cases.  Now, it always throws error instead, so callers need not check
- * for NULL.
+ * Note: This is a legacy interface, kept for backwards compatibility with
+ * extensions.  Use ShmemRegisterHash() in new code!
  */
 HTAB *
 ShmemInitHash(const char *name,		/* table string name for shmem index */
@@ -320,125 +850,22 @@ ShmemInitHash(const char *name,		/* table string name for shmem index */
 			  HASHCTL *infoP,	/* info about key and bucket size */
 			  int hash_flags)	/* info about infoP */
 {
-	bool		found;
-	void	   *location;
+	ShmemHashDesc *desc;
 
-	/*
-	 * Hash tables allocated in shared memory have a fixed directory; it can't
-	 * grow or other backends wouldn't be able to find it. So, make sure we
-	 * make it big enough to start with.
-	 *
-	 * The shared memory allocator must be specified too.
-	 */
-	infoP->dsize = infoP->max_dsize = hash_select_dirsize(max_size);
-	infoP->alloc = ShmemAllocNoError;
-	hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
+	Assert(shmem_initialized);
 
-	/* look it up in the shmem index */
-	location = ShmemInitStruct(name,
-							   hash_get_shared_size(infoP, hash_flags),
-							   &found);
+	desc = MemoryContextAllocZero(TopMemoryContext, sizeof(ShmemHashDesc) + sizeof(HTAB *));
+	desc->name = name;
+	desc->init_size = init_size;
+	desc->max_size = max_size;
+	memcpy(&desc->hash_info, infoP, sizeof(HASHCTL));
+	desc->hash_flags = hash_flags;
 
-	/*
-	 * if it already exists, attach to it rather than allocate and initialize
-	 * new space
-	 */
-	if (found)
-		hash_flags |= HASH_ATTACH;
+	desc->ptr = (HTAB **) (((char *) desc) + sizeof(ShmemHashDesc));
 
-	/* Pass location of hashtable header to hash_create */
-	infoP->hctl = (HASHHDR *) location;
-
-	return hash_create(name, init_size, infoP, hash_flags);
+	ShmemRegisterHashInternal(desc, true);
+	return *desc->ptr;
 }
-
-/*
- * ShmemInitStruct -- Create/attach to a structure in shared memory.
- *
- *		This is called during initialization to find or allocate
- *		a data structure in shared memory.  If no other process
- *		has created the structure, this routine allocates space
- *		for it.  If it exists already, a pointer to the existing
- *		structure is returned.
- *
- *	Returns: pointer to the object.  *foundPtr is set true if the object was
- *		already in the shmem index (hence, already initialized).
- *
- *	Note: before Postgres 9.0, this function returned NULL for some failure
- *	cases.  Now, it always throws error instead, so callers need not check
- *	for NULL.
- */
-void *
-ShmemInitStruct(const char *name, Size size, bool *foundPtr)
-{
-	ShmemIndexEnt *result;
-	void	   *structPtr;
-
-	Assert(ShmemIndex != NULL);
-
-	LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
-
-	/* look it up in the shmem index */
-	result = (ShmemIndexEnt *)
-		hash_search(ShmemIndex, name, HASH_ENTER_NULL, foundPtr);
-
-	if (!result)
-	{
-		LWLockRelease(ShmemIndexLock);
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("could not create ShmemIndex entry for data structure \"%s\"",
-						name)));
-	}
-
-	if (*foundPtr)
-	{
-		/*
-		 * Structure is in the shmem index so someone else has allocated it
-		 * already.  The size better be the same as the size we are trying to
-		 * initialize to, or there is a name conflict (or worse).
-		 */
-		if (result->size != size)
-		{
-			LWLockRelease(ShmemIndexLock);
-			ereport(ERROR,
-					(errmsg("ShmemIndex entry size is wrong for data structure"
-							" \"%s\": expected %zu, actual %zu",
-							name, size, result->size)));
-		}
-		structPtr = result->location;
-	}
-	else
-	{
-		Size		allocated_size;
-
-		/* It isn't in the table yet. allocate and initialize it */
-		structPtr = ShmemAllocRaw(size, &allocated_size);
-		if (structPtr == NULL)
-		{
-			/* out of memory; remove the failed ShmemIndex entry */
-			hash_search(ShmemIndex, name, HASH_REMOVE, NULL);
-			LWLockRelease(ShmemIndexLock);
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("not enough shared memory for data structure"
-							" \"%s\" (%zu bytes requested)",
-							name, size)));
-		}
-		result->size = size;
-		result->allocated_size = allocated_size;
-		result->location = structPtr;
-	}
-
-	LWLockRelease(ShmemIndexLock);
-
-	Assert(ShmemAddrIsValid(structPtr));
-
-	Assert(structPtr == (void *) CACHELINEALIGN(structPtr));
-
-	return structPtr;
-}
-
 
 /*
  * Add two Size values, checking for overflow
