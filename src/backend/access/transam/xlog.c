@@ -98,6 +98,7 @@
 #include "utils/guc_hooks.h"
 #include "utils/guc_tables.h"
 #include "utils/injection_point.h"
+#include "utils/memdebug.h"
 #include "utils/pgstat_internal.h"
 #include "utils/ps_status.h"
 #include "utils/relmapper.h"
@@ -1258,6 +1259,15 @@ CopyXLogRecordToWAL(int write_len, bool isLogSwitch, XLogRecData *rdata,
 	{
 		const char *rdata_data = rdata->data;
 		int			rdata_len = rdata->len;
+
+		/*
+		 * Check that we don't leak uninitialized bytes to the WAL.  It's not
+		 * dangerous as such, but it's good hygiene to avoid it.  It would be
+		 * caught later anyway when we write data to disk, but it's better to
+		 * check here so that you get a stack trace of where the WAL is
+		 * generated.
+		 */
+		VALGRIND_CHECK_MEM_IS_DEFINED(rdata_data, rdata_len);
 
 		while (rdata_len > freespace)
 		{
@@ -5149,6 +5159,7 @@ BootStrapXLOG(uint32 data_checksum_version)
 	 * segment with logid=0 logseg=1. The very first WAL segment, 0/0, is not
 	 * used, so that we can use 0/0 to mean "before any valid WAL segment".
 	 */
+	memset(&checkPoint, 0, sizeof(checkPoint)); /* clear padding */
 	checkPoint.redo = wal_segment_size + SizeOfXLogLongPHD;
 	checkPoint.ThisTimeLineID = BootstrapTimeLineID;
 	checkPoint.PrevTimeLineID = BootstrapTimeLineID;
@@ -8276,6 +8287,7 @@ XLogReportParameters(void)
 			xl_parameter_change xlrec;
 			XLogRecPtr	recptr;
 
+			memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 			xlrec.MaxConnections = MaxConnections;
 			xlrec.max_worker_processes = max_worker_processes;
 			xlrec.max_wal_senders = max_wal_senders;

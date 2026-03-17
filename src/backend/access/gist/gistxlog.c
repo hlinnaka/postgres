@@ -501,6 +501,7 @@ gistXLogSplit(bool page_is_leaf,
 	for (ptr = dist; ptr; ptr = ptr->next)
 		npage++;
 
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	xlrec.origrlink = origrlink;
 	xlrec.orignsn = orignsn;
 	xlrec.origleaf = page_is_leaf;
@@ -650,6 +651,7 @@ gistXLogDelete(Buffer buffer, OffsetNumber *todelete, int ntodelete,
 	gistxlogDelete xlrec;
 	XLogRecPtr	recptr;
 
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	xlrec.isCatalogRel = RelationIsAccessibleInLogicalDecoding(heaprel);
 	xlrec.snapshotConflictHorizon = snapshotConflictHorizon;
 	xlrec.ntodelete = ntodelete;

@@ -1041,6 +1041,9 @@ save_state_data(const void *data, uint32 len)
 	}
 
 	memcpy(records.tail->data + records.tail->len, data, len);
+	/* clear MAXALIGN padding to avoid uninitialized bytes in WAL */
+	if (padlen > len)
+		memset(records.tail->data + records.tail->len + len, 0, padlen - len);
 	records.tail->len += padlen;
 	records.bytes_free -= padlen;
 	records.total_len += padlen;
@@ -1078,6 +1081,7 @@ StartPrepare(GlobalTransaction gxact)
 	records.total_len = 0;
 
 	/* Create header */
+	memset(&hdr, 0, sizeof(hdr));	/* clear padding */
 	hdr.magic = TWOPHASE_MAGIC;
 	hdr.total_len = 0;			/* EndPrepare will fill this in */
 	hdr.xid = xid;
@@ -1276,6 +1280,7 @@ RegisterTwoPhaseRecord(TwoPhaseRmgrId rmid, uint16 info,
 {
 	TwoPhaseRecordOnDisk record;
 
+	memset(&record, 0, sizeof(record)); /* clear padding */
 	record.rmid = rmid;
 	record.info = info;
 	record.len = len;

@@ -2639,6 +2639,7 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 			/* check that the mutually exclusive flags are not both set */
 			Assert(!(all_visible_cleared && all_frozen_set));
 
+			memset(xlrec, 0, SizeOfHeapMultiInsert);	/* clear padding */
 			xlrec->flags = 0;
 			if (all_visible_cleared)
 				xlrec->flags = XLH_INSERT_ALL_VISIBLE_CLEARED;
@@ -2666,6 +2667,7 @@ heap_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 				if (!init)
 					xlrec->offsets[i] = ItemPointerGetOffsetNumber(&heaptup->t_self);
 				/* xl_multi_insert_tuple needs two-byte alignment. */
+				memset(scratchptr, 0, 1);	/* clear the padding */
 				tuphdr = (xl_multi_insert_tuple *) SHORTALIGN(scratchptr);
 				scratchptr = ((char *) tuphdr) + SizeOfMultiInsertTuple;
 
@@ -6667,6 +6669,7 @@ heap_inplace_update_and_unlock(Relation relation,
 		BlockNumber blkno;
 		XLogRecPtr	recptr;
 
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		xlrec.offnum = ItemPointerGetOffsetNumber(&tuple->t_self);
 		xlrec.dbId = MyDatabaseId;
 		xlrec.tsId = MyDatabaseTableSpace;

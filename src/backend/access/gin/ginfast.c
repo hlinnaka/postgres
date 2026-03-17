@@ -235,6 +235,7 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
 
 	needWal = RelationNeedsWAL(index);
 
+	memset(&data, 0, sizeof(data)); /* clear padding */
 	data.locator = index->rd_locator;
 	data.ntuples = 0;
 	data.newRightlink = data.prevTail = InvalidBlockNumber;
@@ -571,6 +572,7 @@ shiftList(Relation index, Buffer metabuffer, BlockNumber newHead,
 		Buffer		buffers[GIN_NDELETE_AT_ONCE];
 		BlockNumber freespace[GIN_NDELETE_AT_ONCE];
 
+		memset(&data, 0, sizeof(data)); /* clear padding */
 		data.ndeleted = 0;
 		while (data.ndeleted < GIN_NDELETE_AT_ONCE && blknoToDelete != newHead)
 		{

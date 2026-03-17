@@ -700,6 +700,7 @@ AtPrepare_PgStat_Relations(PgStat_SubXactStatus *xact_state)
 		tabstat = trans->parent;
 		Assert(tabstat->trans == trans);
 
+		memset(&record, 0, sizeof(record)); /* clear padding */
 		record.tuples_inserted = trans->tuples_inserted;
 		record.tuples_updated = trans->tuples_updated;
 		record.tuples_deleted = trans->tuples_deleted;

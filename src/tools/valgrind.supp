@@ -24,23 +24,6 @@
 }
 
 {
-	padding_XLogRecData_CRC
-	Memcheck:Value8
-
-	fun:pg_comp_crc32c*
-	fun:XLogRecordAssemble
-}
-
-{
-	padding_XLogRecData_write
-	Memcheck:Param
-	pwrite64(buf)
-
-	...
-	fun:XLogWrite
-}
-
-{
 	padding_relcache
 	Memcheck:Param
 	write(buf)

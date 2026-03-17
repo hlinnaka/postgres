@@ -231,6 +231,7 @@ vacuumLeafPage(spgBulkDeleteState *bds, Relation index, Buffer buffer,
 	 * work item entries for deletable tuples within the chain.
 	 *----------
 	 */
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	xlrec.nDead = xlrec.nPlaceholder = xlrec.nMove = xlrec.nChain = 0;
 
 	for (i = FirstOffsetNumber; i <= max; i++)
@@ -414,6 +415,7 @@ vacuumLeafRoot(spgBulkDeleteState *bds, Relation index, Buffer buffer)
 	OffsetNumber i,
 				max = PageGetMaxOffsetNumber(page);
 
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	xlrec.nDelete = 0;
 
 	/* Scan page, identify tuples to delete, accumulate stats */
@@ -505,6 +507,7 @@ vacuumRedirectAndPlaceholder(Relation index, Relation heaprel, Buffer buffer)
 	spgxlogVacuumRedirect xlrec;
 	GlobalVisState *vistest;
 
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	xlrec.isCatalogRel = RelationIsAccessibleInLogicalDecoding(heaprel);
 	xlrec.nToPlaceholder = 0;
 	xlrec.snapshotConflictHorizon = InvalidTransactionId;

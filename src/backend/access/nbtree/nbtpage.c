@@ -288,6 +288,7 @@ _bt_set_cleanup_info(Relation rel, BlockNumber num_delpages)
 	{
 		xl_btree_metadata md;
 
+		memset(&md, 0, sizeof(md)); /* clear padding */
 		XLogBeginInsert();
 		XLogRegisterBuffer(0, metabuf, REGBUF_WILL_INIT | REGBUF_STANDARD);
 
@@ -478,6 +479,7 @@ _bt_getroot(Relation rel, Relation heaprel, int access)
 			xl_btree_newroot xlrec;
 			xl_btree_metadata md;
 
+			memset(&md, 0, sizeof(md)); /* clear padding */
 			XLogBeginInsert();
 			XLogRegisterBuffer(0, rootbuf, REGBUF_WILL_INIT);
 			XLogRegisterBuffer(2, metabuf, REGBUF_WILL_INIT | REGBUF_STANDARD);
@@ -2263,6 +2265,7 @@ _bt_mark_page_halfdead(Relation rel, Relation heaprel, Buffer leafbuf,
 	{
 		xl_btree_mark_page_halfdead xlrec;
 
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		xlrec.poffset = poffset;
 		xlrec.leafblk = leafblkno;
 		if (topparent != leafblkno)
@@ -2698,6 +2701,7 @@ _bt_unlink_halfdead_page(Relation rel, Buffer leafbuf, BlockNumber scanblkno,
 			XLogRegisterBuffer(3, leafbuf, REGBUF_WILL_INIT);
 
 		/* information stored on the target/to-be-unlinked block */
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		xlrec.leftsib = leftsib;
 		xlrec.rightsib = rightsib;
 		xlrec.level = targetlevel;
@@ -2714,6 +2718,7 @@ _bt_unlink_halfdead_page(Relation rel, Buffer leafbuf, BlockNumber scanblkno,
 		{
 			XLogRegisterBuffer(4, metabuf, REGBUF_WILL_INIT | REGBUF_STANDARD);
 
+			memset(&xlmeta, 0, sizeof(xlmeta)); /* clear padding */
 			Assert(metad->btm_version >= BTREE_NOVAC_VERSION);
 			xlmeta.version = metad->btm_version;
 			xlmeta.root = metad->btm_root;

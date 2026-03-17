@@ -273,6 +273,7 @@ brin_doupdate(Relation idxrel, BlockNumber pagesPerRange,
 
 			info = XLOG_BRIN_UPDATE | (extended ? XLOG_BRIN_INIT_PAGE : 0);
 
+			memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 			xlrec.insert.offnum = newoff;
 			xlrec.insert.heapBlk = heapBlk;
 			xlrec.insert.pagesPerRange = pagesPerRange;

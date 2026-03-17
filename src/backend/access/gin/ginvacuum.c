@@ -227,6 +227,7 @@ ginDeletePostingPage(GinVacuumState *gvs, Buffer dBuffer, Buffer lBuffer,
 		XLogRegisterBuffer(1, pBuffer, REGBUF_STANDARD);
 		XLogRegisterBuffer(2, lBuffer, 0);
 
+		memset(&data, 0, sizeof(data)); /* clear padding */
 		data.parentOffset = myoff;
 		data.rightLink = GinPageGetOpaque(page)->rightlink;
 		data.deleteXid = GinPageGetDeleteXid(page);

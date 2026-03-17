@@ -1337,6 +1337,7 @@ _bt_insertonpg(Relation rel,
 			uint8		xlinfo;
 			uint16		upostingoff;
 
+			memset(&xlmeta, 0, sizeof(xlmeta)); /* clear padding */
 			xlrec.offnum = newitemoff;
 
 			XLogBeginInsert();
@@ -2606,6 +2607,7 @@ _bt_newlevel(Relation rel, Relation heaprel, Buffer lbuf, Buffer rbuf)
 		xl_btree_newroot xlrec;
 		xl_btree_metadata md;
 
+		memset(&md, 0, sizeof(md)); /* clear padding */
 		xlrec.rootblk = rootblknum;
 		xlrec.level = metad->btm_level;
 

@@ -392,6 +392,7 @@ moveLeafs(Relation index, SpGistState *state,
 				nInsert,
 				size;
 	Buffer		nbuf;
+	bool		isNewPage;
 	Page		npage;
 	OffsetNumber r = InvalidOffsetNumber,
 				startOffset = InvalidOffsetNumber;
@@ -399,7 +400,6 @@ moveLeafs(Relation index, SpGistState *state,
 	OffsetNumber *toDelete;
 	OffsetNumber *toInsert;
 	BlockNumber nblkno;
-	spgxlogMoveLeafs xlrec;
 	char	   *leafdata,
 			   *leafptr;
 
@@ -449,7 +449,7 @@ moveLeafs(Relation index, SpGistState *state,
 
 	/* Find a leaf page that will hold them */
 	nbuf = SpGistGetBuffer(index, GBUF_LEAF | (isNulls ? GBUF_NULLS : 0),
-						   size, &xlrec.newPage);
+						   size, &isNewPage);
 	npage = BufferGetPage(nbuf);
 	nblkno = BufferGetBlockNumber(nbuf);
 	Assert(nblkno != current->blkno);
@@ -515,12 +515,15 @@ moveLeafs(Relation index, SpGistState *state,
 
 	if (RelationNeedsWAL(index) && !state->isBuild)
 	{
+		spgxlogMoveLeafs xlrec;
 		XLogRecPtr	recptr;
 
 		/* prepare WAL info */
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		STORE_STATE(state, xlrec.stateSrc);
 
 		xlrec.nMoves = nDelete;
+		xlrec.newPage = isNewPage;
 		xlrec.replaceDead = replaceDead;
 		xlrec.storesNulls = isNulls;
 
@@ -536,7 +539,7 @@ moveLeafs(Relation index, SpGistState *state,
 		XLogRegisterData(leafdata, leafptr - leafdata);
 
 		XLogRegisterBuffer(0, current->buffer, REGBUF_STANDARD);
-		XLogRegisterBuffer(1, nbuf, REGBUF_STANDARD | (xlrec.newPage ? REGBUF_WILL_INIT : 0));
+		XLogRegisterBuffer(1, nbuf, REGBUF_STANDARD | (isNewPage ? REGBUF_WILL_INIT : 0));
 		XLogRegisterBuffer(2, parent->buffer, REGBUF_STANDARD);
 
 		recptr = XLogInsert(RM_SPGIST_ID, XLOG_SPGIST_MOVE_LEAFS);
@@ -724,6 +727,7 @@ doPickSplit(Relation index, SpGistState *state,
 	newLeafs = palloc_array(SpGistLeafTuple, n);
 	leafPageSelect = palloc_array(uint8, n);
 
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	STORE_STATE(state, xlrec.stateSrc);
 
 	/*
@@ -1521,6 +1525,7 @@ spgAddNodeAction(Relation index, SpGistState *state,
 	newInnerTuple = addNode(state, innerTuple, nodeLabel, nodeN);
 
 	/* Prepare WAL record */
+	memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 	STORE_STATE(state, xlrec.stateSrc);
 	xlrec.offnum = current->offnum;
 

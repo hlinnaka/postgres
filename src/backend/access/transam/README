@@ -510,6 +510,8 @@ XLogInsert().
 	XLogRegisterBuffer(1, rbuffer, REGBUF_STANDARD);
 
 	/* register data that is always included in the WAL record */
+	memset(&xlrec, 0, SizeOfFictionalAction);	/* clear padding */
+	xlrec.foo = 123;
 	XLogRegisterData(&xlrec, SizeOfFictionalAction);
 
 	/*
@@ -526,6 +528,11 @@ XLogInsert().
 	 * been registered. Insert the record.
 	 */
 	recptr = XLogInsert(RM_FOO_ID, XLOG_FOOBAR_DO_STUFF);
+
+The data registered with XLogRegisterData() or XLogRegisterBufData()
+in the WAL record (xlrec) is often a C struct.  If the struct contains
+any alignment padding, it is good practice to clear any padding bytes
+to avoid writing uninitialized data to the WAL.
 
 Details of the API functions:
 

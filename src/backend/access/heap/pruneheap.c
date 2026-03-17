@@ -2062,6 +2062,7 @@ heap_log_freeze_cmp(const void *arg1, const void *arg2)
 static inline void
 heap_log_freeze_new_plan(xlhp_freeze_plan *plan, HeapTupleFreeze *frz)
 {
+	memset(plan, 0, sizeof(*plan)); /* clear padding */
 	plan->xmax = frz->xmax;
 	plan->t_infomask2 = frz->t_infomask2;
 	plan->t_infomask = frz->t_infomask;
@@ -2225,6 +2226,7 @@ log_heap_prune_and_freeze(Relation relation, Buffer buffer,
 		 */
 		nplans = heap_log_freeze_plan(frozen, nfrozen, plans, frz_offsets);
 
+		memset(&freeze_plans, 0, sizeof(freeze_plans)); /* clear padding */
 		freeze_plans.nplans = nplans;
 		XLogRegisterBufData(0, &freeze_plans,
 							offsetof(xlhp_freeze_plans, plans));

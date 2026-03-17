@@ -2340,6 +2340,7 @@ ExecuteTruncateGuts(List *explicit_rels,
 		foreach(cell, relids_logged)
 			logrelids[i++] = lfirst_oid(cell);
 
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		xlrec.dbId = MyDatabaseId;
 		xlrec.nrelids = list_length(relids_logged);
 		xlrec.flags = 0;

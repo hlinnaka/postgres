@@ -651,6 +651,7 @@ ginUpdateStats(Relation index, const GinStatsData *stats, bool is_build)
 		XLogRecPtr	recptr;
 		ginxlogUpdateMeta data;
 
+		memset(&data, 0, sizeof(data)); /* clear padding */
 		data.locator = index->rd_locator;
 		data.ntuples = 0;
 		data.newRightlink = data.prevTail = InvalidBlockNumber;

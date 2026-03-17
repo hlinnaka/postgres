@@ -842,6 +842,7 @@ logical_heap_rewrite_flush_mappings(RewriteState state)
 		else
 			dboid = MyDatabaseId;
 
+		memset(&xlrec, 0, sizeof(xlrec));	/* clear padding */
 		xlrec.num_mappings = num_mappings;
 		xlrec.mapped_rel = RelationGetRelid(state->rs_old_rel);
 		xlrec.mapped_xid = src->xid;

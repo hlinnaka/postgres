@@ -1011,6 +1011,7 @@ replorigin_advance(ReplOriginId node,
 	{
 		xl_replorigin_set xlrec;
 
+		memset(&xlrec, 0, sizeof(xlrec));
 		xlrec.remote_lsn = remote_commit;
 		xlrec.node_id = node;
 		xlrec.force = go_backward;
