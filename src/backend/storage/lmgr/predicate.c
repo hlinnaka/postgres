@@ -444,7 +444,6 @@ static void FlagSxactUnsafe(SERIALIZABLEXACT *sxact);
 
 static bool SerialPagePrecedesLogically(int64 page1, int64 page2);
 static int	serial_errdetail_for_io_error(const void *opaque_data);
-static void SerialInit(void);
 static void SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo);
 static SerCommitSeqNo SerialGetMinConflictCommitSeqNo(TransactionId xid);
 static void SerialSetActiveSerXmin(TransactionId xid);
@@ -808,48 +807,6 @@ SerialPagePrecedesLogicallyUnitTests(void)
 #endif
 }
 #endif
-
-/*
- * Initialize for the tracking of old serializable committed xids.
- */
-static void
-SerialInit(void)
-{
-	bool		found;
-
-	/*
-	 * Set up SLRU management of the pg_serial data.
-	 */
-	SerialSlruCtl->PagePrecedes = SerialPagePrecedesLogically;
-	SerialSlruCtl->errdetail_for_io_error = serial_errdetail_for_io_error;
-	SimpleLruInit(SerialSlruCtl, "serializable",
-				  serializable_buffers, 0, "pg_serial",
-				  LWTRANCHE_SERIAL_BUFFER, LWTRANCHE_SERIAL_SLRU,
-				  SYNC_HANDLER_NONE, false);
-#ifdef USE_ASSERT_CHECKING
-	SerialPagePrecedesLogicallyUnitTests();
-#endif
-	SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
-
-	/*
-	 * Create or attach to the SerialControl structure.
-	 */
-	serialControl = (SerialControl)
-		ShmemInitStruct("SerialControlData", sizeof(SerialControlData), &found);
-
-	Assert(found == IsUnderPostmaster);
-	if (!found)
-	{
-		/*
-		 * Set control information to reflect empty SLRU.
-		 */
-		LWLockAcquire(SerialControlLock, LW_EXCLUSIVE);
-		serialControl->headPage = -1;
-		serialControl->headXid = InvalidTransactionId;
-		serialControl->tailXid = InvalidTransactionId;
-		LWLockRelease(SerialControlLock);
-	}
-}
 
 /*
  * GUC check_hook for serializable_buffers
@@ -1355,7 +1312,35 @@ PredicateLockShmemInit(void)
 	 * Initialize the SLRU storage for old committed serializable
 	 * transactions.
 	 */
-	SerialInit();
+	SerialSlruCtl->PagePrecedes = SerialPagePrecedesLogically;
+	SerialSlruCtl->errdetail_for_io_error = serial_errdetail_for_io_error;
+	SimpleLruInit(SerialSlruCtl, "serializable",
+				  serializable_buffers, 0, "pg_serial",
+				  LWTRANCHE_SERIAL_BUFFER, LWTRANCHE_SERIAL_SLRU,
+				  SYNC_HANDLER_NONE, false);
+#ifdef USE_ASSERT_CHECKING
+	SerialPagePrecedesLogicallyUnitTests();
+#endif
+	SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
+
+	/*
+	 * Create or attach to the SerialControl structure.
+	 */
+	serialControl = (SerialControl)
+		ShmemInitStruct("SerialControlData", sizeof(SerialControlData), &found);
+
+	Assert(found == IsUnderPostmaster);
+	if (!found)
+	{
+		/*
+		 * Set control information to reflect empty SLRU.
+		 */
+		LWLockAcquire(SerialControlLock, LW_EXCLUSIVE);
+		serialControl->headPage = -1;
+		serialControl->headXid = InvalidTransactionId;
+		serialControl->tailXid = InvalidTransactionId;
+		LWLockRelease(SerialControlLock);
+	}
 }
 
 /*
