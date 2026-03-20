@@ -1144,19 +1144,6 @@ PredicateLockShmemInit(void)
 											HASH_ELEM | HASH_BLOBS |
 											HASH_PARTITION | HASH_FIXED_SIZE);
 
-	/*
-	 * Reserve a dummy entry in the hash table; we use it to make sure there's
-	 * always one entry available when we need to split or combine a page,
-	 * because running out of space there could mean aborting a
-	 * non-serializable transaction.
-	 */
-	if (!IsUnderPostmaster)
-	{
-		(void) hash_search(PredicateLockTargetHash, &ScratchTargetTag,
-						   HASH_ENTER, &found);
-		Assert(!found);
-	}
-
 	/* Pre-calculate the hash and partition lock of the scratch entry */
 	ScratchTargetTagHash = PredicateLockTargetTagHashCode(&ScratchTargetTag);
 	ScratchPartitionLock = PredicateLockHashPartitionLock(ScratchTargetTagHash);
@@ -1200,49 +1187,6 @@ PredicateLockShmemInit(void)
 							   requestSize,
 							   &found);
 	Assert(found == IsUnderPostmaster);
-	if (!found)
-	{
-		int			i;
-
-		/* clean everything, both the header and the element */
-		memset(PredXact, 0, requestSize);
-
-		dlist_init(&PredXact->availableList);
-		dlist_init(&PredXact->activeList);
-		PredXact->SxactGlobalXmin = InvalidTransactionId;
-		PredXact->SxactGlobalXminCount = 0;
-		PredXact->WritableSxactCount = 0;
-		PredXact->LastSxactCommitSeqNo = FirstNormalSerCommitSeqNo - 1;
-		PredXact->CanPartialClearThrough = 0;
-		PredXact->HavePartialClearedThrough = 0;
-		PredXact->element
-			= (SERIALIZABLEXACT *) ((char *) PredXact + PredXactListDataSize);
-		/* Add all elements to available list, clean. */
-		for (i = 0; i < max_serializable_xacts; i++)
-		{
-			LWLockInitialize(&PredXact->element[i].perXactPredicateListLock,
-							 LWTRANCHE_PER_XACT_PREDICATE_LIST);
-			dlist_push_tail(&PredXact->availableList, &PredXact->element[i].xactLink);
-		}
-		PredXact->OldCommittedSxact = CreatePredXact();
-		SetInvalidVirtualTransactionId(PredXact->OldCommittedSxact->vxid);
-		PredXact->OldCommittedSxact->prepareSeqNo = 0;
-		PredXact->OldCommittedSxact->commitSeqNo = 0;
-		PredXact->OldCommittedSxact->SeqNo.lastCommitBeforeSnapshot = 0;
-		dlist_init(&PredXact->OldCommittedSxact->outConflicts);
-		dlist_init(&PredXact->OldCommittedSxact->inConflicts);
-		dlist_init(&PredXact->OldCommittedSxact->predicateLocks);
-		dlist_node_init(&PredXact->OldCommittedSxact->finishedLink);
-		dlist_init(&PredXact->OldCommittedSxact->possibleUnsafeConflicts);
-		PredXact->OldCommittedSxact->topXid = InvalidTransactionId;
-		PredXact->OldCommittedSxact->finishedBefore = InvalidTransactionId;
-		PredXact->OldCommittedSxact->xmin = InvalidTransactionId;
-		PredXact->OldCommittedSxact->flags = SXACT_FLAG_COMMITTED;
-		PredXact->OldCommittedSxact->pid = 0;
-		PredXact->OldCommittedSxact->pgprocno = INVALID_PROC_NUMBER;
-	}
-	/* This never changes, so let's keep a local copy. */
-	OldCommittedSxact = PredXact->OldCommittedSxact;
 
 	/*
 	 * Allocate hash table for SERIALIZABLEXID structs.  This stores per-xid
@@ -1278,23 +1222,6 @@ PredicateLockShmemInit(void)
 									 requestSize,
 									 &found);
 	Assert(found == IsUnderPostmaster);
-	if (!found)
-	{
-		int			i;
-
-		/* clean everything, including the elements */
-		memset(RWConflictPool, 0, requestSize);
-
-		dlist_init(&RWConflictPool->availableList);
-		RWConflictPool->element = (RWConflict) ((char *) RWConflictPool +
-												RWConflictPoolHeaderDataSize);
-		/* Add all elements to available list, clean. */
-		for (i = 0; i < max_rw_conflicts; i++)
-		{
-			dlist_push_tail(&RWConflictPool->availableList,
-							&RWConflictPool->element[i].outLink);
-		}
-	}
 
 	/*
 	 * Create or attach to the header for the list of finished serializable
@@ -1305,8 +1232,6 @@ PredicateLockShmemInit(void)
 						sizeof(dlist_head),
 						&found);
 	Assert(found == IsUnderPostmaster);
-	if (!found)
-		dlist_init(FinishedSerializableTransactions);
 
 	/*
 	 * Initialize the SLRU storage for old committed serializable
@@ -1328,19 +1253,88 @@ PredicateLockShmemInit(void)
 	 */
 	serialControl = (SerialControl)
 		ShmemInitStruct("SerialControlData", sizeof(SerialControlData), &found);
-
 	Assert(found == IsUnderPostmaster);
-	if (!found)
+
+	/*
+	 * If we just attached to existing shared memory (EXEC_BACKEND), we're all
+	 * done.  Otherwise, during postmaster startup proceed to initialize the
+	 * shared memory.
+	 */
+	if (IsUnderPostmaster)
 	{
-		/*
-		 * Set control information to reflect empty SLRU.
-		 */
-		LWLockAcquire(SerialControlLock, LW_EXCLUSIVE);
-		serialControl->headPage = -1;
-		serialControl->headXid = InvalidTransactionId;
-		serialControl->tailXid = InvalidTransactionId;
-		LWLockRelease(SerialControlLock);
+		/* This never changes, so let's keep a local copy. */
+		OldCommittedSxact = PredXact->OldCommittedSxact;
+		return;
 	}
+
+	/*
+	 * Reserve a dummy entry in the hash table; we use it to make sure there's
+	 * always one entry available when we need to split or combine a page,
+	 * because running out of space there could mean aborting a
+	 * non-serializable transaction.
+	 */
+	(void) hash_search(PredicateLockTargetHash, &ScratchTargetTag,
+					   HASH_ENTER, &found);
+	Assert(!found);
+
+	/* Initialize PredXact list */
+	dlist_init(&PredXact->availableList);
+	dlist_init(&PredXact->activeList);
+	PredXact->SxactGlobalXmin = InvalidTransactionId;
+	PredXact->SxactGlobalXminCount = 0;
+	PredXact->WritableSxactCount = 0;
+	PredXact->LastSxactCommitSeqNo = FirstNormalSerCommitSeqNo - 1;
+	PredXact->CanPartialClearThrough = 0;
+	PredXact->HavePartialClearedThrough = 0;
+	PredXact->element
+		= (SERIALIZABLEXACT *) ((char *) PredXact + PredXactListDataSize);
+	/* Add all elements to available list, clean. */
+	for (int i = 0; i < max_serializable_xacts; i++)
+	{
+		LWLockInitialize(&PredXact->element[i].perXactPredicateListLock,
+						 LWTRANCHE_PER_XACT_PREDICATE_LIST);
+		dlist_push_tail(&PredXact->availableList, &PredXact->element[i].xactLink);
+	}
+	PredXact->OldCommittedSxact = CreatePredXact();
+	SetInvalidVirtualTransactionId(PredXact->OldCommittedSxact->vxid);
+	PredXact->OldCommittedSxact->prepareSeqNo = 0;
+	PredXact->OldCommittedSxact->commitSeqNo = 0;
+	PredXact->OldCommittedSxact->SeqNo.lastCommitBeforeSnapshot = 0;
+	dlist_init(&PredXact->OldCommittedSxact->outConflicts);
+	dlist_init(&PredXact->OldCommittedSxact->inConflicts);
+	dlist_init(&PredXact->OldCommittedSxact->predicateLocks);
+	dlist_node_init(&PredXact->OldCommittedSxact->finishedLink);
+	dlist_init(&PredXact->OldCommittedSxact->possibleUnsafeConflicts);
+	PredXact->OldCommittedSxact->topXid = InvalidTransactionId;
+	PredXact->OldCommittedSxact->finishedBefore = InvalidTransactionId;
+	PredXact->OldCommittedSxact->xmin = InvalidTransactionId;
+	PredXact->OldCommittedSxact->flags = SXACT_FLAG_COMMITTED;
+	PredXact->OldCommittedSxact->pid = 0;
+	PredXact->OldCommittedSxact->pgprocno = INVALID_PROC_NUMBER;
+
+	/* This never changes, so let's keep a local copy. */
+	OldCommittedSxact = PredXact->OldCommittedSxact;
+
+	/* Initialize the rw-conflict pool */
+	dlist_init(&RWConflictPool->availableList);
+	RWConflictPool->element = (RWConflict) ((char *) RWConflictPool +
+											RWConflictPoolHeaderDataSize);
+	/* Add all elements to available list, clean. */
+	for (int i = 0; i < max_rw_conflicts; i++)
+	{
+		dlist_push_tail(&RWConflictPool->availableList,
+						&RWConflictPool->element[i].outLink);
+	}
+
+	/* Initialize the list of finished serializable transactions */
+	dlist_init(FinishedSerializableTransactions);
+
+	/* Initialize SerialControl to reflect empty SLRU. */
+	LWLockAcquire(SerialControlLock, LW_EXCLUSIVE);
+	serialControl->headPage = -1;
+	serialControl->headXid = InvalidTransactionId;
+	serialControl->tailXid = InvalidTransactionId;
+	LWLockRelease(SerialControlLock);
 }
 
 /*
