@@ -441,55 +441,54 @@ LWLockShmemSize(void)
 void
 CreateLWLocks(void)
 {
-	if (!IsUnderPostmaster)
+	Size		spaceLocks = LWLockShmemSize();
+	char	   *ptr;
+
+	Assert(!IsUnderPostmaster);
+
+	/* Allocate space */
+	ptr = (char *) ShmemAlloc(spaceLocks);
+
+	/* Initialize the dynamic-allocation counter for tranches */
+	LWLockCounter = (int *) ptr;
+	*LWLockCounter = LWTRANCHE_FIRST_USER_DEFINED;
+	ptr += MAXALIGN(sizeof(int));
+
+	/* Initialize tranche names */
+	LWLockTrancheNames = (char **) ptr;
+	ptr += MAX_NAMED_TRANCHES * sizeof(char *);
+	for (int i = 0; i < MAX_NAMED_TRANCHES; i++)
 	{
-		Size		spaceLocks = LWLockShmemSize();
-		char	   *ptr;
-
-		/* Allocate space */
-		ptr = (char *) ShmemAlloc(spaceLocks);
-
-		/* Initialize the dynamic-allocation counter for tranches */
-		LWLockCounter = (int *) ptr;
-		*LWLockCounter = LWTRANCHE_FIRST_USER_DEFINED;
-		ptr += MAXALIGN(sizeof(int));
-
-		/* Initialize tranche names */
-		LWLockTrancheNames = (char **) ptr;
-		ptr += MAX_NAMED_TRANCHES * sizeof(char *);
-		for (int i = 0; i < MAX_NAMED_TRANCHES; i++)
-		{
-			LWLockTrancheNames[i] = ptr;
-			ptr += NAMEDATALEN;
-		}
-
-		/*
-		 * Move named tranche requests to shared memory.  This is done for the
-		 * benefit of EXEC_BACKEND builds, which otherwise wouldn't be able to
-		 * call GetNamedLWLockTranche() outside postmaster.
-		 */
-		if (NamedLWLockTrancheRequests > 0)
-		{
-			/*
-			 * Save the pointer to the request array in postmaster's local
-			 * memory.  We'll need it if we ever need to re-initialize shared
-			 * memory after a crash.
-			 */
-			LocalNamedLWLockTrancheRequestArray = NamedLWLockTrancheRequestArray;
-
-			memcpy(ptr, NamedLWLockTrancheRequestArray,
-				   NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest));
-			NamedLWLockTrancheRequestArray = (NamedLWLockTrancheRequest *) ptr;
-			ptr += NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest);
-		}
-
-		/* Ensure desired alignment of LWLock array */
-		ptr += LWLOCK_PADDED_SIZE - ((uintptr_t) ptr) % LWLOCK_PADDED_SIZE;
-		MainLWLockArray = (LWLockPadded *) ptr;
-
-		/* Initialize all LWLocks */
-		InitializeLWLocks();
+		LWLockTrancheNames[i] = ptr;
+		ptr += NAMEDATALEN;
 	}
+
+	/*
+	 * Move named tranche requests to shared memory.  This is done for the
+	 * benefit of EXEC_BACKEND builds, which otherwise wouldn't be able to
+	 * call GetNamedLWLockTranche() outside postmaster.
+	 */
+	if (NamedLWLockTrancheRequests > 0)
+	{
+		/*
+		 * Save the pointer to the request array in postmaster's local memory.
+		 * We'll need it if we ever need to re-initialize shared memory after
+		 * a crash.
+		 */
+		LocalNamedLWLockTrancheRequestArray = NamedLWLockTrancheRequestArray;
+
+		memcpy(ptr, NamedLWLockTrancheRequestArray,
+			   NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest));
+		NamedLWLockTrancheRequestArray = (NamedLWLockTrancheRequest *) ptr;
+		ptr += NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest);
+	}
+
+	/* Ensure desired alignment of LWLock array */
+	ptr += LWLOCK_PADDED_SIZE - ((uintptr_t) ptr) % LWLOCK_PADDED_SIZE;
+	MainLWLockArray = (LWLockPadded *) ptr;
+
+	/* Initialize all LWLocks */
+	InitializeLWLocks();
 }
 
 /*

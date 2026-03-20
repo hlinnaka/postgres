@@ -174,6 +174,7 @@ AttachSharedMemoryStructs(void)
 	 */
 	InitializeFastPathLocks();
 
+	/* Establish pointers to all shared memory areas in this backend */
 	CreateOrAttachShmemStructs();
 
 	/*
@@ -218,6 +219,11 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	InitShmemAllocator(seghdr);
 
+	/*
+	 * Now initialize LWLocks, which do shared memory allocation.
+	 */
+	CreateLWLocks();
+
 	/* Initialize subsystems */
 	CreateOrAttachShmemStructs();
 
@@ -249,11 +255,6 @@ CreateSharedMemoryAndSemaphores(void)
 static void
 CreateOrAttachShmemStructs(void)
 {
-	/*
-	 * Now initialize LWLocks, which do shared memory allocation.
-	 */
-	CreateLWLocks();
-
 	dsm_shmem_init();
 	DSMRegistryShmemInit();
 
