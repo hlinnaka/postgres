@@ -1,11 +1,17 @@
 /*-------------------------------------------------------------------------
  *
  * shmem_hash.c
- *	  XXX
+ *	  hash table implementation in shared memory
  *
  * Portions Copyright (c) 1996-2026, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
+ * A shared memory hash table implementation on top of the named, fixed-size
+ * shared memory areas managed by shmem.c.  Hash tables have a fixed maximum
+ * size, but their actual size can vary dynamically.  When entries are added
+ * to the table, more space is allocated.  Each shared data structure and hash
+ * has a string name to identify it, specified in its descriptor when its
+ * requested.
  *
  * IDENTIFICATION
  *	  src/backend/storage/ipc/shmem_hash.c
@@ -16,6 +22,75 @@
 #include "postgres.h"
 
 #include "storage/shmem.h"
+#include "utils/memutils.h"
+
+/*
+ * ShmemRequestHash -- Request a shared memory hash table.
+ *
+ * Similar to ShmemRequestStruct(), but requests a hash table instead of an
+ * opaque area.
+ */
+void
+ShmemRequestHash(ShmemHashDesc *desc)
+{
+	ShmemStructDesc *base_desc;
+
+	/*
+	 * Hash tables allocated in shared memory have a fixed directory; it can't
+	 * grow or other backends wouldn't be able to find it. So, make sure we
+	 * make it big enough to start with.
+	 *
+	 * The shared memory allocator must be specified too.
+	 */
+	desc->hash_info.dsize = desc->hash_info.max_dsize = hash_select_dirsize(desc->max_size);
+	desc->hash_info.alloc = ShmemAllocNoError;
+	desc->hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
+
+	/*
+	 * Create a struct descriptor for the fixed-size area holding the hash
+	 * table
+	 */
+	base_desc = MemoryContextAllocZero(TopMemoryContext, sizeof(*base_desc));
+	base_desc->kind = SHMEM_KIND_HASH;
+	base_desc->name = desc->name;
+	base_desc->size = hash_get_shared_size(&desc->hash_info, desc->hash_flags);
+
+	/*
+	 * XXX Arrange for the 'hctl' pointer to be set when the memory is initialized
+	 * or attached to.
+	 */
+	base_desc->ptr = (void **) desc;
+	Assert(desc->name != NULL);
+
+	/* Reserve extra space for the buckets */
+	base_desc->extra_size = hash_estimate_size(desc->max_size, desc->hash_info.entrysize) - base_desc->size;
+
+	ShmemRequestStruct(base_desc);
+}
+
+void
+shmem_hash_init(ShmemStructDesc *base_desc, void *ptr)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc->ptr;
+	int			hash_flags = desc->hash_flags;
+
+	desc->hash_info.hctl = ptr;
+	Assert(ptr != NULL);
+	*desc->ptr = hash_create(desc->name, desc->init_size, &desc->hash_info, hash_flags);
+}
+
+void
+shmem_hash_attach(ShmemStructDesc *base_desc, void *ptr)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc->ptr;
+	int			hash_flags = desc->hash_flags;
+
+	/* attach to it rather than allocate and initialize new space */
+	hash_flags |= HASH_ATTACH;
+	desc->hash_info.hctl = ptr;
+	Assert(ptr != NULL);
+	*desc->ptr = hash_create(desc->name, desc->init_size, &desc->hash_info, hash_flags);
+}
 
 
 /*
@@ -41,9 +116,8 @@
  * to shared-memory hash tables are added here, except that callers may
  * choose to specify HASH_PARTITION and/or HASH_FIXED_SIZE.
  *
- * Note: before Postgres 9.0, this function returned NULL for some failure
- * cases.  Now, it always throws error instead, so callers need not check
- * for NULL.
+ * Note: This is a legacy interface, kept for backwards compatibility with
+ * extensions.  Use ShmemRequestHash() in new code!
  */
 HTAB *
 ShmemInitHash(const char *name,		/* table string name for shmem index */

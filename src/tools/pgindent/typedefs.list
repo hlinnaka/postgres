@@ -2843,9 +2843,12 @@ SharedTypmodTableEntry
 Sharedsort
 ShellTypeInfo
 ShippableCacheEntry
-ShmemAllocatorData
 ShippableCacheKey
+ShmemAllocatorData
+ShmemCallbacks
 ShmemIndexEnt
+ShmemHashDesc
+ShmemStructDesc
 ShutdownForeignScan_function
 ShutdownInformation
 ShutdownMode

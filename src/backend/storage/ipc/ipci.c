@@ -99,10 +99,12 @@ CalculateShmemSize(void)
 	 * during the actual allocation phase.
 	 */
 	size = 100000;
-	size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,
-											 sizeof(ShmemIndexEnt)));
+	size = add_size(size, ShmemGetRequestedSize());
+
+	/* legacy subsystems */
 	size = add_size(size, dsm_estimate_size());
 	size = add_size(size, DSMRegistryShmemSize());
+
 	size = add_size(size, BufferManagerShmemSize());
 	size = add_size(size, LockManagerShmemSize());
 	size = add_size(size, PredicateLockShmemSize());
@@ -175,6 +177,7 @@ AttachSharedMemoryStructs(void)
 	InitializeFastPathLocks();
 
 	/* Establish pointers to all shared memory areas in this backend */
+	ShmemAttachRegistered();
 	CreateOrAttachShmemStructs();
 
 	/*
@@ -219,12 +222,21 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	InitShmemAllocator(seghdr);
 
+	/* Reserve space for semaphores. */
+	if (!IsUnderPostmaster)
+		PGReserveSemaphores(ProcGlobalSemas());
+
 	/*
-	 * Now initialize LWLocks, which do shared memory allocation.
+	 * Initialize LWLocks first, in case any of the shmem init function use
+	 * LWLocks.  (Nothing else can be running during startup, so they don't
+	 * need to do any locking yet, but we nevertheless allow it.)
 	 */
 	CreateLWLocks();
 
-	/* Initialize subsystems */
+	/* Initialize all shmem areas */
+	ShmemInitRequested();
+
+	/* Initialize legacy subsystems */
 	CreateOrAttachShmemStructs();
 
 	/* Initialize dynamic shared memory facilities. */
