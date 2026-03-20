@@ -32,37 +32,24 @@ typedef struct
 
 static HTAB *SharedBufHash;
 
-
 /*
- * Estimate space needed for mapping hashtable
- *		size is the desired hash table size (possibly more than NBuffers)
- */
-Size
-BufTableShmemSize(int size)
-{
-	return hash_estimate_size(size, sizeof(BufferLookupEnt));
-}
-
-/*
- * Initialize shmem hash table for mapping buffers
+ * Register shmem hash table for mapping buffers.
  *		size is the desired hash table size (possibly more than NBuffers)
  */
 void
-InitBufTable(int size)
+BufTableShmemRequest(int size)
 {
-	HASHCTL		info;
-
-	/* assume no locking is needed yet */
-
-	/* BufferTag maps to Buffer */
-	info.keysize = sizeof(BufferTag);
-	info.entrysize = sizeof(BufferLookupEnt);
-	info.num_partitions = NUM_BUFFER_PARTITIONS;
-
-	SharedBufHash = ShmemInitHash("Shared Buffer Lookup Table",
-								  size, size,
-								  &info,
-								  HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE);
+	static ShmemHashDesc SharedBufHashDesc = {
+		.name = "Shared Buffer Lookup Table",
+		.ptr = &SharedBufHash,
+		.hash_info.keysize = sizeof(BufferTag),
+		.hash_info.entrysize = sizeof(BufferLookupEnt),
+		.hash_info.num_partitions = NUM_BUFFER_PARTITIONS,
+		.hash_flags = HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE,
+	};
+	SharedBufHashDesc.max_size = size;
+	SharedBufHashDesc.init_size = size;
+	ShmemRequestHash(&SharedBufHashDesc);
 }
 
 /*
