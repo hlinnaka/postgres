@@ -28,6 +28,7 @@
 #include "storage/fd.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
+#include "storage/subsystems.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 
@@ -108,6 +109,18 @@ typedef struct InjectionPointCacheEntry
 } InjectionPointCacheEntry;
 
 static HTAB *InjectionPointCache = NULL;
+
+#ifdef USE_INJECTION_POINTS
+static void InjectionPointShmemRequest(void *arg);
+static void InjectionPointShmemInit(void *arg);
+#endif
+
+const ShmemCallbacks InjectionPointShmemCallbacks = {
+#ifdef USE_INJECTION_POINTS
+	.request_fn = InjectionPointShmemRequest,
+	.init_fn = InjectionPointShmemInit,
+#endif
+};
 
 /*
  * injection_point_cache_add
@@ -227,44 +240,29 @@ injection_point_cache_get(const char *name)
 #endif							/* USE_INJECTION_POINTS */
 
 /*
- * Return the space for dynamic shared hash table.
+ * Reserve space for the dynamic shared hash table
  */
-Size
-InjectionPointShmemSize(void)
-{
 #ifdef USE_INJECTION_POINTS
-	Size		sz = 0;
+static void
+InjectionPointShmemRequest(void *arg)
+{
+	static ShmemStructDesc InjectionPointShmemDesc = {
+		.name = "InjectionPoint hash",
+		.size = sizeof(InjectionPointsCtl),
+		.ptr = (void **) &ActiveInjectionPoints,
+	};
 
-	sz = add_size(sz, sizeof(InjectionPointsCtl));
-	return sz;
-#else
-	return 0;
-#endif
+	ShmemRequestStruct(&InjectionPointShmemDesc);
 }
 
-/*
- * Allocate shmem space for dynamic shared hash.
- */
-void
-InjectionPointShmemInit(void)
+static void
+InjectionPointShmemInit(void *arg)
 {
-#ifdef USE_INJECTION_POINTS
-	bool		found;
-
-	ActiveInjectionPoints = ShmemInitStruct("InjectionPoint hash",
-											sizeof(InjectionPointsCtl),
-											&found);
-	if (!IsUnderPostmaster)
-	{
-		Assert(!found);
-		pg_atomic_init_u32(&ActiveInjectionPoints->max_inuse, 0);
-		for (int i = 0; i < MAX_INJECTION_POINTS; i++)
-			pg_atomic_init_u64(&ActiveInjectionPoints->entries[i].generation, 0);
-	}
-	else
-		Assert(found);
-#endif
+	pg_atomic_init_u32(&ActiveInjectionPoints->max_inuse, 0);
+	for (int i = 0; i < MAX_INJECTION_POINTS; i++)
+		pg_atomic_init_u64(&ActiveInjectionPoints->entries[i].generation, 0);
 }
+#endif
 
 /*
  * Attach a new injection point.
