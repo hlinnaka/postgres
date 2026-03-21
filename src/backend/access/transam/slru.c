@@ -242,9 +242,9 @@ SimpleLruAutotuneBuffers(int divisor, int max)
  * Register a simple LRU cache in shared memory.
  */
 void
-SimpleLruRequestWithOpts(SlruDesc *desc, const SlruOpts *options)
+SimpleLruRequestWithOpts(SlruDesc *desc, const SlruOpts * options)
 {
-	SlruOpts *options_copy;
+	SlruOpts   *options_copy;
 
 	Assert(options->name != NULL);
 	Assert(options->nslots > 0);
@@ -265,7 +265,7 @@ SimpleLruRequestWithOpts(SlruDesc *desc, const SlruOpts *options)
 void
 shmem_slru_init(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
 {
-	SlruOpts *options = (SlruOpts *) base_options;
+	SlruOpts   *options = (SlruOpts *) base_options;
 	SlruDesc   *desc = (SlruDesc *) base_desc;
 	char		namebuf[NAMEDATALEN];
 	SlruShared	shared;
@@ -356,7 +356,7 @@ shmem_slru_init(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
 void
 shmem_slru_attach(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
 {
-	SlruOpts *options = (SlruOpts *) base_options;
+	SlruOpts   *options = (SlruOpts *) base_options;
 	SlruDesc   *desc = (SlruDesc *) base_desc;
 	int			nslots = options->nslots;
 	int			nbanks = nslots / SLRU_BANK_SIZE;

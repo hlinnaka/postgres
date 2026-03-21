@@ -1779,39 +1779,39 @@ MultiXactShmemRequest(void *arg)
 	size = add_size(size,
 					mul_size(sizeof(MultiXactId), NumVisibleSlots));
 	ShmemRequestStruct(&MultiXactShmemDesc,
-		.name = "Shared MultiXact State",
-		.size = size,
-		.ptr = (void **) &MultiXactState,
+					   .name = "Shared MultiXact State",
+					   .size = size,
+					   .ptr = (void **) &MultiXactState,
 		);
 
 	SimpleLruRequest(&MultiXactOffsetSlruDesc,
-		.name = "multixact_offset",
-		.Dir = "pg_multixact/offsets",
-		.long_segment_names = false,
+					 .name = "multixact_offset",
+					 .Dir = "pg_multixact/offsets",
+					 .long_segment_names = false,
 
-		.nslots = multixact_offset_buffers,
+					 .nslots = multixact_offset_buffers,
 
-		.sync_handler = SYNC_HANDLER_MULTIXACT_OFFSET,
-		.PagePrecedes = MultiXactOffsetPagePrecedes,
-		.errdetail_for_io_error = MultiXactOffsetIoErrorDetail,
+					 .sync_handler = SYNC_HANDLER_MULTIXACT_OFFSET,
+					 .PagePrecedes = MultiXactOffsetPagePrecedes,
+					 .errdetail_for_io_error = MultiXactOffsetIoErrorDetail,
 
-		.buffer_tranche_id = LWTRANCHE_MULTIXACTOFFSET_BUFFER,
-		.bank_tranche_id = LWTRANCHE_MULTIXACTOFFSET_SLRU,
+					 .buffer_tranche_id = LWTRANCHE_MULTIXACTOFFSET_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_MULTIXACTOFFSET_SLRU,
 		);
 
 	SimpleLruRequest(&MultiXactMemberSlruDesc,
-		.name = "multixact_member",
-		.Dir = "pg_multixact/members",
-		.long_segment_names = true,
+					 .name = "multixact_member",
+					 .Dir = "pg_multixact/members",
+					 .long_segment_names = true,
 
-		.nslots = multixact_member_buffers,
+					 .nslots = multixact_member_buffers,
 
-		.sync_handler = SYNC_HANDLER_MULTIXACT_MEMBER,
-		.PagePrecedes = MultiXactMemberPagePrecedes,
-		.errdetail_for_io_error = MultiXactMemberIoErrorDetail,
+					 .sync_handler = SYNC_HANDLER_MULTIXACT_MEMBER,
+					 .PagePrecedes = MultiXactMemberPagePrecedes,
+					 .errdetail_for_io_error = MultiXactMemberIoErrorDetail,
 
-		.buffer_tranche_id = LWTRANCHE_MULTIXACTMEMBER_BUFFER,
-		.bank_tranche_id = LWTRANCHE_MULTIXACTMEMBER_SLRU,
+					 .buffer_tranche_id = LWTRANCHE_MULTIXACTMEMBER_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_MULTIXACTMEMBER_SLRU,
 		);
 
 	/*

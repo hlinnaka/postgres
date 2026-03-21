@@ -234,24 +234,24 @@ static void
 test_slru_shmem_request(void *arg)
 {
 	SimpleLruRequest(&TestSlruDesc,
-		.name = "TestSLRU",
-		.Dir = TestSlruDir,
+					 .name = "TestSLRU",
+					 .Dir = TestSlruDir,
 
-		/*
-		 * Short segments names are well tested elsewhere so in this test we are
-		 * focusing on long names.
-		 */
-		.long_segment_names = true,
+	/*
+	 * Short segments names are well tested elsewhere so in this test we are
+	 * focusing on long names.
+	 */
+					 .long_segment_names = true,
 
-		.nslots = NUM_TEST_BUFFERS,
-		.nlsns = 0,
+					 .nslots = NUM_TEST_BUFFERS,
+					 .nlsns = 0,
 
-		.sync_handler = SYNC_HANDLER_NONE,
-		.PagePrecedes = test_slru_page_precedes_logically,
-		.errdetail_for_io_error = test_slru_errdetail_for_io_error,
+					 .sync_handler = SYNC_HANDLER_NONE,
+					 .PagePrecedes = test_slru_page_precedes_logically,
+					 .errdetail_for_io_error = test_slru_errdetail_for_io_error,
 
-		/* let slru.c assign these */
-		.buffer_tranche_id = 0,
-		.bank_tranche_id = 0,
-	);
+	/* let slru.c assign these */
+					 .buffer_tranche_id = 0,
+					 .bank_tranche_id = 0,
+		);
 }

@@ -804,27 +804,27 @@ AsyncShmemRequest(void *arg)
 	size = add_size(size, offsetof(AsyncQueueControl, backend));
 
 	ShmemRequestStruct(&AsyncQueueControlShmemDesc,
-		.name = "Async Queue Control",
-		.size = size,
-		.ptr = (void **) &asyncQueueControl,
-	);
+					   .name = "Async Queue Control",
+					   .size = size,
+					   .ptr = (void **) &asyncQueueControl,
+		);
 
 	SimpleLruRequest(&NotifySlruDesc,
-		.name = "notify",
-		.Dir = "pg_notify",
+					 .name = "notify",
+					 .Dir = "pg_notify",
 
-		/* long segment names are used in order to avoid wraparound */
-		.long_segment_names = true,
+	/* long segment names are used in order to avoid wraparound */
+					 .long_segment_names = true,
 
-		.nslots = notify_buffers,
+					 .nslots = notify_buffers,
 
-		.sync_handler = SYNC_HANDLER_NONE,
-		.PagePrecedes = asyncQueuePagePrecedes,
-		.errdetail_for_io_error = asyncQueueErrdetailForIoError,
+					 .sync_handler = SYNC_HANDLER_NONE,
+					 .PagePrecedes = asyncQueuePagePrecedes,
+					 .errdetail_for_io_error = asyncQueueErrdetailForIoError,
 
-		.buffer_tranche_id = LWTRANCHE_NOTIFY_BUFFER,
-		.bank_tranche_id = LWTRANCHE_NOTIFY_SLRU,
-	);
+					 .buffer_tranche_id = LWTRANCHE_NOTIFY_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_NOTIFY_SLRU,
+		);
 }
 
 static void
