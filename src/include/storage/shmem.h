@@ -31,14 +31,19 @@ typedef struct PGShmemHeader PGShmemHeader; /* avoid including
 extern void InitShmemAllocator(PGShmemHeader *seghdr);
 extern void *ShmemAlloc(Size size);
 extern void *ShmemAllocNoError(Size size);
+extern void *ShmemHashAlloc(Size size, void *alloc_arg);
 extern bool ShmemAddrIsValid(const void *addr);
-extern HTAB *ShmemInitHash(const char *name, int64 nelems,
-						   HASHCTL *infoP, int hash_flags);
 extern void *ShmemInitStruct(const char *name, Size size, bool *foundPtr);
 extern Size add_size(Size s1, Size s2);
 extern Size mul_size(Size s1, Size s2);
 
 extern PGDLLIMPORT Size pg_get_shmem_pagesize(void);
+
+/* shmem_hash.c */
+extern HTAB *ShmemInitHash(const char *name, int64 nelems,
+						   HASHCTL *infoP, int hash_flags);
+extern HTAB *shmem_hash_create(void *location, size_t size, bool found,
+							   const char *name, int64 nelems, HASHCTL *infoP, int hash_flags)
 
 /* ipci.c */
 extern void RequestAddinShmemSpace(Size size);
