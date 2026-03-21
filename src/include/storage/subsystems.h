@@ -14,7 +14,7 @@
 #ifndef SUBSYSTEMS_H
 #define SUBSYSTEMS_H
 
-#include "storage/shmem.h"
+#include "storage/ipc.h"
 
 /*
  * Extern declarations of all the built-in subsystem callbacks

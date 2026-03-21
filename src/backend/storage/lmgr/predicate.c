@@ -152,10 +152,6 @@
 /*
  * INTERFACE ROUTINES
  *
- * housekeeping for setting up shared memory predicate lock structures
- *		PredicateLockShmemInit(void)
- *		PredicateLockShmemSize(void)
- *
  * predicate lock reporting
  *		GetPredicateLockStatusData(void)
  *		PageIsPredicateLocked(Relation relation, BlockNumber blkno)
@@ -211,6 +207,8 @@
 #include "storage/predicate_internals.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
+#include "storage/shmem.h"
+#include "storage/subsystems.h"
 #include "utils/guc_hooks.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
@@ -322,9 +320,25 @@
 /*
  * The SLRU buffer area through which we access the old xids.
  */
-static SlruCtlData SerialSlruCtlData;
+static bool SerialPagePrecedesLogically(int64 page1, int64 page2);
+static int	serial_errdetail_for_io_error(const void *opaque_data);
 
-#define SerialSlruCtl			(&SerialSlruCtlData)
+static SlruDesc SerialSlruDesc = {
+	.name = "serializable",
+	.Dir = "pg_serial",
+	.long_segment_names = false,
+
+	.nslots = 0,				/* set later based on serializable_buffers GUC */
+
+	.sync_handler = SYNC_HANDLER_NONE,
+	.PagePrecedes = SerialPagePrecedesLogically,
+	.errdetail_for_io_error = serial_errdetail_for_io_error,
+
+	.buffer_tranche_id = LWTRANCHE_SERIAL_BUFFER,
+	.bank_tranche_id = LWTRANCHE_SERIAL_SLRU,
+};
+
+#define SerialSlruCtl			(&SerialSlruDesc)
 
 #define SERIAL_PAGESIZE			BLCKSZ
 #define SERIAL_ENTRYSIZE			sizeof(SerCommitSeqNo)
@@ -384,6 +398,17 @@ int			max_predicate_locks_per_page;	/* in guc_tables.c */
  */
 static PredXactList PredXact;
 
+static void PredicateLockShmemRequest(void *arg);
+static void PredicateLockShmemInit(void *arg);
+static void PredicateLockShmemAttach(void *arg);
+
+const ShmemCallbacks PredicateLockShmemCallbacks = {
+	.request_fn = PredicateLockShmemRequest,
+	.init_fn = PredicateLockShmemInit,
+	.attach_fn = PredicateLockShmemAttach,
+};
+
+
 /*
  * This provides a pool of RWConflict data elements to use in conflict lists
  * between transactions.
@@ -431,6 +456,33 @@ static bool MyXactDidWrite = false;
  */
 static SERIALIZABLEXACT *SavedSerializableXact = InvalidSerializableXact;
 
+static ShmemStructDesc PredXactListShmemDesc = {
+	.name = "PredXactList",
+	.size = 0,					/* set later based on XXX */
+	.ptr = (void **) &PredXact,
+};
+
+static int64 max_serializable_xacts;
+
+static ShmemStructDesc RWConflictPoolShmemDesc = {
+	.name = "RWConflictPool",
+	.size = 0,					/* set later based on XXX */
+	.ptr = (void **) &RWConflictPool,
+};
+
+static ShmemStructDesc FinishedSerializableShmemDesc = {
+	.name = "FinishedSerializableTransactions",
+	.size = sizeof(dlist_head),
+	.ptr = (void **) &FinishedSerializableTransactions,
+};
+
+static ShmemStructDesc SerialControlShmemDesc = {
+	.name = "SerialControlData",
+	.size = sizeof(SerialControlData),
+
+	.ptr = (void **) &serialControl,
+};
+
 /* local functions */
 
 static SERIALIZABLEXACT *CreatePredXact(void);
@@ -442,13 +494,51 @@ static void SetPossibleUnsafeConflict(SERIALIZABLEXACT *roXact, SERIALIZABLEXACT
 static void ReleaseRWConflict(RWConflict conflict);
 static void FlagSxactUnsafe(SERIALIZABLEXACT *sxact);
 
-static bool SerialPagePrecedesLogically(int64 page1, int64 page2);
-static int	serial_errdetail_for_io_error(const void *opaque_data);
 static void SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo);
 static SerCommitSeqNo SerialGetMinConflictCommitSeqNo(TransactionId xid);
 static void SerialSetActiveSerXmin(TransactionId xid);
 
 static uint32 predicatelock_hash(const void *key, Size keysize);
+
+static ShmemHashDesc SerializableXidHashDesc = {
+	.name = "SERIALIZABLEXID hash",
+
+	.init_size = 0,				/* set later */
+	.max_size = 0,				/* set later */
+
+	.ptr = &SerializableXidHash,
+	.hash_info.keysize = sizeof(SERIALIZABLEXIDTAG),
+	.hash_info.entrysize = sizeof(SERIALIZABLEXID),
+	.hash_flags = HASH_ELEM | HASH_BLOBS | HASH_FIXED_SIZE,
+};
+
+static ShmemHashDesc PredicateLockTargetHashDesc = {
+	.name = "PREDICATELOCKTARGET hash",
+
+	.init_size = 0,				/* set later */
+	.max_size = 0,				/* set later */
+
+	.ptr = &PredicateLockTargetHash,
+	.hash_info.keysize = sizeof(PREDICATELOCKTARGETTAG),
+	.hash_info.entrysize = sizeof(PREDICATELOCKTARGET),
+	.hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
+	.hash_flags = HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE,
+};
+
+static ShmemHashDesc PredicateLockHashDesc = {
+	.name = "PREDICATELOCK hash",
+
+	.init_size = 0,				/* set later */
+	.max_size = 0,				/* set later */
+
+	.ptr = &PredicateLockHash,
+	.hash_info.keysize = sizeof(PREDICATELOCKTAG),
+	.hash_info.entrysize = sizeof(PREDICATELOCK),
+	.hash_info.hash = predicatelock_hash,
+	.hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
+	.hash_flags = HASH_ELEM | HASH_FUNCTION | HASH_PARTITION | HASH_FIXED_SIZE,
+};
+
 static void SummarizeOldestCommittedSxact(void);
 static Snapshot GetSafeSnapshot(Snapshot origSnapshot);
 static Snapshot GetSerializableTransactionSnapshotInt(Snapshot snapshot,
@@ -1100,73 +1190,42 @@ CheckPointPredicate(void)
 /*------------------------------------------------------------------------*/
 
 /*
- * PredicateLockShmemInit -- Initialize the predicate locking data structures.
- *
- * This is called from CreateSharedMemoryAndSemaphores(), which see for
- * more comments.  In the normal postmaster case, the shared hash tables
- * are created here.  Backends inherit the pointers
- * to the shared tables via fork().  In the EXEC_BACKEND case, each
- * backend re-executes this code to obtain pointers to the already existing
- * shared hash tables.
+ * PredicateLockShmemRequest -- Register the predicate locking data structures.
  */
-void
-PredicateLockShmemInit(void)
+static void
+PredicateLockShmemRequest(void *arg)
 {
-	HASHCTL		info;
 	int64		max_predicate_lock_targets;
 	int64		max_predicate_locks;
-	int64		max_serializable_xacts;
 	int64		max_rw_conflicts;
-	Size		requestSize;
-	bool		found;
-
-#ifndef EXEC_BACKEND
-	Assert(!IsUnderPostmaster);
-#endif
 
 	/*
-	 * Compute size of predicate lock target hashtable. Note these
-	 * calculations must agree with PredicateLockShmemSize!
+	 * Hash tables and other structs are set up by ShmemInitRegistered() /
+	 * ShmemAttachRegistered() via registered descriptors in
+	 * PredicateLockShmemRegister().  Here we do the remaining initialization
+	 * that can't be done in a callback.
 	 */
 	max_predicate_lock_targets = NPREDICATELOCKTARGETENTS();
 
 	/*
-	 * Allocate hash table for PREDICATELOCKTARGET structs.  This stores
+	 * Register hash table for PREDICATELOCKTARGET structs.  This stores
 	 * per-predicate-lock-target information.
 	 */
-	info.keysize = sizeof(PREDICATELOCKTARGETTAG);
-	info.entrysize = sizeof(PREDICATELOCKTARGET);
-	info.num_partitions = NUM_PREDICATELOCK_PARTITIONS;
-
-	PredicateLockTargetHash = ShmemInitHash("PREDICATELOCKTARGET hash",
-											max_predicate_lock_targets,
-											max_predicate_lock_targets,
-											&info,
-											HASH_ELEM | HASH_BLOBS |
-											HASH_PARTITION | HASH_FIXED_SIZE);
-
-	/* Pre-calculate the hash and partition lock of the scratch entry */
-	ScratchTargetTagHash = PredicateLockTargetTagHashCode(&ScratchTargetTag);
-	ScratchPartitionLock = PredicateLockHashPartitionLock(ScratchTargetTagHash);
+	PredicateLockTargetHashDesc.init_size = max_predicate_lock_targets;
+	PredicateLockTargetHashDesc.max_size = max_predicate_lock_targets;
+	ShmemRequestHash(&PredicateLockTargetHashDesc);
 
 	/*
 	 * Allocate hash table for PREDICATELOCK structs.  This stores per
 	 * xact-lock-of-a-target information.
 	 */
-	info.keysize = sizeof(PREDICATELOCKTAG);
-	info.entrysize = sizeof(PREDICATELOCK);
-	info.hash = predicatelock_hash;
-	info.num_partitions = NUM_PREDICATELOCK_PARTITIONS;
 
 	/* Assume an average of 2 xacts per target */
 	max_predicate_locks = max_predicate_lock_targets * 2;
 
-	PredicateLockHash = ShmemInitHash("PREDICATELOCK hash",
-									  max_predicate_locks,
-									  max_predicate_locks,
-									  &info,
-									  HASH_ELEM | HASH_FUNCTION |
-									  HASH_PARTITION | HASH_FIXED_SIZE);
+	PredicateLockHashDesc.init_size = max_predicate_locks;
+	PredicateLockHashDesc.max_size = max_predicate_locks;
+	ShmemRequestHash(&PredicateLockHashDesc);
 
 	/*
 	 * Compute size for serializable transaction hashtable. Note these
@@ -1179,30 +1238,21 @@ PredicateLockShmemInit(void)
 	max_serializable_xacts = (MaxBackends + max_prepared_xacts) * 10;
 
 	/*
-	 * Allocate a list to hold information on transactions participating in
+	 * Register a list to hold information on transactions participating in
 	 * predicate locking.
 	 */
-	requestSize = add_size(PredXactListDataSize,
-						   (mul_size((Size) max_serializable_xacts,
-									 sizeof(SERIALIZABLEXACT))));
-	PredXact = ShmemInitStruct("PredXactList",
-							   requestSize,
-							   &found);
-	Assert(found == IsUnderPostmaster);
+	PredXactListShmemDesc.size = add_size(PredXactListDataSize,
+										  (mul_size((Size) max_serializable_xacts,
+													sizeof(SERIALIZABLEXACT))));
+	ShmemRequestStruct(&PredXactListShmemDesc);
 
 	/*
-	 * Allocate hash table for SERIALIZABLEXID structs.  This stores per-xid
+	 * Register hash table for SERIALIZABLEXID structs.  This stores per-xid
 	 * information for serializable transactions which have accessed data.
 	 */
-	info.keysize = sizeof(SERIALIZABLEXIDTAG);
-	info.entrysize = sizeof(SERIALIZABLEXID);
-
-	SerializableXidHash = ShmemInitHash("SERIALIZABLEXID hash",
-										max_serializable_xacts,
-										max_serializable_xacts,
-										&info,
-										HASH_ELEM | HASH_BLOBS |
-										HASH_FIXED_SIZE);
+	SerializableXidHashDesc.init_size = max_serializable_xacts;
+	SerializableXidHashDesc.max_size = max_serializable_xacts;
+	ShmemRequestHash(&SerializableXidHashDesc);
 
 	/*
 	 * Allocate space for tracking rw-conflicts in lists attached to the
@@ -1217,58 +1267,32 @@ PredicateLockShmemInit(void)
 	 */
 	max_rw_conflicts = max_serializable_xacts * 5;
 
-	requestSize = RWConflictPoolHeaderDataSize +
+	RWConflictPoolShmemDesc.size = RWConflictPoolHeaderDataSize +
 		mul_size((Size) max_rw_conflicts,
 				 RWConflictDataSize);
+	ShmemRequestStruct(&RWConflictPoolShmemDesc);
 
-	RWConflictPool = ShmemInitStruct("RWConflictPool",
-									 requestSize,
-									 &found);
-	Assert(found == IsUnderPostmaster);
-
-	/*
-	 * Create or attach to the header for the list of finished serializable
-	 * transactions.
-	 */
-	FinishedSerializableTransactions = (dlist_head *)
-		ShmemInitStruct("FinishedSerializableTransactions",
-						sizeof(dlist_head),
-						&found);
-	Assert(found == IsUnderPostmaster);
+	ShmemRequestStruct(&FinishedSerializableShmemDesc);
 
 	/*
 	 * Initialize the SLRU storage for old committed serializable
 	 * transactions.
 	 */
-	SerialSlruCtl->PagePrecedes = SerialPagePrecedesLogically;
-	SerialSlruCtl->errdetail_for_io_error = serial_errdetail_for_io_error;
-	SimpleLruInit(SerialSlruCtl, "serializable",
-				  serializable_buffers, 0, "pg_serial",
-				  LWTRANCHE_SERIAL_BUFFER, LWTRANCHE_SERIAL_SLRU,
-				  SYNC_HANDLER_NONE, false);
+	SerialSlruDesc.nslots = serializable_buffers;
+	SimpleLruRequest(&SerialSlruDesc);
 #ifdef USE_ASSERT_CHECKING
 	SerialPagePrecedesLogicallyUnitTests();
 #endif
 	SlruPagePrecedesUnitTests(SerialSlruCtl, SERIAL_ENTRIESPERPAGE);
 
-	/*
-	 * Create or attach to the SerialControl structure.
-	 */
-	serialControl = (SerialControl)
-		ShmemInitStruct("SerialControlData", sizeof(SerialControlData), &found);
-	Assert(found == IsUnderPostmaster);
+	ShmemRequestStruct(&SerialControlShmemDesc);
+}
 
-	/*
-	 * If we just attached to existing shared memory (EXEC_BACKEND), we're all
-	 * done.  Otherwise, during postmaster startup proceed to initialize the
-	 * shared memory.
-	 */
-	if (IsUnderPostmaster)
-	{
-		/* This never changes, so let's keep a local copy. */
-		OldCommittedSxact = PredXact->OldCommittedSxact;
-		return;
-	}
+static void
+PredicateLockShmemInit(void *arg)
+{
+	int			max_rw_conflicts;
+	bool		found;
 
 	/*
 	 * Reserve a dummy entry in the hash table; we use it to make sure there's
@@ -1280,7 +1304,6 @@ PredicateLockShmemInit(void)
 					   HASH_ENTER, &found);
 	Assert(!found);
 
-	/* Initialize PredXact list */
 	dlist_init(&PredXact->availableList);
 	dlist_init(&PredXact->activeList);
 	PredXact->SxactGlobalXmin = InvalidTransactionId;
@@ -1322,6 +1345,9 @@ PredicateLockShmemInit(void)
 	dlist_init(&RWConflictPool->availableList);
 	RWConflictPool->element = (RWConflict) ((char *) RWConflictPool +
 											RWConflictPoolHeaderDataSize);
+
+	max_rw_conflicts = max_serializable_xacts * 5;
+
 	/* Add all elements to available list, clean. */
 	for (int i = 0; i < max_rw_conflicts; i++)
 	{
@@ -1338,62 +1364,25 @@ PredicateLockShmemInit(void)
 	serialControl->headXid = InvalidTransactionId;
 	serialControl->tailXid = InvalidTransactionId;
 	LWLockRelease(SerialControlLock);
+
+	/* This never changes, so let's keep a local copy. */
+	OldCommittedSxact = PredXact->OldCommittedSxact;
+
+	/* Pre-calculate the hash and partition lock of the scratch entry */
+	ScratchTargetTagHash = PredicateLockTargetTagHashCode(&ScratchTargetTag);
+	ScratchPartitionLock = PredicateLockHashPartitionLock(ScratchTargetTagHash);
 }
 
-/*
- * Estimate shared-memory space used for predicate lock table
- */
-Size
-PredicateLockShmemSize(void)
+static void
+PredicateLockShmemAttach(void *arg)
 {
-	Size		size = 0;
-	int64		max_predicate_lock_targets;
-	int64		max_predicate_locks;
-	int64		max_serializable_xacts;
-	int64		max_rw_conflicts;
+	/* This never changes, so let's keep a local copy. */
+	OldCommittedSxact = PredXact->OldCommittedSxact;
 
-	/* predicate lock target hash table */
-	max_predicate_lock_targets = NPREDICATELOCKTARGETENTS();
-	size = add_size(size, hash_estimate_size(max_predicate_lock_targets,
-											 sizeof(PREDICATELOCKTARGET)));
-
-	/* predicate lock hash table */
-	max_predicate_locks = max_predicate_lock_targets * 2;
-	size = add_size(size, hash_estimate_size(max_predicate_locks,
-											 sizeof(PREDICATELOCK)));
-
-	/*
-	 * Since NPREDICATELOCKTARGETENTS is only an estimate, add 10% safety
-	 * margin.
-	 */
-	size = add_size(size, size / 10);
-
-	/* transaction list */
-	max_serializable_xacts = (MaxBackends + max_prepared_xacts) * 10;
-	size = add_size(size, PredXactListDataSize);
-	size = add_size(size, mul_size((Size) max_serializable_xacts,
-								   sizeof(SERIALIZABLEXACT)));
-
-	/* transaction xid table */
-	size = add_size(size, hash_estimate_size(max_serializable_xacts,
-											 sizeof(SERIALIZABLEXID)));
-
-	/* rw-conflict pool */
-	max_rw_conflicts = max_serializable_xacts * 5;
-	size = add_size(size, RWConflictPoolHeaderDataSize);
-	size = add_size(size, mul_size((Size) max_rw_conflicts,
-								   RWConflictDataSize));
-
-	/* Head for list of finished serializable transactions. */
-	size = add_size(size, sizeof(dlist_head));
-
-	/* Shared memory structures for SLRU tracking of old committed xids. */
-	size = add_size(size, sizeof(SerialControlData));
-	size = add_size(size, SimpleLruShmemSize(serializable_buffers, 0));
-
-	return size;
+	/* Pre-calculate the hash and partition lock of the scratch entry */
+	ScratchTargetTagHash = PredicateLockTargetTagHashCode(&ScratchTargetTag);
+	ScratchPartitionLock = PredicateLockHashPartitionLock(ScratchTargetTagHash);
 }
-
 
 /*
  * Compute the hash code associated with a PREDICATELOCKTAG.

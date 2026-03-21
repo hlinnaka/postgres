@@ -16,6 +16,7 @@
 #include "access/transam.h"
 #include "access/xlogdefs.h"
 #include "storage/lwlock.h"
+#include "storage/shmem.h"
 #include "storage/sync.h"
 
 /*
@@ -107,15 +108,32 @@ typedef struct SlruSharedData
 typedef SlruSharedData *SlruShared;
 
 /*
- * SlruCtlData is an unshared structure that points to the active information
+ * SlruDesc is an unshared structure that points to the active information
  * in shared memory.
  */
-typedef struct SlruCtlData
+typedef struct SlruDesc
 {
-	SlruShared	shared;
+	/*
+	 * name of SLRU.  (This is user-visible, pick with care!)
+	 */
+	const char *name;
 
-	/* Number of banks in this SLRU. */
-	uint16		nbanks;
+	/* number of page slots to use. */
+	int			nslots;
+
+	/* number of LSN groups per page (set to zero if not relevant). */
+	int			nlsns;
+
+	/*
+	 * Which sync handler function to use when handing sync requests over to
+	 * the checkpointer.  SYNC_HANDLER_NONE to disable fsync (eg pg_notify).
+	 */
+	SyncRequestHandler sync_handler;
+
+	/*
+	 * PGDATA-relative subdirectory that will contain the files.
+	 */
+	const char *Dir;
 
 	/*
 	 * If true, use long segment file names.  Otherwise, use short file names.
@@ -124,11 +142,6 @@ typedef struct SlruCtlData
 	 */
 	bool		long_segment_names;
 
-	/*
-	 * Which sync handler function to use when handing sync requests over to
-	 * the checkpointer.  SYNC_HANDLER_NONE to disable fsync (eg pg_notify).
-	 */
-	SyncRequestHandler sync_handler;
 
 	/*
 	 * Decide whether a page is "older" for truncation and as a hint for
@@ -153,13 +166,24 @@ typedef struct SlruCtlData
 	int			(*errdetail_for_io_error) (const void *opaque_data);
 
 	/*
-	 * Dir is set during SimpleLruInit and does not change thereafter. Since
-	 * it's always the same, it doesn't need to be in shared memory.
+	 * Tranche IDs to use for the SLRU's per-buffer and per-bank LWLocks.  If
+	 * these are left as zeros, new tranches will be assigned dynamically.
 	 */
-	char		Dir[64];
-} SlruCtlData;
+	int			buffer_tranche_id;
+	int			bank_tranche_id;
 
-typedef SlruCtlData *SlruCtl;
+	SlruShared	shared;
+
+	/* Number of banks in this SLRU. */
+	uint16		nbanks;
+
+	/*
+	 * Descriptor for the underlying shmem area.  Callers of
+	 * SimpleLruRegister() do not need to touch this, it is filled in by
+	 * SimpleLruRegister() itself.
+	 */
+	ShmemStructDesc base_desc;
+} SlruDesc;
 
 /*
  * Get the SLRU bank lock for given SlruCtl and the pageno.
@@ -168,7 +192,7 @@ typedef SlruCtlData *SlruCtl;
  * respective bank.
  */
 static inline LWLock *
-SimpleLruGetBankLock(SlruCtl ctl, int64 pageno)
+SimpleLruGetBankLock(SlruDesc *ctl, int64 pageno)
 {
 	int			bankno;
 
@@ -176,40 +200,39 @@ SimpleLruGetBankLock(SlruCtl ctl, int64 pageno)
 	return &(ctl->shared->bank_locks[bankno].lock);
 }
 
-extern Size SimpleLruShmemSize(int nslots, int nlsns);
+extern void SimpleLruRequest(SlruDesc *desc);
 extern int	SimpleLruAutotuneBuffers(int divisor, int max);
-extern void SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
-						  const char *subdir, int buffer_tranche_id,
-						  int bank_tranche_id, SyncRequestHandler sync_handler,
-						  bool long_segment_names);
-extern int	SimpleLruZeroPage(SlruCtl ctl, int64 pageno);
-extern void SimpleLruZeroAndWritePage(SlruCtl ctl, int64 pageno);
-extern int	SimpleLruReadPage(SlruCtl ctl, int64 pageno, bool write_ok,
+extern int	SimpleLruZeroPage(SlruDesc *ctl, int64 pageno);
+extern void SimpleLruZeroAndWritePage(SlruDesc *ctl, int64 pageno);
+extern int	SimpleLruReadPage(SlruDesc *ctl, int64 pageno, bool write_ok,
 							  const void *opaque_data);
-extern int	SimpleLruReadPage_ReadOnly(SlruCtl ctl, int64 pageno,
+extern int	SimpleLruReadPage_ReadOnly(SlruDesc *ctl, int64 pageno,
 									   const void *opaque_data);
-extern void SimpleLruWritePage(SlruCtl ctl, int slotno);
-extern void SimpleLruWriteAll(SlruCtl ctl, bool allow_redirtied);
+extern void SimpleLruWritePage(SlruDesc *ctl, int slotno);
+extern void SimpleLruWriteAll(SlruDesc *ctl, bool allow_redirtied);
 #ifdef USE_ASSERT_CHECKING
-extern void SlruPagePrecedesUnitTests(SlruCtl ctl, int per_page);
+extern void SlruPagePrecedesUnitTests(SlruDesc *ctl, int per_page);
 #else
 #define SlruPagePrecedesUnitTests(ctl, per_page) do {} while (0)
 #endif
-extern void SimpleLruTruncate(SlruCtl ctl, int64 cutoffPage);
-extern bool SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int64 pageno);
+extern void SimpleLruTruncate(SlruDesc *ctl, int64 cutoffPage);
+extern bool SimpleLruDoesPhysicalPageExist(SlruDesc *ctl, int64 pageno);
 
-typedef bool (*SlruScanCallback) (SlruCtl ctl, char *filename, int64 segpage,
+typedef bool (*SlruScanCallback) (SlruDesc *ctl, char *filename, int64 segpage,
 								  void *data);
-extern bool SlruScanDirectory(SlruCtl ctl, SlruScanCallback callback, void *data);
-extern void SlruDeleteSegment(SlruCtl ctl, int64 segno);
+extern bool SlruScanDirectory(SlruDesc *ctl, SlruScanCallback callback, void *data);
+extern void SlruDeleteSegment(SlruDesc *ctl, int64 segno);
 
-extern int	SlruSyncFileTag(SlruCtl ctl, const FileTag *ftag, char *path);
+extern int	SlruSyncFileTag(SlruDesc *ctl, const FileTag *ftag, char *path);
 
 /* SlruScanDirectory public callbacks */
-extern bool SlruScanDirCbReportPresence(SlruCtl ctl, char *filename,
+extern bool SlruScanDirCbReportPresence(SlruDesc *ctl, char *filename,
 										int64 segpage, void *data);
-extern bool SlruScanDirCbDeleteAll(SlruCtl ctl, char *filename, int64 segpage,
+extern bool SlruScanDirCbDeleteAll(SlruDesc *ctl, char *filename, int64 segpage,
 								   void *data);
 extern bool check_slru_buffers(const char *name, int *newval);
+
+extern void shmem_slru_init(ShmemStructDesc *area_desc, void *ptr);
+extern void shmem_slru_attach(ShmemStructDesc *area_desc, void *ptr);
 
 #endif							/* SLRU_H */
