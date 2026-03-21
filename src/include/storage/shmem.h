@@ -49,6 +49,12 @@ typedef struct ShmemStructDesc
 	size_t		size;
 
 	/*
+	 * Alignment of the starting address. If not set, defaults to cacheline
+	 * boundary. Must be a power of two.
+	 */
+	size_t		alignment;
+
+	/*
 	 * Direct callers of ShmemRequestStruct() should leave this unset (i.e.
 	 * SHMEM_KIND_STRUCT).  The other values are reserved for higher-level
 	 * data structures implemented on top of plain structs.

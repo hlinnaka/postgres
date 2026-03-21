@@ -225,7 +225,7 @@ typedef struct ShmemAllocatorData
 	slock_t		shmem_lock;
 } ShmemAllocatorData;
 
-static void *ShmemAllocRaw(Size size, Size *allocated_size);
+static void *ShmemAllocRaw(Size size, Size alignment, Size *allocated_size);
 
 /* shared memory global variables */
 
@@ -334,6 +334,7 @@ ShmemGetRequestedSize(void)
 
 		size = add_size(size, desc->size);
 		size = add_size(size, desc->extra_size);
+		size = add_size(size, desc->alignment);
 	}
 
 	return size;
@@ -500,7 +501,7 @@ AttachOrInit(ShmemStructDesc *desc, bool init_allowed, bool attach_allowed)
 		size_t		allocated_size;
 		void	   *structPtr;
 
-		structPtr = ShmemAllocRaw(desc->size, &allocated_size);
+		structPtr = ShmemAllocRaw(desc->size, desc->alignment, &allocated_size);
 		if (structPtr == NULL)
 		{
 			/* out of memory; remove the failed ShmemIndex entry */
@@ -651,7 +652,7 @@ ShmemAlloc(Size size)
 	void	   *newSpace;
 	Size		allocated_size;
 
-	newSpace = ShmemAllocRaw(size, &allocated_size);
+	newSpace = ShmemAllocRaw(size, 0, &allocated_size);
 	if (!newSpace)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
@@ -670,7 +671,7 @@ ShmemAllocNoError(Size size)
 {
 	Size		allocated_size;
 
-	return ShmemAllocRaw(size, &allocated_size);
+	return ShmemAllocRaw(size, 0, &allocated_size);
 }
 
 /*
@@ -680,8 +681,9 @@ ShmemAllocNoError(Size size)
  * be equal to the number requested plus any padding we choose to add.
  */
 static void *
-ShmemAllocRaw(Size size, Size *allocated_size)
+ShmemAllocRaw(Size size, Size alignment, Size *allocated_size)
 {
+	Size		rawStart;
 	Size		newStart;
 	Size		newFree;
 	void	   *newSpace;
@@ -697,14 +699,15 @@ ShmemAllocRaw(Size size, Size *allocated_size)
 	 * structures out to a power-of-two size - but without this, even that
 	 * won't be sufficient.
 	 */
-	size = CACHELINEALIGN(size);
-	*allocated_size = size;
+	if (alignment < PG_CACHE_LINE_SIZE)
+		alignment = PG_CACHE_LINE_SIZE;
 
 	Assert(ShmemSegHdr != NULL);
 
 	SpinLockAcquire(ShmemLock);
 
-	newStart = ShmemAllocator->free_offset;
+	rawStart = ShmemAllocator->free_offset;
+	newStart = TYPEALIGN(alignment, rawStart);
 
 	newFree = newStart + size;
 	if (newFree <= ShmemSegHdr->totalsize)
@@ -718,8 +721,9 @@ ShmemAllocRaw(Size size, Size *allocated_size)
 	SpinLockRelease(ShmemLock);
 
 	/* note this assert is okay with newSpace == NULL */
-	Assert(newSpace == (void *) CACHELINEALIGN(newSpace));
+	Assert(newSpace == (void *) TYPEALIGN(alignment, newSpace));
 
+	*allocated_size = newFree - rawStart;
 	return newSpace;
 }
 
