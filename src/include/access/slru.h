@@ -169,7 +169,7 @@ typedef struct SlruOpts
 	 */
 	int			buffer_tranche_id;
 	int			bank_tranche_id;
-} SlruOpts;
+}			SlruOpts;
 
 /*
  * SlruDesc is an unshared structure that points to the active information
@@ -179,7 +179,7 @@ typedef struct SlruDesc
 {
 	ShmemStructDesc base;
 
-	SlruOpts options;
+	SlruOpts	options;
 
 	SlruShared	shared;
 
@@ -203,7 +203,7 @@ SimpleLruGetBankLock(SlruDesc *ctl, int64 pageno)
 	return &(ctl->shared->bank_locks[bankno].lock);
 }
 
-extern void SimpleLruRequestWithOpts(SlruDesc *desc, const SlruOpts *options);
+extern void SimpleLruRequestWithOpts(SlruDesc *desc, const SlruOpts * options);
 
 #define SimpleLruRequest(desc, ...)  \
 	SimpleLruRequestWithOpts(desc, &(SlruOpts){__VA_ARGS__})

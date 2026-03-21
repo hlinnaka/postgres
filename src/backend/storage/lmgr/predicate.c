@@ -1149,15 +1149,14 @@ PredicateLockShmemRequest(void *arg)
 	 * per-predicate-lock-target information.
 	 */
 	ShmemRequestHash(&PredicateLockTargetHashDesc,
-		.name = "PREDICATELOCKTARGET hash",
-		.nelems = max_predicate_lock_targets,
-
-		.ptr = &PredicateLockTargetHash,
-		.hash_info.keysize = sizeof(PREDICATELOCKTARGETTAG),
-		.hash_info.entrysize = sizeof(PREDICATELOCKTARGET),
-		.hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
-		.hash_flags = HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE,
-	);
+					 .name = "PREDICATELOCKTARGET hash",
+					 .nelems = max_predicate_lock_targets,
+					 .ptr = &PredicateLockTargetHash,
+					 .hash_info.keysize = sizeof(PREDICATELOCKTARGETTAG),
+					 .hash_info.entrysize = sizeof(PREDICATELOCKTARGET),
+					 .hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
+					 .hash_flags = HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE,
+		);
 
 	/*
 	 * Allocate hash table for PREDICATELOCK structs.  This stores per
@@ -1168,16 +1167,14 @@ PredicateLockShmemRequest(void *arg)
 	max_predicate_locks = max_predicate_lock_targets * 2;
 
 	ShmemRequestHash(&PredicateLockHashDesc,
-		.name = "PREDICATELOCK hash",
-
-		.nelems = max_predicate_locks,
-
-		.ptr = &PredicateLockHash,
-		.hash_info.keysize = sizeof(PREDICATELOCKTAG),
-		.hash_info.entrysize = sizeof(PREDICATELOCK),
-		.hash_info.hash = predicatelock_hash,
-		.hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
-		.hash_flags = HASH_ELEM | HASH_FUNCTION | HASH_PARTITION | HASH_FIXED_SIZE,
+					 .name = "PREDICATELOCK hash",
+					 .nelems = max_predicate_locks,
+					 .ptr = &PredicateLockHash,
+					 .hash_info.keysize = sizeof(PREDICATELOCKTAG),
+					 .hash_info.entrysize = sizeof(PREDICATELOCK),
+					 .hash_info.hash = predicatelock_hash,
+					 .hash_info.num_partitions = NUM_PREDICATELOCK_PARTITIONS,
+					 .hash_flags = HASH_ELEM | HASH_FUNCTION | HASH_PARTITION | HASH_FIXED_SIZE,
 		);
 
 	/*
@@ -1195,11 +1192,11 @@ PredicateLockShmemRequest(void *arg)
 	 * predicate locking.
 	 */
 	ShmemRequestStruct(&PredXactListShmemDesc,
-			.name = "PredXactList",
-			.size = add_size(PredXactListDataSize,
-							 (mul_size((Size) max_serializable_xacts,
-									   sizeof(SERIALIZABLEXACT)))),
-			.ptr = (void **) &PredXact,
+					   .name = "PredXactList",
+					   .size = add_size(PredXactListDataSize,
+										(mul_size((Size) max_serializable_xacts,
+												  sizeof(SERIALIZABLEXACT)))),
+					   .ptr = (void **) &PredXact,
 		);
 
 	/*
@@ -1229,45 +1226,45 @@ PredicateLockShmemRequest(void *arg)
 	max_rw_conflicts = max_serializable_xacts * 5;
 
 	ShmemRequestStruct(&RWConflictPoolShmemDesc,
-		.name = "RWConflictPool",
-		.size = RWConflictPoolHeaderDataSize + mul_size((Size) max_rw_conflicts,
-														RWConflictDataSize),
-		.ptr = (void **) &RWConflictPool,
-	);
+					   .name = "RWConflictPool",
+					   .size = RWConflictPoolHeaderDataSize + mul_size((Size) max_rw_conflicts,
+																	   RWConflictDataSize),
+					   .ptr = (void **) &RWConflictPool,
+		);
 
 	ShmemRequestStruct(&FinishedSerializableShmemDesc,
-		.name = "FinishedSerializableTransactions",
-		.size = sizeof(dlist_head),
-		.ptr = (void **) &FinishedSerializableTransactions,
-	);
+					   .name = "FinishedSerializableTransactions",
+					   .size = sizeof(dlist_head),
+					   .ptr = (void **) &FinishedSerializableTransactions,
+		);
 
 	/*
 	 * Initialize the SLRU storage for old committed serializable
 	 * transactions.
 	 */
 	SimpleLruRequest(&SerialSlruDesc,
-		.name = "serializable",
-		.Dir = "pg_serial",
-		.long_segment_names = false,
+					 .name = "serializable",
+					 .Dir = "pg_serial",
+					 .long_segment_names = false,
 
-		.nslots = serializable_buffers,
+					 .nslots = serializable_buffers,
 
-		.sync_handler = SYNC_HANDLER_NONE,
-		.PagePrecedes = SerialPagePrecedesLogically,
-		.errdetail_for_io_error = serial_errdetail_for_io_error,
+					 .sync_handler = SYNC_HANDLER_NONE,
+					 .PagePrecedes = SerialPagePrecedesLogically,
+					 .errdetail_for_io_error = serial_errdetail_for_io_error,
 
-		.buffer_tranche_id = LWTRANCHE_SERIAL_BUFFER,
-		.bank_tranche_id = LWTRANCHE_SERIAL_SLRU,
+					 .buffer_tranche_id = LWTRANCHE_SERIAL_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_SERIAL_SLRU,
 		);
 #ifdef USE_ASSERT_CHECKING
 	SerialPagePrecedesLogicallyUnitTests();
 #endif
 
 	ShmemRequestStruct(&SerialControlShmemDesc,
-		.name = "SerialControlData",
-		.size = sizeof(SerialControlData),
-		.ptr = (void **) &serialControl,
-	);
+					   .name = "SerialControlData",
+					   .size = sizeof(SerialControlData),
+					   .ptr = (void **) &serialControl,
+		);
 }
 
 static void

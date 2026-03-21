@@ -244,19 +244,19 @@ SUBTRANSShmemRequest(void *arg)
 	Assert(subtransaction_buffers != 0);
 
 	SimpleLruRequest(&SubTransSlruDesc,
-		.name = "subtransaction",
-		.Dir = "pg_subtrans",
-		.long_segment_names = false,
+					 .name = "subtransaction",
+					 .Dir = "pg_subtrans",
+					 .long_segment_names = false,
 
-		.nslots = SUBTRANSShmemBuffers(),
+					 .nslots = SUBTRANSShmemBuffers(),
 
-		.sync_handler = SYNC_HANDLER_NONE,
-		.PagePrecedes = SubTransPagePrecedes,
-		.errdetail_for_io_error = subtrans_errdetail_for_io_error,
+					 .sync_handler = SYNC_HANDLER_NONE,
+					 .PagePrecedes = SubTransPagePrecedes,
+					 .errdetail_for_io_error = subtrans_errdetail_for_io_error,
 
-		.buffer_tranche_id = LWTRANCHE_SUBTRANS_BUFFER,
-		.bank_tranche_id = LWTRANCHE_SUBTRANS_SLRU,
-	);
+					 .buffer_tranche_id = LWTRANCHE_SUBTRANS_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_SUBTRANS_SLRU,
+		);
 }
 
 static void

@@ -810,19 +810,19 @@ CLOGShmemRequest(void *arg)
 	}
 	Assert(transaction_buffers != 0);
 	SimpleLruRequest(&XactSlruDesc,
-		.name = "transaction",
-		.Dir = "pg_xact",
-		.long_segment_names = false,
+					 .name = "transaction",
+					 .Dir = "pg_xact",
+					 .long_segment_names = false,
 
-		.nslots = CLOGShmemBuffers(),
-		.nlsns = CLOG_LSNS_PER_PAGE,
+					 .nslots = CLOGShmemBuffers(),
+					 .nlsns = CLOG_LSNS_PER_PAGE,
 
-		.sync_handler = SYNC_HANDLER_CLOG,
-		.PagePrecedes = CLOGPagePrecedes,
-		.errdetail_for_io_error = clog_errdetail_for_io_error,
+					 .sync_handler = SYNC_HANDLER_CLOG,
+					 .PagePrecedes = CLOGPagePrecedes,
+					 .errdetail_for_io_error = clog_errdetail_for_io_error,
 
-		.buffer_tranche_id = LWTRANCHE_XACT_BUFFER,
-		.bank_tranche_id = LWTRANCHE_XACT_SLRU,
+					 .buffer_tranche_id = LWTRANCHE_XACT_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_XACT_SLRU,
 		);
 }
 

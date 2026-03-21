@@ -41,6 +41,7 @@
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/proc.h"
+#include "storage/shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
 #include "utils/memdebug.h"
@@ -73,16 +74,20 @@ typedef struct PgAioWorkerControl
 } PgAioWorkerControl;
 
 
-static size_t pgaio_worker_shmem_size(void);
-static void pgaio_worker_shmem_init(bool first_time);
+static void pgaio_worker_shmem_request(void *arg);
+static void pgaio_worker_shmem_init(void *arg);
+static void pgaio_worker_shmem_attach(void *arg);
+
+static PgAioWorkerSubmissionQueue *io_worker_submission_queue;
 
 static bool pgaio_worker_needs_synchronous_execution(PgAioHandle *ioh);
 static int	pgaio_worker_submit(uint16 num_staged_ios, PgAioHandle **staged_ios);
 
 
 const IoMethodOps pgaio_worker_ops = {
-	.shmem_size = pgaio_worker_shmem_size,
-	.shmem_init = pgaio_worker_shmem_init,
+	.shmem_callbacks.request_fn = pgaio_worker_shmem_request,
+	.shmem_callbacks.init_fn = pgaio_worker_shmem_init,
+	.shmem_callbacks.attach_fn = pgaio_worker_shmem_attach,
 
 	.needs_synchronous_execution = pgaio_worker_needs_synchronous_execution,
 	.submit = pgaio_worker_submit,
@@ -95,7 +100,6 @@ int			io_workers = 3;
 
 static int	io_worker_queue_size = 64;
 static int	MyIoWorkerId;
-static PgAioWorkerSubmissionQueue *io_worker_submission_queue;
 static PgAioWorkerControl *io_worker_control;
 
 
@@ -116,48 +120,60 @@ pgaio_worker_control_shmem_size(void)
 		sizeof(PgAioWorkerSlot) * MAX_IO_WORKERS;
 }
 
-static size_t
-pgaio_worker_shmem_size(void)
+/*
+ * Set secondary AIO worker pointer from the combined allocation.
+ */
+static void
+pgaio_worker_set_secondary_ptr(void)
 {
-	size_t		sz;
 	int			queue_size;
+	Size		queue_sz = pgaio_worker_queue_shmem_size(&queue_size);
 
-	sz = pgaio_worker_queue_shmem_size(&queue_size);
-	sz = add_size(sz, pgaio_worker_control_shmem_size());
-
-	return sz;
+	io_worker_control = (PgAioWorkerControl *)
+		((char *) io_worker_submission_queue + MAXALIGN(queue_sz));
 }
 
 static void
-pgaio_worker_shmem_init(bool first_time)
+pgaio_worker_shmem_init(void *arg)
 {
-	bool		found;
 	int			queue_size;
 
-	io_worker_submission_queue =
-		ShmemInitStruct("AioWorkerSubmissionQueue",
-						pgaio_worker_queue_shmem_size(&queue_size),
-						&found);
-	if (!found)
-	{
-		io_worker_submission_queue->size = queue_size;
-		io_worker_submission_queue->head = 0;
-		io_worker_submission_queue->tail = 0;
-	}
+	pgaio_worker_queue_shmem_size(&queue_size);
+	io_worker_submission_queue->size = queue_size;
+	io_worker_submission_queue->head = 0;
+	io_worker_submission_queue->tail = 0;
 
-	io_worker_control =
-		ShmemInitStruct("AioWorkerControl",
-						pgaio_worker_control_shmem_size(),
-						&found);
-	if (!found)
+	pgaio_worker_set_secondary_ptr();
+
+	io_worker_control->idle_worker_mask = 0;
+	for (int i = 0; i < MAX_IO_WORKERS; ++i)
 	{
-		io_worker_control->idle_worker_mask = 0;
-		for (int i = 0; i < MAX_IO_WORKERS; ++i)
-		{
-			io_worker_control->workers[i].latch = NULL;
-			io_worker_control->workers[i].in_use = false;
-		}
+		io_worker_control->workers[i].latch = NULL;
+		io_worker_control->workers[i].in_use = false;
 	}
+}
+
+static void
+pgaio_worker_shmem_attach(void *arg)
+{
+	pgaio_worker_set_secondary_ptr();
+}
+
+static void
+pgaio_worker_shmem_request(void *arg)
+{
+	static ShmemStructDesc AioWorkerShmemDesc;
+	size_t		size;
+	int			queue_size;
+
+	size = MAXALIGN(pgaio_worker_queue_shmem_size(&queue_size)) +
+		pgaio_worker_control_shmem_size();
+
+	ShmemRequestStruct(&AioWorkerShmemDesc,
+					   .name = "AioWorkerSubmissionQueue",
+					   .size = size,
+					   .ptr = (void **) &io_worker_submission_queue,
+		);
 }
 
 static int

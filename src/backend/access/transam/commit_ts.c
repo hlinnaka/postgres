@@ -551,24 +551,24 @@ CommitTsShmemRequest(void *arg)
 	}
 	Assert(commit_timestamp_buffers != 0);
 	SimpleLruRequest(&CommitTsSlruDesc,
-		.name = "commit_timestamp",
-		.Dir = "pg_commit_ts",
-		.long_segment_names = false,
+					 .name = "commit_timestamp",
+					 .Dir = "pg_commit_ts",
+					 .long_segment_names = false,
 
-		.nslots = CommitTsShmemBuffers(),
+					 .nslots = CommitTsShmemBuffers(),
 
-		.PagePrecedes = CommitTsPagePrecedes,
-		.errdetail_for_io_error = commit_ts_errdetail_for_io_error,
+					 .PagePrecedes = CommitTsPagePrecedes,
+					 .errdetail_for_io_error = commit_ts_errdetail_for_io_error,
 
-		.sync_handler = SYNC_HANDLER_COMMIT_TS,
-		.buffer_tranche_id = LWTRANCHE_COMMITTS_BUFFER,
-		.bank_tranche_id = LWTRANCHE_COMMITTS_SLRU,
+					 .sync_handler = SYNC_HANDLER_COMMIT_TS,
+					 .buffer_tranche_id = LWTRANCHE_COMMITTS_BUFFER,
+					 .bank_tranche_id = LWTRANCHE_COMMITTS_SLRU,
 		);
 
 	ShmemRequestStruct(&CommitTsShmemDesc,
-		.name = "CommitTs shared",
-		.size = sizeof(CommitTimestampShared),
-		.ptr = (void **) &commitTsShared,
+					   .name = "CommitTs shared",
+					   .size = sizeof(CommitTimestampShared),
+					   .ptr = (void **) &commitTsShared,
 		);
 }
 
