@@ -48,3 +48,6 @@ PG_SHMEM_SUBSYSTEM(ProcSignalShmemCallbacks)
 PG_SHMEM_SUBSYSTEM(AsyncShmemCallbacks)
 PG_SHMEM_SUBSYSTEM(WaitEventCustomShmemCallbacks)
 PG_SHMEM_SUBSYSTEM(InjectionPointShmemCallbacks)
+
+/* AIO subsystem. This delegates to the method-specific callbacks */
+PG_SHMEM_SUBSYSTEM(AioShmemCallbacks)
