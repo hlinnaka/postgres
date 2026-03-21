@@ -49,15 +49,14 @@
 
 
 /* Entry points for IoMethodOps. */
-static size_t pgaio_uring_shmem_size(void);
-static void pgaio_uring_shmem_init(bool first_time);
+static void pgaio_uring_shmem_request(void *arg);
+static void pgaio_uring_shmem_init(void *arg);
 static void pgaio_uring_init_backend(void);
 static int	pgaio_uring_submit(uint16 num_staged_ios, PgAioHandle **staged_ios);
 static void pgaio_uring_wait_one(PgAioHandle *ioh, uint64 ref_generation);
 
 /* helper functions */
 static void pgaio_uring_sq_from_io(PgAioHandle *ioh, struct io_uring_sqe *sqe);
-
 
 const IoMethodOps pgaio_uring_ops = {
 	/*
@@ -69,8 +68,8 @@ const IoMethodOps pgaio_uring_ops = {
 	 */
 	.wait_on_fd_before_close = true,
 
-	.shmem_size = pgaio_uring_shmem_size,
-	.shmem_init = pgaio_uring_shmem_init,
+	.shmem_callbacks.request_fn = pgaio_uring_shmem_request,
+	.shmem_callbacks.init_fn = pgaio_uring_shmem_init,
 	.init_backend = pgaio_uring_init_backend,
 
 	.submit = pgaio_uring_submit,
@@ -265,12 +264,6 @@ pgaio_uring_shmem_size(void)
 {
 	size_t		sz;
 
-	/*
-	 * Kernel and liburing support for various features influences how much
-	 * shmem we need, perform the necessary checks.
-	 */
-	pgaio_uring_check_capabilities();
-
 	sz = pgaio_uring_context_shmem_size();
 	sz = add_size(sz, pgaio_uring_ring_shmem_size());
 
@@ -278,10 +271,27 @@ pgaio_uring_shmem_size(void)
 }
 
 static void
-pgaio_uring_shmem_init(bool first_time)
+pgaio_uring_shmem_request(void *arg)
+{
+	static ShmemStructDesc AioUringShmemDesc = {
+		.name = "AioUringContext",
+		.ptr = (void **) &pgaio_uring_contexts,
+	};
+
+	/*
+	 * Kernel and liburing support for various features influences how much
+	 * shmem we need, perform the necessary checks.
+	 */
+	pgaio_uring_check_capabilities();
+
+	AioUringShmemDesc.size = pgaio_uring_shmem_size();
+	ShmemRequestStruct(&AioUringShmemDesc);
+}
+
+static void
+pgaio_uring_shmem_init(void *arg)
 {
 	int			TotalProcs = pgaio_uring_procs();
-	bool		found;
 	char	   *shmem;
 	size_t		ring_mem_remain = 0;
 	char	   *ring_mem_next = 0;
@@ -289,13 +299,11 @@ pgaio_uring_shmem_init(bool first_time)
 	/*
 	 * We allocate memory for all PgAioUringContext instances and, if
 	 * supported, the memory required for each of the io_uring instances, in
-	 * one ShmemInitStruct().
+	 * one combined allocation.
+	 *
+	 * pgaio_uring_contexts is already set to the base of the allocation.
 	 */
-	shmem = ShmemInitStruct("AioUringContext", pgaio_uring_shmem_size(), &found);
-	if (found)
-		return;
-
-	pgaio_uring_contexts = (PgAioUringContext *) shmem;
+	shmem = (char *) pgaio_uring_contexts;
 	shmem += pgaio_uring_context_shmem_size();
 
 	/* if supported, handle memory alignment / sizing for io_uring memory */
