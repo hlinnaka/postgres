@@ -25,6 +25,7 @@
 #include "storage/shmem.h"
 #include "storage/sinvaladt.h"
 #include "storage/spin.h"
+#include "storage/subsystems.h"
 
 /*
  * Conceptually, the shared cache invalidation messages are stored in an
@@ -203,7 +204,15 @@ typedef struct SISeg
  */
 #define NumProcStateSlots	(MaxBackends + NUM_AUXILIARY_PROCS)
 
+static void SharedInvalShmemRequest(void *arg);
+static void SharedInvalShmemInit(void *arg);
+
 static SISeg *shmInvalBuffer;	/* pointer to the shared inval buffer */
+
+const ShmemCallbacks SharedInvalShmemCallbacks = {
+	.request_fn = SharedInvalShmemRequest,
+	.init_fn = SharedInvalShmemInit,
+};
 
 
 static LocalTransactionId nextLocalTransactionId;
@@ -212,37 +221,33 @@ static void CleanupInvalidationState(int status, Datum arg);
 
 
 /*
- * SharedInvalShmemSize --- return shared-memory space needed
+ * SharedInvalShmemRequest
+ *		Register shared memory needs for the SI message buffer
  */
-Size
-SharedInvalShmemSize(void)
+static void
+SharedInvalShmemRequest(void *arg)
 {
+	static ShmemStructDesc SharedInvalShmemDesc = {
+		.name = "shmInvalBuffer",
+		.size = 0,				/* calculated later */
+		.ptr = (void **) &shmInvalBuffer,
+	};
 	Size		size;
 
 	size = offsetof(SISeg, procState);
 	size = add_size(size, mul_size(sizeof(ProcState), NumProcStateSlots));	/* procState */
 	size = add_size(size, mul_size(sizeof(int), NumProcStateSlots));	/* pgprocnos */
 
-	return size;
+	SharedInvalShmemDesc.size = size;
+	ShmemRequestStruct(&SharedInvalShmemDesc);
 }
 
-/*
- * SharedInvalShmemInit
- *		Create and initialize the SI message buffer
- */
-void
-SharedInvalShmemInit(void)
+static void
+SharedInvalShmemInit(void *arg)
 {
 	int			i;
-	bool		found;
 
-	/* Allocate space in shared memory */
-	shmInvalBuffer = (SISeg *)
-		ShmemInitStruct("shmInvalBuffer", SharedInvalShmemSize(), &found);
-	if (found)
-		return;
-
-	/* Clear message counters, save size of procState array, init spinlock */
+	/* Clear message counters, init spinlock */
 	shmInvalBuffer->minMsgNum = 0;
 	shmInvalBuffer->maxMsgNum = 0;
 	shmInvalBuffer->nextThreshold = CLEANUP_MIN;

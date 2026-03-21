@@ -10,6 +10,8 @@
 #ifndef WAIT_EVENT_H
 #define WAIT_EVENT_H
 
+#include "storage/shmem.h"
+
 /* enums for wait events */
 #include "utils/wait_event_types.h"
 
@@ -42,8 +44,6 @@ extern PGDLLIMPORT uint32 *my_wait_event_info;
 extern uint32 WaitEventExtensionNew(const char *wait_event_name);
 extern uint32 WaitEventInjectionPointNew(const char *wait_event_name);
 
-extern void WaitEventCustomShmemInit(void);
-extern Size WaitEventCustomShmemSize(void);
 extern char **GetWaitEventCustomNames(uint32 classId, int *nwaitevents);
 
 /* ----------

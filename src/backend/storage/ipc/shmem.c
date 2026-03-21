@@ -388,21 +388,22 @@ ShmemInitRequested(void)
 void
 ShmemAttachRequested(void)
 {
+	ListCell	   *lc;
+
 	/* Must be initializing a (non-standalone) backend */
 	Assert(IsUnderPostmaster);
 	Assert(ShmemAllocator->index != NULL);
 	Assert(shmem_startup_state == SB_REQUESTING);
 	shmem_startup_state = SB_ATTACHING;
 
+	LWLockAcquire(ShmemIndexLock, LW_SHARED);
+
 	/*
 	 * Attach to all the requested memory areas.
 	 */
-	LWLockAcquire(ShmemIndexLock, LW_SHARED);
-	while (!dclist_is_empty(&requested_shmem_areas))
+	foreach(lc, requested_shmem_areas)
 	{
-		requested_shmem_area *area = dlist_container(requested_shmem_area, node,
-													 dclist_pop_head_node(&requested_shmem_areas));
-		ShmemStructDesc *desc = area->desc;
+		ShmemStructDesc *desc = (ShmemStructDesc *) lfirst(lc);
 
 		AttachOrInit(desc, false, true);
 	}
@@ -410,12 +411,12 @@ ShmemAttachRequested(void)
 	requested_shmem_areas = NIL;
 
 	/* Call attach callbacks */
-	dlist_foreach(iter, &registered_shmem_init_callbacks)
+	foreach(lc, registered_shmem_callbacks)
 	{
-		registered_shmem_init_callback *callback =
-			dlist_container(registered_shmem_init_callback, node, iter.cur);
+		const ShmemCallbacks *callbacks = (const ShmemCallbacks *) lfirst(lc);
 
-		callback->attach_fn(callback->attach_fn_arg);
+		if (callbacks->attach_fn)
+			callbacks->attach_fn(callbacks->attach_fn_arg);
 	}
 
 	LWLockRelease(ShmemIndexLock);
@@ -452,8 +453,12 @@ AttachOrInit(ShmemStructDesc *desc, bool init_allowed, bool attach_allowed)
 			elog(ERROR, "shared memory struct \"%s\" is already initialized", desc->name);
 
 		if (index_entry->size != desc->size)
-			elog(ERROR, "shared memory struct \"%s\" is already registered with different size",
-				 desc->name);
+		{
+			if (desc->size != 0)
+				elog(ERROR, "shared memory struct \"%s\" is already registered with different size (%zd vs %zd)",
+					 desc->name, index_entry->size, desc->size);
+			desc->size = index_entry->size;
+		}
 		switch (desc->kind)
 		{
 			case SHMEM_KIND_STRUCT:
@@ -738,7 +743,7 @@ ShmemAddrIsValid(const void *addr)
 void
 RegisterShmemCallbacks(const ShmemCallbacks *callbacks)
 {
-	if (IsUnderPostmaster && !process_shared_preload_libraries_in_progress)
+	if (shmem_startup_state == SB_DONE && IsUnderPostmaster)
 	{
 		/* After-startup initialization */
 		ListCell   *lc;
@@ -765,7 +770,8 @@ RegisterShmemCallbacks(const ShmemCallbacks *callbacks)
 
 		/*
 		 * FIXME: What to do if multiple shmem areas were requested, and some
-		 * of them are already initialized but not all?
+		 * of them are already initialized but not all?  We expect all shmem
+		 * areas requested by a single callback to form a coherent unit.
 		 */
 		if (found)
 		{
