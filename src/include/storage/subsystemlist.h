@@ -20,5 +20,23 @@
  * of these matter.
  */
 
+PG_SHMEM_SUBSYSTEM(dsm_shmem_callbacks)
+PG_SHMEM_SUBSYSTEM(DSMRegistryShmemCallbacks)
+
+/* xlog, clog, and buffers */
+PG_SHMEM_SUBSYSTEM(VarsupShmemCallbacks)
+
+/* process table */
+PG_SHMEM_SUBSYSTEM(ProcGlobalShmemCallbacks)
+PG_SHMEM_SUBSYSTEM(ProcArrayShmemCallbacks)
+
+/* shared-inval messaging */
+PG_SHMEM_SUBSYSTEM(SharedInvalShmemCallbacks)
+
+/* interprocess signaling mechanisms */
+PG_SHMEM_SUBSYSTEM(PMSignalShmemCallbacks)
+PG_SHMEM_SUBSYSTEM(ProcSignalShmemCallbacks)
+
+/* other modules that need some shared memory space */
 PG_SHMEM_SUBSYSTEM(WaitEventCustomShmemCallbacks)
 PG_SHMEM_SUBSYSTEM(InjectionPointShmemCallbacks)
