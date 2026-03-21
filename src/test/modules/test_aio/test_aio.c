@@ -28,7 +28,6 @@
 #include "storage/bufmgr.h"
 #include "storage/checksum.h"
 #include "storage/condition_variable.h"
-#include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/procnumber.h"
@@ -44,6 +43,7 @@
 PG_MODULE_MAGIC;
 
 
+/* In shared memory */
 typedef struct InjIoErrorState
 {
 	ConditionVariable cv;
@@ -71,81 +71,75 @@ typedef struct BlocksReadStreamData
 } BlocksReadStreamData;
 
 
-static InjIoErrorState *inj_io_error_state;
 
-/* Shared memory init callbacks */
-static shmem_request_hook_type prev_shmem_request_hook = NULL;
-static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+static InjIoErrorState *inj_io_error_state;
 
 static PgAioHandle *last_handle;
 
+/* Shared memory init callbacks */
+static void test_aio_shmem_request(void *arg);
+static void test_aio_shmem_init(void *arg);
+static void test_aio_shmem_attach(void *arg);
 
+static const ShmemCallbacks inj_io_shmem_callbacks = {
+	.request_fn = test_aio_shmem_request,
+	.init_fn = test_aio_shmem_init,
+	.attach_fn = test_aio_shmem_attach,
+};
 
 static void
-test_aio_shmem_request(void)
+test_aio_shmem_request(void *arg)
 {
-	if (prev_shmem_request_hook)
-		prev_shmem_request_hook();
+	static ShmemStructDesc inj_io_shmem_desc;
 
-	RequestAddinShmemSpace(sizeof(InjIoErrorState));
+	ShmemRequestStruct(&inj_io_shmem_desc, &(ShmemRequestStructOpts) {
+		.name = "test_aio injection points",
+		.size = sizeof(InjIoErrorState),
+		.ptr = (void **) &inj_io_error_state,
+		});
 }
 
 static void
-test_aio_shmem_startup(void)
+test_aio_shmem_init(void *)
 {
-	bool		found;
+	/* First time through, initialize */
+	inj_io_error_state->enabled_short_read = false;
+	inj_io_error_state->enabled_reopen = false;
+	inj_io_error_state->enabled_completion_wait = false;
 
-	if (prev_shmem_startup_hook)
-		prev_shmem_startup_hook();
-
-	/* Create or attach to the shared memory state */
-	LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
-
-	inj_io_error_state = ShmemInitStruct("injection_points",
-										 sizeof(InjIoErrorState),
-										 &found);
-
-	if (!found)
-	{
-		/* First time through, initialize */
-		inj_io_error_state->enabled_short_read = false;
-		inj_io_error_state->enabled_reopen = false;
-		inj_io_error_state->enabled_completion_wait = false;
-
-		ConditionVariableInit(&inj_io_error_state->cv);
-		inj_io_error_state->completion_wait_event = WaitEventInjectionPointNew("completion_wait");
+	ConditionVariableInit(&inj_io_error_state->cv);
+	inj_io_error_state->completion_wait_event = WaitEventInjectionPointNew("completion_wait");
 
 #ifdef USE_INJECTION_POINTS
-		InjectionPointAttach("aio-process-completion-before-shared",
-							 "test_aio",
-							 "inj_io_completion_hook",
-							 NULL,
-							 0);
-		InjectionPointLoad("aio-process-completion-before-shared");
+	InjectionPointAttach("aio-process-completion-before-shared",
+						 "test_aio",
+						 "inj_io_completion_hook",
+						 NULL,
+						 0);
+	InjectionPointLoad("aio-process-completion-before-shared");
 
-		InjectionPointAttach("aio-worker-after-reopen",
-							 "test_aio",
-							 "inj_io_reopen",
-							 NULL,
-							 0);
-		InjectionPointLoad("aio-worker-after-reopen");
+	InjectionPointAttach("aio-worker-after-reopen",
+						 "test_aio",
+						 "inj_io_reopen",
+						 NULL,
+						 0);
+	InjectionPointLoad("aio-worker-after-reopen");
 
 #endif
-	}
-	else
-	{
-		/*
-		 * Pre-load the injection points now, so we can call them in a
-		 * critical section.
-		 */
+}
+
+static void
+test_aio_shmem_attach(void *)
+{
+	/*
+	 * Pre-load the injection points now, so we can call them in a
+	 * critical section.
+	 */
 #ifdef USE_INJECTION_POINTS
-		InjectionPointLoad("aio-process-completion-before-shared");
-		InjectionPointLoad("aio-worker-after-reopen");
-		elog(LOG, "injection point loaded");
+	InjectionPointLoad("aio-process-completion-before-shared");
+	InjectionPointLoad("aio-worker-after-reopen");
+	elog(LOG, "injection point loaded");
 #endif
-	}
-
-	LWLockRelease(AddinShmemInitLock);
 }
 
 void
@@ -154,10 +148,7 @@ _PG_init(void)
 	if (!process_shared_preload_libraries_in_progress)
 		return;
 
-	prev_shmem_request_hook = shmem_request_hook;
-	shmem_request_hook = test_aio_shmem_request;
-	prev_shmem_startup_hook = shmem_startup_hook;
-	shmem_startup_hook = test_aio_shmem_startup;
+	RegisterShmemCallbacks(&inj_io_shmem_callbacks);
 }
 
 
