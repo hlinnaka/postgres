@@ -31,6 +31,7 @@ typedef struct PGShmemHeader PGShmemHeader; /* avoid including
 extern void InitShmemAllocator(PGShmemHeader *seghdr);
 extern void *ShmemAlloc(Size size);
 extern void *ShmemAllocNoError(Size size);
+extern void *ShmemHashAlloc(Size size, void *alloc_arg);
 extern bool ShmemAddrIsValid(const void *addr);
 extern HTAB *ShmemInitHash(const char *name, int64 init_size, int64 max_size,
 						   HASHCTL *infoP, int hash_flags);
