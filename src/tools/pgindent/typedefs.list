@@ -3120,6 +3120,7 @@ TestDSMRegistryHashEntry
 TestDSMRegistryStruct
 TestDecodingData
 TestDecodingTxnData
+TestShmemData
 TestSpec
 TestValueType
 TextFreq
