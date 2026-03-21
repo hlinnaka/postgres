@@ -64,6 +64,12 @@ typedef struct ShmemStructOpts
 	ssize_t		size;
 
 	/*
+	 * Alignment of the starting address. If not set, defaults to cacheline
+	 * boundary. Must be a power of two.
+	 */
+	size_t		alignment;
+
+	/*
 	 * Extra space to reserve in the shared memory segment, but it's not part
 	 * of the struct itself.  This is used for shared memory hash tables that
 	 * can grow beyond the initial size when more buckets are allocated.
