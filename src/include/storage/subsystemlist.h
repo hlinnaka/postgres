@@ -20,4 +20,4 @@
  * of these matter.
  */
 
-/* TODO: empty for now */
+PG_SHMEM_SUBSYSTEM(InjectionPointShmemCallbacks)
