@@ -98,16 +98,11 @@ CalculateShmemSize(void)
 	/* legacy subsystems */
 	size = add_size(size, BufferManagerShmemSize());
 	size = add_size(size, LockManagerShmemSize());
-	size = add_size(size, PredicateLockShmemSize());
 	size = add_size(size, XLogPrefetchShmemSize());
 	size = add_size(size, XLOGShmemSize());
 	size = add_size(size, XLogRecoveryShmemSize());
-	size = add_size(size, CLOGShmemSize());
-	size = add_size(size, CommitTsShmemSize());
-	size = add_size(size, SUBTRANSShmemSize());
 	size = add_size(size, TwoPhaseShmemSize());
 	size = add_size(size, BackgroundWorkerShmemSize());
-	size = add_size(size, MultiXactShmemSize());
 	size = add_size(size, LWLockShmemSize());
 	size = add_size(size, BackendStatusShmemSize());
 	size = add_size(size, CheckpointerShmemSize());
@@ -121,7 +116,6 @@ CalculateShmemSize(void)
 	size = add_size(size, ApplyLauncherShmemSize());
 	size = add_size(size, BTreeShmemSize());
 	size = add_size(size, SyncScanShmemSize());
-	size = add_size(size, AsyncShmemSize());
 	size = add_size(size, StatsShmemSize());
 	size = add_size(size, SlotSyncShmemSize());
 	size = add_size(size, AioShmemSize());
@@ -277,21 +271,12 @@ CreateOrAttachShmemStructs(void)
 	XLOGShmemInit();
 	XLogPrefetchShmemInit();
 	XLogRecoveryShmemInit();
-	CLOGShmemInit();
-	CommitTsShmemInit();
-	SUBTRANSShmemInit();
-	MultiXactShmemInit();
 	BufferManagerShmemInit();
 
 	/*
 	 * Set up lock manager
 	 */
 	LockManagerShmemInit();
-
-	/*
-	 * Set up predicate lock manager
-	 */
-	PredicateLockShmemInit();
 
 	/*
 	 * Set up process table
@@ -319,7 +304,6 @@ CreateOrAttachShmemStructs(void)
 	 */
 	BTreeShmemInit();
 	SyncScanShmemInit();
-	AsyncShmemInit();
 	StatsShmemInit();
 	AioShmemInit();
 	WaitLSNShmemInit();

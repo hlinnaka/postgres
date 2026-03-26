@@ -29,6 +29,7 @@ typedef enum
 {
 	SHMEM_KIND_STRUCT = 0,		/* plain, contiguous area of memory */
 	SHMEM_KIND_HASH,			/* a hash table */
+	SHMEM_KIND_SLRU,			/* SLRU buffers and control structures */
 } ShmemAreaKind;
 
 /*
