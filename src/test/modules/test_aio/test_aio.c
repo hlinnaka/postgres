@@ -77,7 +77,6 @@ static InjIoErrorState *inj_io_error_state;
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 
-
 static PgAioHandle *last_handle;
 
 

@@ -396,6 +396,8 @@ hash_create(const char *tabname, int64 nelem, const HASHCTL *info, int flags)
 	}
 
 	/* Initialize the hash header, plus a copy of the table name */
+	Assert(tabname != NULL);
+	Assert(CurrentDynaHashCxt != NULL);
 	hashp = (HTAB *) MemoryContextAlloc(CurrentDynaHashCxt,
 										sizeof(HTAB) + strlen(tabname) + 1);
 	MemSet(hashp, 0, sizeof(HTAB));
