@@ -80,10 +80,10 @@ typedef struct HASHCTL
 	HashCopyFunc keycopy;		/* key copying function */
 	/* Used if HASH_ALLOC flag is set: */
 	HashAllocFunc alloc;		/* memory allocator */
-	void	   *alloc_arg;		/* opaque argument to pass to allocator function */
+	void	   *alloc_arg;		/* opaque argument to pass to alloc */
 	/* Used if HASH_CONTEXT flag is set: */
 	MemoryContext hcxt;			/* memory context to use for allocations */
-	/* Used if HASH_SHARED_MEM flag is set: */
+	/* Used if HASH_ATTACH flag is set: */
 	HASHHDR    *hctl;			/* location of header in shared mem */
 } HASHCTL;
 
@@ -150,7 +150,6 @@ extern void hash_seq_term(HASH_SEQ_STATUS *status);
 extern void hash_freeze(HTAB *hashp);
 extern Size hash_estimate_size(int64 num_entries, Size entrysize);
 extern int64 hash_select_dirsize(int64 num_entries);
-extern Size hash_get_shared_size(HASHCTL *info, int flags);
 extern void AtEOXact_HashTables(bool isCommit);
 extern void AtEOSubXact_HashTables(bool isCommit, int nestDepth);
 

@@ -113,6 +113,16 @@ static bool firstNumaTouch = true;
 Datum		pg_numa_available(PG_FUNCTION_ARGS);
 
 /*
+ * A very simple allocator used to carve out different parts of a hash table,
+ * from a previously allocated contiguous shared memory area.
+ */
+typedef struct shmem_hash_allocator
+{
+	char	   *next;			/* start of free space in the area */
+	char	   *end;			/* end of the shmem area */
+} shmem_hash_allocator;
+
+/*
  *	InitShmemAllocator() --- set up basic pointers to shared memory.
  *
  * Called at postmaster or stand-alone backend startup, to initialize the
@@ -126,7 +136,7 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	Size		offset;
 	HASHCTL		info;
 	int			hash_flags;
-	size_t		size;
+	shmem_hash_allocator allocator;
 
 #ifndef EXEC_BACKEND
 	Assert(!IsUnderPostmaster);
@@ -182,15 +192,27 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	info.dsize = info.max_dsize = hash_select_dirsize(SHMEM_INDEX_SIZE);
 	info.alloc = ShmemHashAlloc;
 	info.alloc_arg = NULL;
-	hash_flags = HASH_ELEM | HASH_STRINGS | HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE | HASH_FIXED_SIZE;
+	hash_flags = HASH_ELEM | HASH_STRINGS
+		| HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE | HASH_FIXED_SIZE;
+
 	if (!IsUnderPostmaster)
 	{
-		size = hash_get_shared_size(&info, hash_flags);
-		ShmemAllocator->index = (HASHHDR *) ShmemAlloc(size);
+		size_t		size = hash_estimate_size(SHMEM_INDEX_SIZE, info.entrysize);
+		char	   *location = ShmemAlloc(size);
+
+		allocator.next = location;
+		allocator.end = location + size;
+		info.alloc_arg = &allocator;
+
+		info.hctl = NULL;
+		hash_flags |= HASH_ALLOC | HASH_FIXED_SIZE;
+		ShmemAllocator->index = (HASHHDR *) location;
 	}
 	else
+	{
+		info.hctl = ShmemAllocator->index;
 		hash_flags |= HASH_ATTACH;
-	info.hctl = ShmemAllocator->index;
+	}
 	ShmemIndex = hash_create("ShmemIndex", SHMEM_INDEX_SIZE, &info, hash_flags);
 	Assert(ShmemIndex != NULL);
 }
@@ -233,9 +255,17 @@ ShmemAllocNoError(Size size)
 static void *
 ShmemHashAlloc(Size size, void *alloc_arg)
 {
-	Size		allocated_size;
+	shmem_hash_allocator *allocator = (shmem_hash_allocator *) alloc_arg;
+	void	   *result;
 
-	return ShmemAllocRaw(size, &allocated_size);
+	size = MAXALIGN(size);
+
+	if (allocator->end - allocator->next < size)
+		return NULL;
+	result = allocator->next;
+	allocator->next += size;
+
+	return result;
 }
 
 /*
@@ -321,12 +351,14 @@ ShmemAddrIsValid(const void *addr)
  */
 HTAB *
 ShmemInitHash(const char *name,		/* table string name for shmem index */
-			  int64 nelems,	/* size of the table */
+			  int64 nelems,		/* size of the table */
 			  HASHCTL *infoP,	/* info about key and bucket size */
 			  int hash_flags)	/* info about infoP */
 {
 	bool		found;
+	size_t		size;
 	void	   *location;
+	shmem_hash_allocator allocator;
 
 	/*
 	 * Hash tables allocated in shared memory have a fixed directory; it can't
@@ -341,20 +373,27 @@ ShmemInitHash(const char *name,		/* table string name for shmem index */
 	infoP->alloc_arg = NULL;
 	hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE | HASH_FIXED_SIZE;
 
-	/* look it up in the shmem index */
-	location = ShmemInitStruct(name,
-							   hash_get_shared_size(infoP, hash_flags),
-							   &found);
+	size = hash_estimate_size(nelems, infoP->entrysize);
+
+	/* look it up in the shmem index or allocate */
+	location = ShmemInitStruct(name, size, &found);
 
 	/*
 	 * if it already exists, attach to it rather than allocate and initialize
 	 * new space
 	 */
-	if (found)
+	if (!found)
+	{
+		allocator.next = (char *) location;
+		allocator.end = (char *) location + size;
+		infoP->alloc_arg = &allocator;
+	}
+	else
+	{
+		/* Pass location of hashtable header to hash_create */
+		infoP->hctl = (HASHHDR *) location;
 		hash_flags |= HASH_ATTACH;
-
-	/* Pass location of hashtable header to hash_create */
-	infoP->hctl = (HASHHDR *) location;
+	}
 
 	return hash_create(name, nelems, infoP, hash_flags);
 }
