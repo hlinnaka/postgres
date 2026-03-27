@@ -137,7 +137,6 @@ CalculateShmemSize(void)
 	size = add_size(size, SyncScanShmemSize());
 	size = add_size(size, AsyncShmemSize());
 	size = add_size(size, StatsShmemSize());
-	size = add_size(size, WaitEventCustomShmemSize());
 	size = add_size(size, SlotSyncShmemSize());
 	size = add_size(size, AioShmemSize());
 	size = add_size(size, WaitLSNShmemSize());
@@ -352,7 +351,6 @@ CreateOrAttachShmemStructs(void)
 	SyncScanShmemInit();
 	AsyncShmemInit();
 	StatsShmemInit();
-	WaitEventCustomShmemInit();
 	AioShmemInit();
 	WaitLSNShmemInit();
 	LogicalDecodingCtlShmemInit();
