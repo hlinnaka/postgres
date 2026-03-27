@@ -162,16 +162,18 @@ pgaio_worker_shmem_attach(void *arg)
 static void
 pgaio_worker_shmem_request(void *arg)
 {
-	static ShmemStructDesc AioWorkerShmemDesc = {
-		.name = "AioWorkerSubmissionQueue",
-		.ptr = (void **) &io_worker_submission_queue,
-	};
+	static ShmemStructDesc AioWorkerShmemDesc;
 	int			queue_size;
+	size_t		size;
 
-	AioWorkerShmemDesc.size =
-		MAXALIGN(pgaio_worker_queue_shmem_size(&queue_size)) +
+	size = MAXALIGN(pgaio_worker_queue_shmem_size(&queue_size)) +
 		pgaio_worker_control_shmem_size();
-	ShmemRequestStruct(&AioWorkerShmemDesc);
+
+	ShmemRequestStruct(&AioWorkerShmemDesc,
+					   .name = "AioWorkerSubmissionQueue",
+					   .size = size,
+					   .ptr = (void **) &io_worker_submission_queue,
+		);
 }
 
 static int

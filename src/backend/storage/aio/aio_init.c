@@ -128,10 +128,10 @@ AioShmemRequest(void *arg)
 	static ShmemStructDesc AioHandleShmemDesc;
 	static ShmemStructDesc AioHandleIOVShmemDesc;
 	static ShmemStructDesc AioHandleDataShmemDesc;
-	
-	/* Resolve io_max_concurrency if not already done. */
 
 	/*
+	 * Resolve io_max_concurrency if not already done
+	 *
 	 * We prefer to report this value's source as PGC_S_DYNAMIC_DEFAULT.
 	 * However, if the DBA explicitly set io_max_concurrency = -1 in the
 	 * config file, then PGC_S_DYNAMIC_DEFAULT will fail to override that and
@@ -153,25 +153,25 @@ AioShmemRequest(void *arg)
 					   .name = "AioCtl",
 					   .size = sizeof(PgAioCtl),
 					   .ptr = (void **) &pgaio_ctl,
-					   );
+		);
 
 	ShmemRequestStruct(&AioBackendShmemDesc,
 					   .name = "AioBackend",
 					   .size = AioBackendShmemSize(),
 					   .ptr = (void **) &AioBackendShmemPtr,
-					   );
+		);
 
 	ShmemRequestStruct(&AioHandleShmemDesc,
 					   .name = "AioHandle",
 					   .size = AioHandleShmemSize(),
 					   .ptr = (void **) &AioHandleShmemPtr,
-					   );
+		);
 
 	ShmemRequestStruct(&AioHandleIOVShmemDesc,
 					   .name = "AioHandleIOV",
 					   .size = AioHandleIOVShmemSize(),
 					   .ptr = (void **) &AioHandleIOVShmemPtr,
-					   );
+		);
 
 	ShmemRequestStruct(&AioHandleDataShmemDesc,
 					   .name = "AioHandleData",
