@@ -43,8 +43,10 @@
 #include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
+#include "storage/shmem.h"
 #include "storage/spin.h"
 #include "storage/standby.h"
+#include "storage/subsystems.h"
 #include "utils/memutils.h"
 #include "utils/ps_status.h"
 #include "utils/resowner.h"
@@ -312,6 +314,14 @@ typedef struct
 
 static volatile FastPathStrongRelationLockData *FastPathStrongRelationLocks;
 
+static void LockManagerShmemRequest(void *arg);
+static void LockManagerShmemInit(void *arg);
+
+const ShmemCallbacks LockManagerShmemCallbacks = {
+	.request_fn = LockManagerShmemRequest,
+	.init_fn = LockManagerShmemInit,
+};
+
 
 /*
  * Pointers to hash tables containing lock state
@@ -409,6 +419,7 @@ PROCLOCK_PRINT(const char *where, const PROCLOCK *proclockP)
 
 
 static uint32 proclock_hash(const void *key, Size keysize);
+
 static void RemoveLocalLock(LOCALLOCK *locallock);
 static PROCLOCK *SetupLockInTable(LockMethod lockMethodTable, PGPROC *proc,
 								  const LOCKTAG *locktag, uint32 hashcode, LOCKMODE lockmode);
@@ -432,22 +443,19 @@ static void GetSingleProcBlockerStatusData(PGPROC *blocked_proc,
 
 
 /*
- * Initialize the lock manager's shmem data structures.
+ * Register the lock manager's shmem data structures.
  *
- * This is called from CreateSharedMemoryAndSemaphores(), which see for more
- * comments.  In the normal postmaster case, the shared hash tables are
- * created here, and backends inherit pointers to them via fork().  In the
- * EXEC_BACKEND case, each backend re-executes this code to obtain pointers to
- * the already existing shared hash tables.  In either case, each backend must
- * also call InitLockManagerAccess() to create the locallock hash table.
+ * In addition to this, each backend must also call InitLockManagerAccess() to
+ * create the locallock hash table.
  */
-void
-LockManagerShmemInit(void)
+static void
+LockManagerShmemRequest(void *arg)
 {
-	HASHCTL		info;
-	int64		init_table_size,
+	static ShmemHashDesc LockHashDesc;
+	static ShmemHashDesc ProcLockHashDesc;
+	static ShmemStructDesc FastPathShmemDesc;
+	long		init_table_size,
 				max_table_size;
-	bool		found;
 
 	/*
 	 * Compute init/max size to request for lock hashtables.  Note these
@@ -456,47 +464,51 @@ LockManagerShmemInit(void)
 	max_table_size = NLOCKENTS();
 	init_table_size = max_table_size / 2;
 
-	/*
-	 * Allocate hash table for LOCK structs.  This stores per-locked-object
-	 * information.
-	 */
-	info.keysize = sizeof(LOCKTAG);
-	info.entrysize = sizeof(LOCK);
-	info.num_partitions = NUM_LOCK_PARTITIONS;
-
-	LockMethodLockHash = ShmemInitHash("LOCK hash",
-									   init_table_size,
-									   max_table_size,
-									   &info,
-									   HASH_ELEM | HASH_BLOBS | HASH_PARTITION);
+	ShmemRequestHash(&LockHashDesc, &(ShmemRequestHashOpts) {
+		.name = "LOCK hash",
+		.init_size = init_table_size,
+		.max_size = max_table_size,
+		.ptr = &LockMethodLockHash,
+		.hash_info.keysize = sizeof(LOCKTAG),
+		.hash_info.entrysize = sizeof(LOCK),
+		.hash_info.num_partitions = NUM_LOCK_PARTITIONS,
+		.hash_flags = HASH_ELEM | HASH_BLOBS | HASH_PARTITION,
+	});
 
 	/* Assume an average of 2 holders per lock */
 	max_table_size *= 2;
 	init_table_size *= 2;
 
-	/*
-	 * Allocate hash table for PROCLOCK structs.  This stores
-	 * per-lock-per-holder information.
-	 */
-	info.keysize = sizeof(PROCLOCKTAG);
-	info.entrysize = sizeof(PROCLOCK);
-	info.hash = proclock_hash;
-	info.num_partitions = NUM_LOCK_PARTITIONS;
+	ShmemRequestHash(&ProcLockHashDesc, &(ShmemRequestHashOpts) {
+		.name = "PROCLOCK hash",
+		.init_size = init_table_size,
+		.max_size = max_table_size,
+		.ptr = &LockMethodProcLockHash,
+		.hash_info.keysize = sizeof(PROCLOCKTAG),
+		.hash_info.entrysize = sizeof(PROCLOCK),
+		.hash_info.hash = proclock_hash,
+		.hash_info.num_partitions = NUM_LOCK_PARTITIONS,
+		.hash_flags = HASH_ELEM | HASH_FUNCTION | HASH_PARTITION,
+	});
 
-	LockMethodProcLockHash = ShmemInitHash("PROCLOCK hash",
-										   init_table_size,
-										   max_table_size,
-										   &info,
-										   HASH_ELEM | HASH_FUNCTION | HASH_PARTITION);
+	ShmemRequestStruct(&FastPathShmemDesc, &(ShmemRequestStructOpts) {
+		.name = "Fast Path Strong Relation Lock Data",
+		.size = sizeof(FastPathStrongRelationLockData),
+		.ptr = (void **) (void *) &FastPathStrongRelationLocks,
+	});
 
 	/*
-	 * Allocate fast-path structures.
+	 * FIXME: we used to do this in the size calculation:
+	 *
+	 * // Since NLOCKENTS is only an estimate, add 10% safety margin.
+	 * size = add_size(size, size / 10);
 	 */
-	FastPathStrongRelationLocks =
-		ShmemInitStruct("Fast Path Strong Relation Lock Data",
-						sizeof(FastPathStrongRelationLockData), &found);
-	if (!found)
-		SpinLockInit(&FastPathStrongRelationLocks->mutex);
+}
+
+static void
+LockManagerShmemInit(void *arg)
+{
+	SpinLockInit(&FastPathStrongRelationLocks->mutex);
 }
 
 /*
@@ -3761,30 +3773,6 @@ PostPrepare_Locks(FullTransactionId fxid)
 }
 
 
-/*
- * Estimate shared-memory space used for lock tables
- */
-Size
-LockManagerShmemSize(void)
-{
-	Size		size = 0;
-	long		max_table_size;
-
-	/* lock hash table */
-	max_table_size = NLOCKENTS();
-	size = add_size(size, hash_estimate_size(max_table_size, sizeof(LOCK)));
-
-	/* proclock hash table */
-	max_table_size *= 2;
-	size = add_size(size, hash_estimate_size(max_table_size, sizeof(PROCLOCK)));
-
-	/*
-	 * Since NLOCKENTS is only an estimate, add 10% safety margin.
-	 */
-	size = add_size(size, size / 10);
-
-	return size;
-}
 
 /*
  * GetLockStatusData - Return a summary of the lock manager's internal

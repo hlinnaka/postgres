@@ -273,10 +273,7 @@ pgaio_uring_shmem_size(void)
 static void
 pgaio_uring_shmem_request(void *arg)
 {
-	static ShmemStructDesc AioUringShmemDesc = {
-		.name = "AioUringContext",
-		.ptr = (void **) &pgaio_uring_contexts,
-	};
+	static ShmemStructDesc AioUringShmemDesc;
 
 	/*
 	 * Kernel and liburing support for various features influences how much
@@ -284,8 +281,11 @@ pgaio_uring_shmem_request(void *arg)
 	 */
 	pgaio_uring_check_capabilities();
 
-	AioUringShmemDesc.size = pgaio_uring_shmem_size();
-	ShmemRequestStruct(&AioUringShmemDesc);
+	ShmemRequestStruct(&AioUringShmemDesc, &(ShmemRequestStructOpts) {
+		.name = "AioUringContext",
+		.size  =pgaio_uring_shmem_size(),
+		.ptr = (void **) &pgaio_uring_contexts,
+	});
 }
 
 static void
