@@ -37,32 +37,11 @@ const ShmemCallbacks AioShmemCallbacks = {
 	.attach_fn = AioShmemAttach,
 };
 
-static ShmemStructDesc AioCtlShmemDesc = {
-	.name = "AioCtl",
-	.size = sizeof(PgAioCtl),
-	.ptr = (void **) &pgaio_ctl,
-};
 
 static PgAioBackend *AioBackendShmemPtr;
-static ShmemStructDesc AioBackendShmemDesc = {
-	.name = "AioBackend",
-	.ptr = (void **) &AioBackendShmemPtr,
-};
 static PgAioHandle *AioHandleShmemPtr;
-static ShmemStructDesc AioHandleShmemDesc = {
-	.name = "AioHandle",
-	.ptr = (void **) &AioHandleShmemPtr,
-};
 static struct iovec *AioHandleIOVShmemPtr;
-static ShmemStructDesc AioHandleIOVShmemDesc = {
-	.name = "AioHandleIOV",
-	.ptr = (void **) &AioHandleIOVShmemPtr,
-};
 static uint64 *AioHandleDataShmemPtr;
-static ShmemStructDesc AioHandleDataShmemDesc = {
-	.name = "AioHandleData",
-	.ptr = (void **) &AioHandleDataShmemPtr,
-};
 
 static uint32
 AioProcs(void)
@@ -145,9 +124,15 @@ AioChooseMaxConcurrency(void)
 static void
 AioShmemRequest(void *arg)
 {
-	/* Resolve io_max_concurrency if not already done. */
+	static ShmemStructDesc AioCtlShmemDesc;
+	static ShmemStructDesc AioBackendShmemDesc;
+	static ShmemStructDesc AioHandleShmemDesc;
+	static ShmemStructDesc AioHandleIOVShmemDesc;
+	static ShmemStructDesc AioHandleDataShmemDesc;
 
 	/*
+	 * Resolve io_max_concurrency if not already done
+	 *
 	 * We prefer to report this value's source as PGC_S_DYNAMIC_DEFAULT.
 	 * However, if the DBA explicitly set io_max_concurrency = -1 in the
 	 * config file, then PGC_S_DYNAMIC_DEFAULT will fail to override that and
@@ -165,19 +150,35 @@ AioShmemRequest(void *arg)
 							PGC_S_OVERRIDE);
 	}
 
-	ShmemRequestStruct(&AioCtlShmemDesc);
+	ShmemRequestStruct(&AioCtlShmemDesc, &(ShmemRequestStructOpts) {
+		.name = "AioCtl",
+		.size = sizeof(PgAioCtl),
+		.ptr = (void **) &pgaio_ctl,
+	});
 
-	AioBackendShmemDesc.size = AioBackendShmemSize();
-	ShmemRequestStruct(&AioBackendShmemDesc);
+	ShmemRequestStruct(&AioBackendShmemDesc, &(ShmemRequestStructOpts) {
+		.name = "AioBackend",
+		.size = AioBackendShmemSize(),
+		.ptr = (void **) &AioBackendShmemPtr,
+	});
 
-	AioHandleShmemDesc.size = AioHandleShmemSize();
-	ShmemRequestStruct(&AioHandleShmemDesc);
+	ShmemRequestStruct(&AioHandleShmemDesc,  &(ShmemRequestStructOpts) {
+		.name = "AioHandle",
+		.size = AioHandleShmemSize(),
+		.ptr = (void **) &AioHandleShmemPtr,
+	});
 
-	AioHandleIOVShmemDesc.size = AioHandleIOVShmemSize();
-	ShmemRequestStruct(&AioHandleIOVShmemDesc);
+	ShmemRequestStruct(&AioHandleIOVShmemDesc,  &(ShmemRequestStructOpts) {
+		.name = "AioHandleIOV",
+		.size = AioHandleIOVShmemSize(),
+		.ptr = (void **) &AioHandleIOVShmemPtr,
+	});
 
-	AioHandleDataShmemDesc.size = AioHandleDataShmemSize();
-	ShmemRequestStruct(&AioHandleDataShmemDesc);
+	ShmemRequestStruct(&AioHandleDataShmemDesc,  &(ShmemRequestStructOpts) {
+		.name = "AioHandleData",
+		.size = AioHandleDataShmemSize(),
+		.ptr = (void **) &AioHandleDataShmemPtr,
+	});
 
 	if (pgaio_method_ops->shmem_callbacks.request_fn)
 		pgaio_method_ops->shmem_callbacks.request_fn(pgaio_method_ops->shmem_callbacks.request_fn_arg);
