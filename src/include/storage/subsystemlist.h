@@ -20,4 +20,5 @@
  * of these matter.
  */
 
+PG_SHMEM_SUBSYSTEM(WaitEventCustomShmemCallbacks)
 PG_SHMEM_SUBSYSTEM(InjectionPointShmemCallbacks)
