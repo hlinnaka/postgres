@@ -189,11 +189,9 @@ InitShmemAllocator(PGShmemHeader *seghdr)
 	 */
 	info.keysize = SHMEM_INDEX_KEYSIZE;
 	info.entrysize = sizeof(ShmemIndexEnt);
-	info.dsize = info.max_dsize = hash_select_dirsize(SHMEM_INDEX_SIZE);
 	info.alloc = ShmemHashAlloc;
 	info.alloc_arg = NULL;
-	hash_flags = HASH_ELEM | HASH_STRINGS
-		| HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE | HASH_FIXED_SIZE;
+	hash_flags = HASH_ELEM | HASH_STRINGS | HASH_SHARED_MEM | HASH_ALLOC | HASH_FIXED_SIZE;
 
 	if (!IsUnderPostmaster)
 	{
@@ -368,10 +366,9 @@ ShmemInitHash(const char *name,		/* table string name for shmem index */
 	 *
 	 * The shared memory allocator must be specified too.
 	 */
-	infoP->dsize = infoP->max_dsize = hash_select_dirsize(nelems);
 	infoP->alloc = ShmemHashAlloc;
 	infoP->alloc_arg = NULL;
-	hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE | HASH_FIXED_SIZE;
+	hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_FIXED_SIZE;
 
 	size = hash_estimate_size(nelems, infoP->entrysize);
 
