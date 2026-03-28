@@ -42,7 +42,7 @@ static void test_shmem_init(void *arg);
 static void test_shmem_attach(void *arg);
 
 static const ShmemCallbacks TestShmemCallbacks = {
-	.flags = SHMEM_ALLOW_AFTER_STARTUP,
+	.flags = SHMEM_CALLBACKS_ALLOW_AFTER_STARTUP,
 	.request_fn = test_shmem_request,
 	.init_fn = test_shmem_init,
 	.attach_fn = test_shmem_attach,

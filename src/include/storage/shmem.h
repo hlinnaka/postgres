@@ -160,7 +160,7 @@ typedef void (*ShmemAttachCallback) (void *arg);
  */
 typedef struct ShmemCallbacks
 {
-	/* SHMEM_* flags */
+	/* SHMEM_CALLBACKS_* flags */
 	int			flags;
 
 	/*
@@ -199,7 +199,7 @@ typedef struct ShmemCallbacks
  * This is not used by any built-in subsystems, but extensions can find it
  * useful.
  */
-#define SHMEM_ALLOW_AFTER_STARTUP		0x00000001
+#define SHMEM_CALLBACKS_ALLOW_AFTER_STARTUP		0x00000001
 
 /* shmem.c */
 typedef struct PGShmemHeader PGShmemHeader; /* avoid including

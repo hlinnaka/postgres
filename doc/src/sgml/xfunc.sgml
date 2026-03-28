@@ -3628,7 +3628,7 @@ CREATE FUNCTION make_array(anyelement) RETURNS anyarray
       Add-ins can reserve shared memory on server startup.  To do so, the
       add-in's shared library must be preloaded by specifying it in
       <xref linkend="guc-shared-preload-libraries"/><indexterm><primary>shared_preload_libraries</primary></indexterm>.
-      The shared library should register callbacks in its
+      The shared library should register callbacks in
       its <function>_PG_init</function> function, which then get called at the
       right stages of the system startup to initialize the shared memory.
       Here is an example:
@@ -3645,8 +3645,8 @@ static void my_shmem_request(void *arg);
 static void my_shmem_init(void *arg);
 
 const ShmemCallbacks my_shmem_callbacks = {
-    .shmem_request_fn = my_shmem_request,
-    .shmem_init_fn = my_shmem_init,
+    .request_fn = my_shmem_request,
+    .init_fn = my_shmem_init,
 };
 
 /*

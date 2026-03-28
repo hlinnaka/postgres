@@ -27,7 +27,7 @@
  *
  * Shared memory areas should usually not be allocated after postmaster
  * startup, although we do allow small allocations later for the benefit of
- * extension modules that loaded after startup.  Despite that allowance,
+ * extension modules that are loaded after startup.  Despite that allowance,
  * extensions that need shared memory should be added in
  * shared_preload_libraries, because the allowance is quite small and there is
  * no guarantee that any memory is available after startup.
@@ -51,10 +51,9 @@
  * -----
  *
  * To allocate shared memory, you need to register a set of callback functions
- * which handle the lifecycle of the allocation.  In the register_fn
- * callback, fill in a ShmemStructDesc descriptor with the name, size, and any
- * other options, and call ShmemRequestStruct().  Leave any unused fields as
- * zeros.
+ * which handle the lifecycle of the allocation.  In the request_fn callback,
+ * fill in a ShmemRequestStructOpts struct with the name, size, and any other
+ * options, and call ShmemRequestStruct().  Leave any unused fields as zeros.
  *
  *	typedef struct MyShmemData {
  *		...
@@ -91,12 +90,12 @@
  * ---------
  *
  * Initializing shared memory happens in multiple phases. In the first phase,
- * during postmaster startup, all the shmem_request callbacks are called.
- * Only after all the request callbacks have been called and all the shmem
- * areas have been requested by the ShmemRequestStruct() calls we know how
- * much shared memory we need in total. After that, postmaster allocates
- * global shared memory segment, and calls all the init_fn callbacks to
- * initialize all the requested shmem areas.
+ * during postmaster startup, all the request_fn callbacks are called.  Only
+ * after all the request_fn callbacks have been called and all the shmem areas
+ * have been requested by the ShmemRequestStruct() calls we know how much
+ * shared memory we need in total. After that, postmaster allocates global
+ * shared memory segment, and calls all the init_fn callbacks to initialize
+ * all the requested shmem areas.
  *
  * In standard Unix-ish environments, individual backends do not need to
  * re-establish their local pointers into shared memory, because they inherit
@@ -334,7 +333,6 @@ void
 ShmemRequestInternal(ShmemStructDesc *desc, ShmemRequestStructOpts *options,
 					 ShmemAreaKind kind)
 {
-	ListCell   *lc;
 	ShmemRequest *request;
 
 	if (options->name == NULL)
@@ -359,10 +357,8 @@ ShmemRequestInternal(ShmemStructDesc *desc, ShmemRequestStructOpts *options,
 		elog(ERROR, "ShmemRequestStruct can only be called from a shmem_request callback");
 
 	/* Check that it's not already registered in this process */
-	foreach(lc, requested_shmem_areas)
+	foreach_ptr(ShmemStructDesc, existing, requested_shmem_areas)
 	{
-		ShmemStructDesc *existing = (ShmemStructDesc *) lfirst(lc);
-
 		if (strcmp(existing->name, options->name) == 0)
 			ereport(ERROR,
 					(errmsg("shared memory struct \"%s\" is already registered",
@@ -386,7 +382,6 @@ ShmemRequestInternal(ShmemStructDesc *desc, ShmemRequestStructOpts *options,
 size_t
 ShmemGetRequestedSize(void)
 {
-	ListCell   *lc;
 	size_t		size;
 
 	/* memory needed for the ShmemIndex */
@@ -394,10 +389,8 @@ ShmemGetRequestedSize(void)
 							  sizeof(ShmemIndexEnt));
 
 	/* memory needed for all the requested areas */
-	foreach(lc, requested_shmem_areas)
+	foreach_ptr(ShmemRequest, request, requested_shmem_areas)
 	{
-		ShmemRequest *request = (ShmemRequest *) lfirst(lc);
-
 		size = add_size(size, request->options->size);
 		size = add_size(size, request->options->extra_size);
 		size = add_size(size, request->options->alignment);
@@ -416,8 +409,6 @@ ShmemGetRequestedSize(void)
 void
 ShmemInitRequested(void)
 {
-	ListCell   *lc;
-
 	/* Should be called only by the postmaster or a standalone backend. */
 	Assert(!IsUnderPostmaster);
 	Assert(shmem_startup_state == SB_INITIALIZING);
@@ -426,20 +417,16 @@ ShmemInitRequested(void)
 	 * Initialize all the requested memory areas.  There are no concurrent
 	 * processes yet, so no need for locking.
 	 */
-	foreach(lc, requested_shmem_areas)
+	foreach_ptr(ShmemRequest, request, requested_shmem_areas)
 	{
-		ShmemRequest *request = (ShmemRequest *) lfirst(lc);
-
 		AttachOrInit(request, true, false);
 	}
 	list_free_deep(requested_shmem_areas);
 	requested_shmem_areas = NIL;
 
 	/* Call init callbacks */
-	foreach(lc, registered_shmem_callbacks)
+	foreach_ptr(const ShmemCallbacks, callbacks, registered_shmem_callbacks)
 	{
-		const ShmemCallbacks *callbacks = (const ShmemCallbacks *) lfirst(lc);
-
 		if (callbacks->init_fn)
 			callbacks->init_fn(callbacks->init_fn_arg);
 	}
@@ -475,7 +462,7 @@ ShmemAttachRequested(void)
 
 		AttachOrInit(request, false, true);
 	}
-	list_free(requested_shmem_areas);
+	list_free_deep(requested_shmem_areas);
 	requested_shmem_areas = NIL;
 
 	/* Call attach callbacks */
@@ -839,7 +826,7 @@ RegisterShmemCallbacks(const ShmemCallbacks *callbacks)
 		ListCell   *lc;
 		bool		found = false;
 
-		if ((callbacks->flags & SHMEM_ALLOW_AFTER_STARTUP) == 0)
+		if ((callbacks->flags & SHMEM_CALLBACKS_ALLOW_AFTER_STARTUP) == 0)
 			elog(ERROR, "cannot request shared memory at this time");
 
 		Assert(requested_shmem_areas == NIL);
@@ -857,6 +844,8 @@ RegisterShmemCallbacks(const ShmemCallbacks *callbacks)
 
 			found = AttachOrInit(request, true, true);
 		}
+		list_free(requested_shmem_areas);
+		requested_shmem_areas = NIL;
 
 		/*
 		 * FIXME: What to do if multiple shmem areas were requested, and some

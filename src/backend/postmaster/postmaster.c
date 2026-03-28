@@ -3249,7 +3249,7 @@ PostmasterStateMachine(void)
 
 		/*
 		 * Re-initialize shared memory and semaphores.  Note: We don't call
-		 * RegisterShmemStructs() here, we keep the old registrations.  In
+		 * RegisterBuiltinShmemCallbacks(), we keep the old registrations.  In
 		 * order to re-register structs in extensions, we'd need to reload
 		 * shared preload libraries, and we don't want to do that.
 		 */
