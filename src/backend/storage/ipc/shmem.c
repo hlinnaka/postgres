@@ -134,6 +134,7 @@
 
 #include <unistd.h>
 
+#include "access/slru.h"
 #include "common/int.h"
 #include "fmgr.h"
 #include "funcapi.h"
@@ -549,6 +550,9 @@ InitShmemIndexEntry(ShmemRequest *request)
 		case SHMEM_KIND_HASH:
 			shmem_hash_init(structPtr, request->options);
 			break;
+		case SHMEM_KIND_SLRU:
+			shmem_slru_init(structPtr, request->options);
+			break;
 	}
 }
 
@@ -601,6 +605,9 @@ AttachShmemIndexEntry(ShmemRequest *request, bool missing_ok)
 			break;
 		case SHMEM_KIND_HASH:
 			shmem_hash_attach(index_entry->location, request->options);
+			break;
+		case SHMEM_KIND_SLRU:
+			shmem_slru_attach(index_entry->location, request->options);
 			break;
 	}
 
