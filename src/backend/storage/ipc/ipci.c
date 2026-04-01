@@ -50,6 +50,7 @@
 #include "storage/procarray.h"
 #include "storage/procsignal.h"
 #include "storage/sinvaladt.h"
+#include "storage/subsystems.h"
 #include "utils/guc.h"
 #include "utils/injection_point.h"
 #include "utils/wait_event.h"
@@ -247,6 +248,26 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	if (shmem_startup_hook)
 		shmem_startup_hook();
+}
+
+/*
+ * Early initialization of various subsystems, giving them a chance to
+ * register their shared memory needs before the shared memory segment is
+ * allocated.
+ */
+void
+RegisterBuiltinShmemCallbacks(void)
+{
+	/*
+	 * Call RegisterShmemCallbacks(...) on each subsystem listed in
+	 * subsystemslist.h
+	 */
+#define PG_SHMEM_SUBSYSTEM(subsystem_callbacks) \
+	RegisterShmemCallbacks(&(subsystem_callbacks));
+
+#include "storage/subsystemlist.h"
+
+#undef PG_SHMEM_SUBSYSTEM
 }
 
 /*
