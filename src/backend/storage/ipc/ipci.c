@@ -20,7 +20,6 @@
 #include "access/nbtree.h"
 #include "access/subtrans.h"
 #include "access/syncscan.h"
-#include "access/transam.h"
 #include "access/twophase.h"
 #include "access/xlogprefetcher.h"
 #include "access/xlogrecovery.h"
@@ -41,18 +40,13 @@
 #include "storage/aio_subsys.h"
 #include "storage/bufmgr.h"
 #include "storage/dsm.h"
-#include "storage/dsm_registry.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
 #include "storage/pmsignal.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
-#include "storage/procarray.h"
-#include "storage/procsignal.h"
-#include "storage/sinvaladt.h"
 #include "storage/subsystems.h"
 #include "utils/guc.h"
-#include "utils/wait_event.h"
 
 /* GUCs */
 int			shared_memory_type = DEFAULT_SHARED_MEMORY_TYPE;
@@ -102,14 +96,10 @@ CalculateShmemSize(void)
 	size = add_size(size, ShmemGetRequestedSize());
 
 	/* legacy subsystems */
-	size = add_size(size, dsm_estimate_size());
-	size = add_size(size, DSMRegistryShmemSize());
 	size = add_size(size, BufferManagerShmemSize());
 	size = add_size(size, LockManagerShmemSize());
 	size = add_size(size, PredicateLockShmemSize());
-	size = add_size(size, ProcGlobalShmemSize());
 	size = add_size(size, XLogPrefetchShmemSize());
-	size = add_size(size, VarsupShmemSize());
 	size = add_size(size, XLOGShmemSize());
 	size = add_size(size, XLogRecoveryShmemSize());
 	size = add_size(size, CLOGShmemSize());
@@ -119,11 +109,7 @@ CalculateShmemSize(void)
 	size = add_size(size, BackgroundWorkerShmemSize());
 	size = add_size(size, MultiXactShmemSize());
 	size = add_size(size, LWLockShmemSize());
-	size = add_size(size, ProcArrayShmemSize());
 	size = add_size(size, BackendStatusShmemSize());
-	size = add_size(size, SharedInvalShmemSize());
-	size = add_size(size, PMSignalShmemSize());
-	size = add_size(size, ProcSignalShmemSize());
 	size = add_size(size, CheckpointerShmemSize());
 	size = add_size(size, AutoVacuumShmemSize());
 	size = add_size(size, ReplicationSlotsShmemSize());
@@ -285,13 +271,9 @@ RegisterBuiltinShmemCallbacks(void)
 static void
 CreateOrAttachShmemStructs(void)
 {
-	dsm_shmem_init();
-	DSMRegistryShmemInit();
-
 	/*
 	 * Set up xlog, clog, and buffers
 	 */
-	VarsupShmemInit();
 	XLOGShmemInit();
 	XLogPrefetchShmemInit();
 	XLogRecoveryShmemInit();
@@ -314,23 +296,13 @@ CreateOrAttachShmemStructs(void)
 	/*
 	 * Set up process table
 	 */
-	if (!IsUnderPostmaster)
-		InitProcGlobal();
-	ProcArrayShmemInit();
 	BackendStatusShmemInit();
 	TwoPhaseShmemInit();
 	BackgroundWorkerShmemInit();
 
 	/*
-	 * Set up shared-inval messaging
-	 */
-	SharedInvalShmemInit();
-
-	/*
 	 * Set up interprocess signaling mechanisms
 	 */
-	PMSignalShmemInit();
-	ProcSignalShmemInit();
 	CheckpointerShmemInit();
 	AutoVacuumShmemInit();
 	ReplicationSlotsShmemInit();
