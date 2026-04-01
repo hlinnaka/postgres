@@ -2901,10 +2901,10 @@ SlotInvalidationCauseMap
 SlotNumber
 SlotSyncCtxStruct
 SlotSyncSkipReason
-SlruCtl
-SlruCtlData
+SlruDesc
 SlruErrorCause
 SlruPageStatus
+SlruRequestOpts
 SlruScanCallback
 SlruSegState
 SlruShared
