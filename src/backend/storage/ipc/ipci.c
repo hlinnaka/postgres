@@ -100,8 +100,9 @@ CalculateShmemSize(void)
 	 * during the actual allocation phase.
 	 */
 	size = 100000;
-	size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,
-											 sizeof(ShmemIndexEnt)));
+	size = add_size(size, ShmemGetRequestedSize());
+
+	/* legacy subsystems */
 	size = add_size(size, dsm_estimate_size());
 	size = add_size(size, DSMRegistryShmemSize());
 	size = add_size(size, BufferManagerShmemSize());
@@ -176,6 +177,13 @@ AttachSharedMemoryStructs(void)
 	 */
 	InitializeFastPathLocks();
 
+	/*
+	 * Attach to LWLocks first. They are needed by most other subsystems.
+	 */
+	LWLockShmemInit();
+
+	/* Establish pointers to all shared memory areas in this backend */
+	ShmemAttachRequested();
 	CreateOrAttachShmemStructs();
 
 	/*
@@ -220,7 +228,17 @@ CreateSharedMemoryAndSemaphores(void)
 	 */
 	InitShmemAllocator(seghdr);
 
-	/* Initialize subsystems */
+	/*
+	 * Initialize LWLocks first, in case any of the shmem init function use
+	 * LWLocks.  (Nothing else can be running during startup, so they don't
+	 * need to do any locking yet, but we nevertheless allow it.)
+	 */
+	LWLockShmemInit();
+
+	/* Initialize all shmem areas */
+	ShmemInitRequested();
+
+	/* Initialize legacy subsystems */
 	CreateOrAttachShmemStructs();
 
 	/* Initialize dynamic shared memory facilities. */
@@ -251,11 +269,6 @@ CreateSharedMemoryAndSemaphores(void)
 static void
 CreateOrAttachShmemStructs(void)
 {
-	/*
-	 * Set up LWLocks.  They are needed by most other subsystems.
-	 */
-	LWLockShmemInit();
-
 	dsm_shmem_init();
 	DSMRegistryShmemInit();
 

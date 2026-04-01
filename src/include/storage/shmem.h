@@ -24,43 +24,218 @@
 #include "storage/spin.h"
 #include "utils/hsearch.h"
 
+/* Different kinds of shmem areas. */
+typedef enum
+{
+	SHMEM_KIND_STRUCT = 0,		/* plain, contiguous area of memory */
+	SHMEM_KIND_HASH,			/* a hash table */
+} ShmemAreaKind;
+
+/*
+ * ShmemStructDesc is backend-private handle for a shared memory area
+ * requested with ShmemRequestStruct().
+ */
+typedef struct ShmemStructDesc
+{
+	/* Name and size of the shared memory area. */
+	const char *name;
+
+	void	   *ptr;
+	size_t		size;
+} ShmemStructDesc;
+
+#define SHMEM_ATTACH_UNKNOWN_SIZE (-1)
+
+/*
+ * Options for ShmemRequestStruct()
+ *
+ * 'name' and 'size' are required.  Initialize any optional fields that you
+ * don't use to zeros.
+ *
+ * After registration, the shmem machinery reserves memory for the area, sets
+ * '*ptr' to point to the allocation, and calls the callbacks at the right
+ * moments.
+ */
+typedef struct ShmemStructOpts
+{
+	const char *name;
+
+	ssize_t		size;
+
+	/*
+	 * When the shmem area is initialized or attached to, pointer to it is
+	 * stored in *ptr.  It usually points to a global variable, used to access
+	 * the shared memory area later.  *ptr is set before the init_fn or
+	 * attach_fn callback is called.
+	 */
+	void	  **ptr;
+} ShmemStructOpts;
+
+/*
+ * Backend-private handle for a named shared memory hash table, similar to
+ * ShmemStructDesc.
+ */
+typedef struct ShmemHashDesc
+{
+	/*
+	 * Descriptor of the underlying fixed-size allocated area where the hash
+	 * table lives.
+	 */
+	ShmemStructDesc base;
+
+	HTAB	   *ptr;
+} ShmemHashDesc;
+
+/*
+ * Options for ShmemRequestHash()
+ *
+ * Each hash table is backed by an allocated area, but if 'max_size' is
+ * greater than 'init_size', it can also grow beyond the initial allocated
+ * area by allocating more hash entries from the global unreserved space.
+ */
+typedef struct ShmemHashOpts
+{
+	ShmemStructOpts base;
+
+	/*
+	 * Name of the shared memory area.  Required.  Must be unique across the
+	 * system.
+	 */
+	const char *name;
+
+	/*
+	 * 'nelems' is the max number of elements for the hash table.
+	 */
+	int64		nelems;
+
+	/*
+	 * Hash table options passed to hash_create()
+	 *
+	 * hash_info and hash_flags must specify at least the entry sizes and key
+	 * comparison semantics (see hash_create()).  Flag bits and values
+	 * specific to shared-memory hash tables are added implicitly in
+	 * ShmemRequestHash(), except that callers may choose to specify
+	 * HASH_PARTITION and/or HASH_FIXED_SIZE.
+	 */
+	HASHCTL		hash_info;
+	int			hash_flags;
+
+	/*
+	 * When the hash table is initialized or attached to, pointer to its
+	 * backend-private handle is stored in *ptr.  It usually points to a
+	 * global variable, used to access the hash table later.
+	 */
+	HTAB	  **ptr;
+} ShmemHashOpts;
+
+typedef void (*ShmemRequestCallback) (void *arg);
+typedef void (*ShmemInitCallback) (void *arg);
+typedef void (*ShmemAttachCallback) (void *arg);
+
+/*
+ * Shared memory is reserved and allocated in stages at postmaster startup,
+ * and in EXEC_BACKEND mode, there's some extra work done to "attach" to them
+ * at backend startup.  ShmemCallbacks holds callback functions that are
+ * called at different stages.
+ */
+typedef struct ShmemCallbacks
+{
+	/* SHMEM_CALLBACKS_* flags */
+	int			flags;
+
+	/*
+	 * 'request_fn' is called during postmaster startup, before the shared
+	 * memory has been allocated.  The function should call
+	 * RequestShmemStruct() and RequestShmemHash() to register the subsystem's
+	 * shared memory needs.
+	 */
+	ShmemRequestCallback request_fn;
+	void	   *request_fn_arg;
+
+	/*
+	 * Initialization callback function.  This is called when the shared
+	 * memory area is allocated, usually at postmaster startup.
+	 */
+	ShmemInitCallback init_fn;
+	void	   *init_fn_arg;
+
+	/*
+	 * Attachment callback function.  In EXEC_BACKEND mode, this is called at
+	 * startup of each backend.  In !EXEC_BACKEND mode, this is only called if
+	 * the shared memory area is registered after postmaster startup (see
+	 * SHMEM_CALLBACKS_ALLOW_AFTER_STARTUP).
+	 */
+	ShmemAttachCallback attach_fn;
+	void	   *attach_fn_arg;
+} ShmemCallbacks;
+
+/*
+ * Flags to control the behavior of RegisterShmemCallbacks().
+ *
+ * ALLOW_AFTER_STARTUP: Allow these shared memory usages to be registered
+ * after postmaster startup.  Normally, registering a shared memory system
+ * after postmaster startup is not allowed e.g. in an add-in library loaded
+ * on-demaind in a backend.  If a subsystem sets this flag, the callbacks are
+ * called immediately after registration, to initialize or attach to the
+ * requested shared memory areas.  This is not used by any built-in
+ * subsystems, but extensions may find it useful.
+ */
+#define SHMEM_CALLBACKS_ALLOW_AFTER_STARTUP		0x00000001
 
 /* shmem.c */
 typedef struct PGShmemHeader PGShmemHeader; /* avoid including
 											 * storage/pg_shmem.h here */
+extern void ResetShmemAllocator(void);
 extern void InitShmemAllocator(PGShmemHeader *seghdr);
+#ifdef EXEC_BACKEND
+extern void AttachShmemAllocator(PGShmemHeader *seghdr);
+#endif
 extern void *ShmemAlloc(Size size);
 extern void *ShmemAllocNoError(Size size);
-extern void *ShmemHashAlloc(Size size, void *alloc_arg);
 extern bool ShmemAddrIsValid(const void *addr);
+
+extern void RegisterShmemCallbacks(const ShmemCallbacks *callbacks);
+
+extern void ShmemRequestInternal(ShmemStructDesc *desc, ShmemStructOpts *options,
+								 ShmemAreaKind kind);
+
+/*
+ * These macros provide syntactic sugar for calling the underlying functions
+ * with named arguments -like syntax.
+ */
+#define ShmemRequestStruct(desc, ...)  \
+	ShmemRequestStructWithOpts(desc, &(ShmemStructOpts){__VA_ARGS__})
+
+#define ShmemRequestHash(desc, ...)  \
+	ShmemRequestHashWithOpts(desc, &(ShmemHashOpts){__VA_ARGS__})
+
+extern void ShmemRequestStructWithOpts(ShmemStructDesc *desc, const ShmemStructOpts *options);
+extern void ShmemRequestHashWithOpts(ShmemHashDesc *desc, const ShmemHashOpts *options);
+extern void ShmemCallRequestCallbacks(void);
+
+/* legacy shmem allocation functions */
 extern void *ShmemInitStruct(const char *name, Size size, bool *foundPtr);
+extern HTAB *ShmemInitHash(const char *name, int64 nelems,
+						   HASHCTL *infoP, int hash_flags);
+
+extern size_t ShmemGetRequestedSize(void);
+extern void ShmemInitRequested(void);
+#ifdef EXEC_BACKEND
+extern void ShmemAttachRequested(void);
+#endif
+
 extern Size add_size(Size s1, Size s2);
 extern Size mul_size(Size s1, Size s2);
 
 extern PGDLLIMPORT Size pg_get_shmem_pagesize(void);
 
 /* shmem_hash.c */
-extern HTAB *ShmemInitHash(const char *name, int64 nelems,
-						   HASHCTL *infoP, int hash_flags);
 extern HTAB *shmem_hash_create(void *location, size_t size, bool found,
-							   const char *name, int64 nelems, HASHCTL *infoP, int hash_flags)
+							   const char *name, int64 nelems, HASHCTL *infoP, int hash_flags);
+extern void shmem_hash_init(ShmemStructDesc *base_desc, ShmemStructOpts *options);
+extern void shmem_hash_attach(ShmemStructDesc *base_desc, ShmemStructOpts *options);
 
 /* ipci.c */
 extern void RequestAddinShmemSpace(Size size);
-
-/* size constants for the shmem index table */
- /* max size of data structure string name */
-#define SHMEM_INDEX_KEYSIZE		 (48)
- /* max number of named shmem structures and hash tables */
-#define SHMEM_INDEX_SIZE		 (256)
-
-/* this is a hash bucket in the shmem index table */
-typedef struct
-{
-	char		key[SHMEM_INDEX_KEYSIZE];	/* string name */
-	void	   *location;		/* location in shared mem */
-	Size		size;			/* # bytes requested for the structure */
-	Size		allocated_size; /* # bytes actually allocated */
-} ShmemIndexEnt;
 
 #endif							/* SHMEM_H */

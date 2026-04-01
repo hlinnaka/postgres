@@ -21,8 +21,80 @@
 #include "postgres.h"
 
 #include "storage/shmem.h"
+#include "utils/memutils.h"
+
+/*
+ * A very simple allocator used to carve out different parts of a hash table
+ * from a previously allocated contiguous shared memory area.
+ */
+typedef struct shmem_hash_allocator
+{
+	char	   *next;			/* start of free space in the area */
+	char	   *end;			/* end of the shmem area */
+} shmem_hash_allocator;
 
 static void *ShmemHashAlloc(Size size, void *alloc_arg);
+
+/*
+ * ShmemRequestHash -- Request a shared memory hash table.
+ *
+ * Similar to ShmemRequestStruct(), but requests a hash table instead of an
+ * opaque area.
+ */
+void
+ShmemRequestHashWithOpts(ShmemHashDesc *desc, const ShmemHashOpts *options)
+{
+	ShmemHashOpts *options_copy;
+
+	Assert(options->name != NULL);
+
+	options_copy = MemoryContextAlloc(TopMemoryContext,
+									  sizeof(ShmemHashOpts));
+	memcpy(options_copy, options, sizeof(ShmemHashOpts));
+
+	/* Set options for the fixed-size area holding the hash table */
+	options_copy->base.name = options->name;
+	options_copy->base.size = hash_estimate_size(options_copy->nelems,
+												 options_copy->hash_info.entrysize);
+
+	ShmemRequestInternal(&desc->base, &options_copy->base, SHMEM_KIND_HASH);
+}
+
+void
+shmem_hash_init(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc;
+	ShmemHashOpts *options = (ShmemHashOpts *) base_options;
+	int			hash_flags = options->hash_flags;
+
+	options->hash_info.hctl = desc->base.ptr;
+	Assert(options->hash_info.hctl != NULL);
+	desc->ptr = shmem_hash_create(desc->base.ptr, base_desc->size, false,
+								  desc->base.name,
+								  options->nelems, &options->hash_info, hash_flags);
+
+	if (options->ptr)
+		*options->ptr = desc->ptr;
+}
+
+void
+shmem_hash_attach(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc;
+	ShmemHashOpts *options = (ShmemHashOpts *) base_options;
+	int			hash_flags = options->hash_flags;
+
+	/* attach to it rather than allocate and initialize new space */
+	hash_flags |= HASH_ATTACH;
+	options->hash_info.hctl = desc->base.ptr;
+	Assert(options->hash_info.hctl != NULL);
+	desc->ptr = shmem_hash_create(desc->base.ptr, base_desc->size, true,
+								  desc->base.name,
+								  options->nelems, &options->hash_info, hash_flags);
+
+	if (options->ptr)
+		*options->ptr = desc->ptr;
+}
 
 /*
  * ShmemInitHash -- Create and initialize, or attach to, a
@@ -40,9 +112,8 @@ static void *ShmemHashAlloc(Size size, void *alloc_arg);
  * to shared-memory hash tables are added here, except that callers may
  * choose to specify HASH_PARTITION.
  *
- * Note: before Postgres 9.0, this function returned NULL for some failure
- * cases.  Now, it always throws error instead, so callers need not check
- * for NULL.
+ * Note: This is a legacy interface, kept for backwards compatibility with
+ * extensions.  Use ShmemRequestHash() in new code!
  */
 HTAB *
 ShmemInitHash(const char *name,		/* table string name for shmem index */
