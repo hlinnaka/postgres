@@ -372,6 +372,7 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 
 	InitializeFastPathLocks();
 
+	ShmemCallRequestCallbacks();
 	CreateSharedMemoryAndSemaphores();
 
 	/*

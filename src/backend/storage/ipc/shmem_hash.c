@@ -21,6 +21,83 @@
 #include "postgres.h"
 
 #include "storage/shmem.h"
+#include "utils/memutils.h"
+
+/*
+ * ShmemRequestHash -- Request a shared memory hash table.
+ *
+ * Similar to ShmemRequestStruct(), but requests a hash table instead of an
+ * opaque area.
+ */
+void
+ShmemRequestHashWithOpts(ShmemHashDesc *desc, const ShmemHashOpts *options)
+{
+	ShmemHashOpts *options_copy;
+	int64		dirsize;
+
+	Assert(options->name != NULL);
+
+	options_copy = MemoryContextAlloc(TopMemoryContext,
+									  sizeof(ShmemHashOpts));
+	memcpy(options_copy, options, sizeof(ShmemHashOpts));
+
+	/*
+	 * Hash tables allocated in shared memory have a fixed directory; it can't
+	 * grow or other backends wouldn't be able to find it. So, make sure we
+	 * make it big enough to start with.
+	 *
+	 * The shared memory allocator must be specified too.
+	 */
+	dirsize = hash_select_dirsize(options->max_size);
+	options_copy->hash_info.dsize = dirsize;
+	options_copy->hash_info.max_dsize = dirsize;
+	options_copy->hash_info.alloc = ShmemHashAlloc;
+	options_copy->hash_info.alloc_arg = NULL;
+	options_copy->hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
+
+	/* Set options for the fixed-size area holding the hash table */
+	options_copy->base.name = options->name;
+	options_copy->base.size = hash_get_shared_size(&options_copy->hash_info,
+												   options_copy->hash_flags);
+
+	/* Reserve extra space for the buckets */
+	options_copy->base.extra_size =
+		hash_estimate_size(options->max_size, options_copy->hash_info.entrysize) - options_copy->base.size;
+
+	ShmemRequestInternal(&desc->base, &options_copy->base, SHMEM_KIND_HASH);
+}
+
+void
+shmem_hash_init(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc;
+	ShmemHashOpts *options = (ShmemHashOpts *) base_options;
+	int			hash_flags = options->hash_flags;
+
+	options->hash_info.hctl = desc->base.ptr;
+	Assert(options->hash_info.hctl != NULL);
+	desc->ptr = hash_create(desc->base.name, options->init_size, &options->hash_info, hash_flags);
+
+	if (options->ptr)
+		*options->ptr = desc->ptr;
+}
+
+void
+shmem_hash_attach(ShmemStructDesc *base_desc, ShmemStructOpts *base_options)
+{
+	ShmemHashDesc *desc = (ShmemHashDesc *) base_desc;
+	ShmemHashOpts *options = (ShmemHashOpts *) base_options;
+	int			hash_flags = options->hash_flags;
+
+	/* attach to it rather than allocate and initialize new space */
+	hash_flags |= HASH_ATTACH;
+	options->hash_info.hctl = desc->base.ptr;
+	Assert(options->hash_info.hctl != NULL);
+	desc->ptr = hash_create(desc->base.name, options->init_size, &options->hash_info, hash_flags);
+
+	if (options->ptr)
+		*options->ptr = desc->ptr;
+}
 
 
 /*
@@ -46,9 +123,8 @@
  * to shared-memory hash tables are added here, except that callers may
  * choose to specify HASH_PARTITION and/or HASH_FIXED_SIZE.
  *
- * Note: before Postgres 9.0, this function returned NULL for some failure
- * cases.  Now, it always throws error instead, so callers need not check
- * for NULL.
+ * Note: This is a legacy interface, kept for backwards compatibility with
+ * extensions.  Use ShmemRequestHash() in new code!
  */
 HTAB *
 ShmemInitHash(const char *name,		/* table string name for shmem index */
