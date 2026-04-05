@@ -20,11 +20,7 @@
 
 
 /* aio_init.c */
-extern Size AioShmemSize(void);
-extern void AioShmemInit(void);
-
 extern void pgaio_init_backend(void);
-
 
 /* aio.c */
 extern void pgaio_error_cleanup(void);
