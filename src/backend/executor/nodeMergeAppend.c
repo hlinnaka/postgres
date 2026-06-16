@@ -45,6 +45,7 @@
 #include "executor/nodeMergeAppend.h"
 #include "ipc/interrupt.h"
 #include "lib/binaryheap.h"
+#include "utils/resowner.h"
 #include "utils/sortsupport.h"
 #include "utils/wait_event.h"
 
