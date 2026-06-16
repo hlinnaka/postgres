@@ -25,8 +25,6 @@
 #ifndef WAITEVENTSET_H
 #define WAITEVENTSET_H
 
-#include "utils/resowner.h"
-
 /*
  * Bitmasks for events that may wake-up WaitLatch(), WaitLatchOrSocket(), or
  * WaitEventSetWait().
@@ -71,13 +69,14 @@ typedef struct WaitEvent
 typedef struct WaitEventSet WaitEventSet;
 
 struct Latch;
+struct ResourceOwnerData;
 
 /*
  * prototypes for functions in waiteventset.c
  */
 extern void InitializeWaitEventSupport(void);
 
-extern WaitEventSet *CreateWaitEventSet(ResourceOwner resowner, int nevents);
+extern WaitEventSet *CreateWaitEventSet(struct ResourceOwnerData *resowner, int nevents);
 extern void FreeWaitEventSet(WaitEventSet *set);
 extern void FreeWaitEventSetAfterFork(WaitEventSet *set);
 extern int	AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd,
