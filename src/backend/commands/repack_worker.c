@@ -172,7 +172,7 @@ RepackWorkerShutdown(int code, Datum arg)
 	DecodingWorkerShared *shared = (DecodingWorkerShared *) DatumGetPointer(arg);
 
 	SendProcSignal(shared->backend_pid,
-				   PROCSIG_REPACK_MESSAGE,
+				   PROCSIG_PARALLEL_MESSAGE,
 				   shared->backend_proc_number);
 
 	dsm_detach(worker_dsm_segment);

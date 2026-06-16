@@ -145,12 +145,6 @@ typedef struct DecodingWorker
 /* Pointer to currently running decoding worker. */
 static DecodingWorker *decoding_worker = NULL;
 
-/*
- * Is there a message sent by a repack worker that the backend needs to
- * receive?
- */
-volatile sig_atomic_t RepackMessagePending = false;
-
 static LOCKMODE RepackLockLevel(bool concurrent);
 static bool cluster_rel_recheck(RepackCommand cmd, Relation OldHeap,
 								Oid indexOid, Oid userid, LOCKMODE lmode,
@@ -3648,61 +3642,20 @@ DecodingWorkerFileName(char *fname, Oid relid, uint32 seq)
 }
 
 /*
- * Handle receipt of an interrupt indicating a repack worker message.
- *
- * Note: this is called within a signal handler!  All we can do is set
- * a flag that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessRepackMessages().
- */
-void
-HandleRepackMessageInterrupt(void)
-{
-	InterruptPending = true;
-	RepackMessagePending = true;
-	SetLatch(MyLatch);
-}
-
-/*
  * Process any queued protocol messages received from the repack worker.
+ *
+ * This is called from CHECK_FOR_INTERRUPTS(), but in a short-lived memory
+ * context.
  */
 void
 ProcessRepackMessages(void)
 {
-	MemoryContext oldcontext;
-	static MemoryContext hpm_context = NULL;
-
 	/*
 	 * Nothing to do if we haven't launched the worker yet or have already
 	 * terminated it.
 	 */
 	if (decoding_worker == NULL)
 		return;
-
-	/*
-	 * This is invoked from ProcessInterrupts(), and since some of the
-	 * functions it calls contain CHECK_FOR_INTERRUPTS(), there is a potential
-	 * for recursive calls if more signals are received while this runs.  It's
-	 * unclear that recursive entry would be safe, and it doesn't seem useful
-	 * even if it is safe, so let's block interrupts until done.
-	 */
-	HOLD_INTERRUPTS();
-
-	/*
-	 * Moreover, CurrentMemoryContext might be pointing almost anywhere.  We
-	 * don't want to risk leaking data into long-lived contexts, so let's do
-	 * our work here in a private context that we can reset on each use.
-	 */
-	if (hpm_context == NULL)	/* first time through? */
-		hpm_context = AllocSetContextCreate(TopMemoryContext,
-											"ProcessRepackMessages",
-											ALLOCSET_DEFAULT_SIZES);
-	else
-		MemoryContextReset(hpm_context);
-
-	oldcontext = MemoryContextSwitchTo(hpm_context);
-
-	/* OK to process messages.  Reset the flag saying there are more to do. */
-	RepackMessagePending = false;
 
 	/*
 	 * Read as many messages as we can from the worker, but stop when no more
@@ -3738,13 +3691,6 @@ ProcessRepackMessages(void)
 			break;
 		}
 	}
-
-	MemoryContextSwitchTo(oldcontext);
-
-	/* Might as well clear the context on our way out */
-	MemoryContextReset(hpm_context);
-
-	RESUME_INTERRUPTS();
 }
 
 /*

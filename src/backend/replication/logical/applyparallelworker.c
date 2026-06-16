@@ -242,12 +242,6 @@ static List *ParallelApplyWorkerPool = NIL;
 ParallelApplyWorkerShared *MyParallelShared = NULL;
 
 /*
- * Is there a message sent by a parallel apply worker that the leader apply
- * worker needs to receive?
- */
-volatile sig_atomic_t ParallelApplyMessagePending = false;
-
-/*
  * Cache the parallel apply worker information required for applying the
  * current streaming transaction. It is used to save the cost of searching the
  * hash table when applying the changes between STREAM_START and STREAM_STOP.
@@ -857,7 +851,7 @@ static void
 pa_shutdown(int code, Datum arg)
 {
 	SendProcSignal(MyLogicalRepWorker->leader_pid,
-				   PROCSIG_PARALLEL_APPLY_MESSAGE,
+				   PROCSIG_PARALLEL_MESSAGE,
 				   INVALID_PROC_NUMBER);
 
 	dsm_detach((dsm_segment *) DatumGetPointer(arg));
@@ -998,21 +992,6 @@ ParallelApplyWorkerMain(Datum main_arg)
 }
 
 /*
- * Handle receipt of an interrupt indicating a parallel apply worker message.
- *
- * Note: this is called within a signal handler! All we can do is set a flag
- * that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessParallelApplyMessages().
- */
-void
-HandleParallelApplyMessageInterrupt(void)
-{
-	InterruptPending = true;
-	ParallelApplyMessagePending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
-}
-
-/*
  * Process a single protocol message received from a single parallel apply
  * worker.
  */
@@ -1076,40 +1055,15 @@ ProcessParallelApplyMessage(StringInfo msg)
 }
 
 /*
- * Handle any queued protocol messages received from parallel apply workers.
+ * Process any queued protocol messages received from parallel apply workers.
+ *
+ * This is called from CHECK_FOR_INTERRUPTS(), but in a short-lived memory
+ * context.
  */
 void
 ProcessParallelApplyMessages(void)
 {
 	ListCell   *lc;
-	MemoryContext oldcontext;
-
-	static MemoryContext hpam_context = NULL;
-
-	/*
-	 * This is invoked from ProcessInterrupts(), and since some of the
-	 * functions it calls contain CHECK_FOR_INTERRUPTS(), there is a potential
-	 * for recursive calls if more signals are received while this runs. It's
-	 * unclear that recursive entry would be safe, and it doesn't seem useful
-	 * even if it is safe, so let's block interrupts until done.
-	 */
-	HOLD_INTERRUPTS();
-
-	/*
-	 * Moreover, CurrentMemoryContext might be pointing almost anywhere. We
-	 * don't want to risk leaking data into long-lived contexts, so let's do
-	 * our work here in a private context that we can reset on each use.
-	 */
-	if (!hpam_context)			/* first time through? */
-		hpam_context = AllocSetContextCreate(TopMemoryContext,
-											 "ProcessParallelApplyMessages",
-											 ALLOCSET_DEFAULT_SIZES);
-	else
-		MemoryContextReset(hpam_context);
-
-	oldcontext = MemoryContextSwitchTo(hpam_context);
-
-	ParallelApplyMessagePending = false;
 
 	foreach(lc, ParallelApplyWorkerPool)
 	{
@@ -1145,13 +1099,6 @@ ProcessParallelApplyMessages(void)
 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 					 errmsg("lost connection to the logical replication parallel apply worker")));
 	}
-
-	MemoryContextSwitchTo(oldcontext);
-
-	/* Might as well clear the context on our way out */
-	MemoryContextReset(hpam_context);
-
-	RESUME_INTERRUPTS();
 }
 
 /*

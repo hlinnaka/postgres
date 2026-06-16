@@ -172,23 +172,9 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 		result = shm_mq_sendv(pq_mq_handle, iov, 2, true, true);
 
 		if (pq_mq_parallel_leader_pid != 0)
-		{
-			if (IsLogicalParallelApplyWorker())
-				SendProcSignal(pq_mq_parallel_leader_pid,
-							   PROCSIG_PARALLEL_APPLY_MESSAGE,
-							   pq_mq_parallel_leader_proc_number);
-			else if (AmRepackWorker())
-				SendProcSignal(pq_mq_parallel_leader_pid,
-							   PROCSIG_REPACK_MESSAGE,
-							   pq_mq_parallel_leader_proc_number);
-			else
-			{
-				Assert(IsParallelWorker());
-				SendProcSignal(pq_mq_parallel_leader_pid,
-							   PROCSIG_PARALLEL_MESSAGE,
-							   pq_mq_parallel_leader_proc_number);
-			}
-		}
+			SendProcSignal(pq_mq_parallel_leader_pid,
+						   PROCSIG_PARALLEL_MESSAGE,
+						   pq_mq_parallel_leader_proc_number);
 
 		if (result != SHM_MQ_WOULD_BLOCK)
 			break;
