@@ -20,6 +20,7 @@
 #include "libpq/pqmq.h"
 #include "pgstat.h"
 #include "storage/latch.h"
+#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 #include "utils/wait_event.h"
