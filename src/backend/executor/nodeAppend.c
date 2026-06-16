@@ -66,6 +66,7 @@
 #include "pgstat.h"
 #include "storage/latch.h"
 #include "storage/lwlock.h"
+#include "utils/resowner.h"
 #include "utils/wait_event.h"
 
 /* Shared state for parallel-aware Append. */
