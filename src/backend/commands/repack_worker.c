@@ -203,7 +203,7 @@ RepackWorkerShutdown(int code, Datum arg)
 	 */
 	dsm_detach(seg);
 
-	SendProcSignal(pid, PROCSIG_REPACK_MESSAGE, procno);
+	SendProcSignal(pid, PROCSIG_PARALLEL_MESSAGE, procno);
 }
 
 bool
