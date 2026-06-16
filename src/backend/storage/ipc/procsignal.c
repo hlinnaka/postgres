@@ -713,12 +713,6 @@ procsignal_sigusr1_handler(SIGNAL_ARGS)
 	if (CheckProcSignal(PROCSIG_LOG_MEMORY_CONTEXT))
 		HandleLogMemoryContextInterrupt();
 
-	if (CheckProcSignal(PROCSIG_PARALLEL_APPLY_MESSAGE))
-		HandleParallelApplyMessageInterrupt();
-
-	if (CheckProcSignal(PROCSIG_REPACK_MESSAGE))
-		HandleRepackMessageInterrupt();
-
 	if (CheckProcSignal(PROCSIG_SLOTSYNC_MESSAGE))
 		HandleSlotSyncMessageInterrupt();
 

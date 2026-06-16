@@ -24,7 +24,6 @@ extern void SequenceSyncWorkerMain(Datum main_arg);
 extern bool IsLogicalWorker(void);
 extern bool IsLogicalParallelApplyWorker(void);
 
-extern void HandleParallelApplyMessageInterrupt(void);
 extern void ProcessParallelApplyMessages(void);
 
 extern void LogicalRepWorkersWakeupAtCommit(Oid subid);

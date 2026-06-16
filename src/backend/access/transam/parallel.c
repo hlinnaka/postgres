@@ -26,6 +26,7 @@
 #include "catalog/pg_enum.h"
 #include "catalog/storage.h"
 #include "commands/async.h"
+#include "commands/repack.h"
 #include "commands/vacuum.h"
 #include "executor/execParallel.h"
 #include "libpq/libpq.h"
@@ -34,6 +35,7 @@
 #include "miscadmin.h"
 #include "optimizer/optimizer.h"
 #include "pgstat.h"
+#include "replication/logicalworker.h"
 #include "storage/ipc.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
@@ -160,6 +162,7 @@ static const struct
 };
 
 /* Private functions. */
+static void ProcessParallelMessages(void);
 static void ProcessParallelMessage(ParallelContext *pcxt, int i, StringInfo msg);
 static void WaitForParallelWorkersToExit(ParallelContext *pcxt);
 static parallel_worker_main_type LookupParallelWorkerFunction(const char *libraryname, const char *funcname);
@@ -1054,9 +1057,8 @@ HandleParallelMessageInterrupt(void)
  * Process any queued protocol messages received from parallel workers.
  */
 void
-ProcessParallelMessages(void)
+ProcessParallelMessageInterrupt(void)
 {
-	dlist_iter	iter;
 	MemoryContext oldcontext;
 
 	static MemoryContext hpm_context = NULL;
@@ -1086,6 +1088,34 @@ ProcessParallelMessages(void)
 
 	/* OK to process messages.  Reset the flag saying there are more to do. */
 	ParallelMessagePending = false;
+
+	/* Process messages from parallel query workers */
+	ProcessParallelMessages();
+
+	/* Process messages from REPACK CONCURRENTLY workers */
+	ProcessRepackMessages();
+
+	/* Process messages from replication parallel apply workers */
+	ProcessParallelApplyMessages();
+
+	MemoryContextSwitchTo(oldcontext);
+
+	/* Might as well clear the context on our way out */
+	MemoryContextReset(hpm_context);
+
+	RESUME_INTERRUPTS();
+}
+
+/*
+ * Process any incoming messages from parallel workers.
+ *
+ * This is called from CHECK_FOR_INTERRUPTS(), but in a short-lived memory
+ * context.
+ */
+static void
+ProcessParallelMessages(void)
+{
+	dlist_iter	iter;
 
 	dlist_foreach(iter, &pcxt_list)
 	{
@@ -1130,13 +1160,6 @@ ProcessParallelMessages(void)
 			}
 		}
 	}
-
-	MemoryContextSwitchTo(oldcontext);
-
-	/* Might as well clear the context on our way out */
-	MemoryContextReset(hpm_context);
-
-	RESUME_INTERRUPTS();
 }
 
 /*
