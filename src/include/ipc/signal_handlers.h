@@ -1,23 +1,23 @@
 /*-------------------------------------------------------------------------
  *
- * interrupt.h
- *	  Interrupt handling routines.
+ * signal_handlers.h
+ *	  Standard signal handling routines.
  *
- * Responses to interrupts are fairly varied and many types of backends
- * have their own implementations, but we provide a few generic things
- * here to facilitate code reuse.
+ * Responses to signals are fairly varied and many types of backends have
+ * their own implementations, but we provide a few generic things here to
+ * facilitate code reuse.
  *
  * Portions Copyright (c) 1996-2026, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
- *	  src/include/postmaster/interrupt.h
+ *	  src/include/ipc/signal_handlers.h
  *
  *-------------------------------------------------------------------------
  */
 
-#ifndef INTERRUPT_H
-#define INTERRUPT_H
+#ifndef SIGNAL_HANDLERS_H
+#define SIGNAL_HANDLERS_H
 
 #include <signal.h>
 
