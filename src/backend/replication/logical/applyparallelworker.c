@@ -158,10 +158,10 @@
 #include "postgres.h"
 
 #include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
 #include "pgstat.h"
-#include "postmaster/interrupt.h"
 #include "replication/logicallauncher.h"
 #include "replication/logicalworker.h"
 #include "replication/origin.h"
