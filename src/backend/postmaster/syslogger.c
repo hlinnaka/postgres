@@ -32,6 +32,7 @@
 #include <sys/time.h>
 
 #include "common/file_perm.h"
+#include "ipc/signal_handlers.h"
 #include "lib/stringinfo.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -39,7 +40,6 @@
 #include "pgstat.h"
 #include "pgtime.h"
 #include "port/pg_bitutils.h"
-#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "postmaster/syslogger.h"
 #include "storage/dsm.h"

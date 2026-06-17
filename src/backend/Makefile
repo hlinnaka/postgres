@@ -26,6 +26,7 @@ SUBDIRS = \
 	commands \
 	executor \
 	foreign \
+	ipc \
 	lib \
 	libpq \
 	main \

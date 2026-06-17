@@ -23,9 +23,9 @@
 #include "postgres.h"
 
 /* These are always necessary for a bgworker */
+#include "ipc/signal_handlers.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
 #include "storage/latch.h"
 
 /* these headers are used by this particular worker's code */

@@ -14,10 +14,10 @@
 #include <sys/stat.h>
 
 #include "common/hashfn.h"
+#include "ipc/signal_handlers.h"
 #include "miscadmin.h"
 #include "pg_stash_advice.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"

@@ -21,6 +21,7 @@
 #include "postgres.h"
 
 #include <ctype.h>
+#include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
