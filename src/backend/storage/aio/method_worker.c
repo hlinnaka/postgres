@@ -31,10 +31,10 @@
 #include <limits.h>
 
 #include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/auxprocess.h"
-#include "postmaster/interrupt.h"
 #include "storage/aio.h"
 #include "storage/aio_internal.h"
 #include "storage/aio_subsys.h"

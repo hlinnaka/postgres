@@ -30,9 +30,9 @@
 
 #include "access/relation.h"
 #include "access/xact.h"
+#include "ipc/signal_handlers.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
-#include "postmaster/interrupt.h"
 #include "storage/buf_internals.h"
 #include "storage/dsm.h"
 #include "storage/dsm_registry.h"
