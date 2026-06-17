@@ -33,11 +33,11 @@
 
 #include "access/xlog.h"
 #include "ipc/interrupt.h"
+#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/bgwriter.h"
-#include "postmaster/interrupt.h"
 #include "storage/aio_subsys.h"
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
