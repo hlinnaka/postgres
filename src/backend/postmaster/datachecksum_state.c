@@ -209,6 +209,7 @@
 #include "storage/latch.h"
 #include "storage/lmgr.h"
 #include "storage/lwlock.h"
+#include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/smgr.h"
 #include "storage/subsystems.h"
@@ -326,7 +327,9 @@ typedef struct DataChecksumsStateStruct
 	 */
 	uint64		worker_invocation;	/* unique invocation number */
 	Oid			database_oid;	/* database it's processing */
-	pid_t		worker_pid;		/* worker process's PID */
+
+	/* Worker process's proc number, set by the worker when it starts up */
+	ProcNumber	worker_procno;
 
 	/*
 	 * These fields indicate the target state that the worker is currently
@@ -840,7 +843,7 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 	 * if it completes successfully.
 	 */
 	DataChecksumState->worker_result = DATACHECKSUMSWORKER_FAILED;
-	DataChecksumState->worker_pid = InvalidPid;
+	DataChecksumState->worker_procno = INVALID_PROC_NUMBER;
 
 	invocation = ++DataChecksumState->worker_invocation_counter;
 	DataChecksumState->worker_invocation = invocation;
@@ -883,6 +886,7 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 		 */
 		LWLockAcquire(DataChecksumsWorkerLock, LW_SHARED);
 		Assert(DataChecksumState->worker_invocation == invocation);
+		Assert(DataChecksumState->worker_procno == INVALID_PROC_NUMBER);
 		if (DataChecksumState->worker_result == DATACHECKSUMSWORKER_SUCCESSFUL)
 		{
 			LWLockRelease(DataChecksumsWorkerLock);
@@ -924,12 +928,6 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 			errmsg("initiating data checksum processing in database \"%s\"",
 				   db->dbname));
 
-	/* Save the pid of the worker so we can signal it later */
-	LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
-	Assert(DataChecksumState->worker_invocation == invocation);
-	DataChecksumState->worker_pid = pid;
-	LWLockRelease(DataChecksumsWorkerLock);
-
 	snprintf(activity, sizeof(activity) - 1,
 			 "Waiting for worker in database %s (pid %ld)", db->dbname, (long) pid);
 	pgstat_report_activity(STATE_RUNNING, activity);
@@ -942,10 +940,10 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 					   db->dbname),
 				errhint("Restart the database and restart data checksum processing by calling pg_enable_data_checksums()."));
 
-	LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
+	LWLockAcquire(DataChecksumsWorkerLock, LW_SHARED);
 	Assert(DataChecksumState->worker_invocation == invocation);
+	Assert(DataChecksumState->worker_procno == INVALID_PROC_NUMBER);
 	result = DataChecksumState->worker_result;
-	DataChecksumState->worker_pid = InvalidPid;
 	LWLockRelease(DataChecksumsWorkerLock);
 
 	if (result == DATACHECKSUMSWORKER_ABORTED)
@@ -974,12 +972,11 @@ launcher_exit(int code, Datum arg)
 	if (launcher_running)
 	{
 		LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
-		if (DataChecksumState->worker_pid != InvalidPid)
+		if (DataChecksumState->worker_procno != INVALID_PROC_NUMBER)
 		{
 			ereport(LOG,
 					errmsg("data checksums launcher exiting while worker is still running, signalling worker"));
-			kill(DataChecksumState->worker_pid, SIGTERM);
-			DataChecksumState->worker_pid = InvalidPid;
+			kill(GetPGProcByNumber(DataChecksumState->worker_procno)->pid, SIGTERM);
 		}
 		LWLockRelease(DataChecksumsWorkerLock);
 	}
@@ -1092,7 +1089,6 @@ WaitForAllTransactionsToFinish(void)
 void
 DataChecksumsWorkerLauncherMain(Datum arg)
 {
-
 	ereport(DEBUG1,
 			errmsg("background worker \"datachecksums launcher\" started"));
 
@@ -1530,6 +1526,21 @@ BuildRelationList(bool temp_relations, bool include_shared)
 }
 
 /*
+ * worker_exit
+ *
+ * Internal routine for cleaning up state when a worker process exits due to
+ * an error.
+ */
+static void
+worker_exit(int code, Datum arg)
+{
+	LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
+	if (DataChecksumState->worker_invocation == worker_invocation)
+		DataChecksumState->worker_procno = INVALID_PROC_NUMBER;
+	LWLockRelease(DataChecksumsWorkerLock);
+}
+
+/*
  * DataChecksumsWorkerMain
  *
  * Main function for enabling checksums in a single database. This is the
@@ -1566,14 +1577,21 @@ DataChecksumsWorkerMain(Datum arg)
 	MyBackendType = B_DATACHECKSUMSWORKER_WORKER;
 	init_ps_display(NULL);
 
-	LWLockAcquire(DataChecksumsWorkerLock, LW_SHARED);
+	LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
 	if (DataChecksumState->worker_invocation != worker_invocation)
 	{
 		LWLockRelease(DataChecksumsWorkerLock);
 		return;
 	}
+	if (DataChecksumState->worker_procno != INVALID_PROC_NUMBER)
+		elog(ERROR, "data checksums background worker is already running");
+	DataChecksumState->worker_procno = MyProcNumber;
+
 	dboid = DataChecksumState->database_oid;
 	LWLockRelease(DataChecksumsWorkerLock);
+
+	/* Arrange to clear worker_procno on exit */
+	on_shmem_exit(worker_exit, 0);
 
 	BackgroundWorkerInitializeConnectionByOid(dboid, InvalidOid,
 											  BGWORKER_BYPASS_ALLOWCONN);
