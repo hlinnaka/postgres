@@ -25,6 +25,7 @@
 #include "access/gin_private.h"
 #include "access/nbtree.h"
 #include "catalog/pg_am.h"
+#include "ipc/interrupt.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "verify_common.h"

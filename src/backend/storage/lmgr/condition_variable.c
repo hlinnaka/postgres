@@ -20,7 +20,7 @@
 
 #include <limits.h>
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "portability/instr_time.h"
 #include "storage/condition_variable.h"
 #include "storage/proc.h"

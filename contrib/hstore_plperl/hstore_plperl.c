@@ -2,7 +2,7 @@
 
 #include "fmgr.h"
 #include "hstore/hstore.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "plperl.h"
 
 PG_MODULE_MAGIC_EXT(

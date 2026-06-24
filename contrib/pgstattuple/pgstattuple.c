@@ -34,6 +34,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_am_d.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstattuple.h"
 #include "storage/bufmgr.h"

@@ -14,7 +14,7 @@
 #include "postgres.h"
 
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/proc.h"
 #include "utils/wait_event.h"

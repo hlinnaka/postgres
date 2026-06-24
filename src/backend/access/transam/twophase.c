@@ -92,7 +92,7 @@
 #include "catalog/storage.h"
 #include "common/string.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
 #include "replication/origin.h"

@@ -33,6 +33,7 @@
 #include "access/xlog_internal.h"
 #include "archive/archive_module.h"
 #include "archive/shell_archive.h"
+#include "ipc/interrupt.h"
 #include "lib/binaryheap.h"
 #include "libpq/pqsignal.h"
 #include "pgstat.h"

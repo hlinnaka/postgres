@@ -46,7 +46,7 @@
 
 #include "access/xlog.h"
 #include "libpq/pqsignal.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/interrupt.h"

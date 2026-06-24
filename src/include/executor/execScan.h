@@ -13,9 +13,9 @@
 #ifndef EXECSCAN_H
 #define EXECSCAN_H
 
-#include "miscadmin.h"
 #include "executor/executor.h"
 #include "executor/instrument.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 
 /*

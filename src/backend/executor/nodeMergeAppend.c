@@ -42,8 +42,8 @@
 #include "executor/executor.h"
 #include "executor/execPartition.h"
 #include "executor/nodeMergeAppend.h"
+#include "ipc/interrupt.h"
 #include "lib/binaryheap.h"
-#include "miscadmin.h"
 #include "utils/sortsupport.h"
 
 /*

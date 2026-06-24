@@ -35,7 +35,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeUnique.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 
 
 /* ----------------------------------------------------------------

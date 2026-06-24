@@ -26,7 +26,7 @@
 #include "executor/executor.h"
 #include "executor/nodeLockRows.h"
 #include "foreign/fdwapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/rel.h"
 
 

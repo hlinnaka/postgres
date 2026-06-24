@@ -16,7 +16,7 @@
 
 #include "access/table.h"
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "postmaster/autovacuum.h"
 #include "replication/logicalproto.h"
 #include "storage/procarray.h"

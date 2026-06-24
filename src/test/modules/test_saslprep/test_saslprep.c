@@ -17,8 +17,8 @@
 #include "common/saslprep.h"
 #include "fmgr.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
-#include "miscadmin.h"
 #include "utils/builtins.h"
 
 PG_MODULE_MAGIC;

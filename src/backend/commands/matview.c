@@ -30,7 +30,7 @@
 #include "commands/tablespace.h"
 #include "executor/executor.h"
 #include "executor/spi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/lmgr.h"

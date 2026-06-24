@@ -19,7 +19,7 @@
 #include "access/xact.h"
 #include "catalog/catalog.h"
 #include "commands/progress.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"

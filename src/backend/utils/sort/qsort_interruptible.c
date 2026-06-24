@@ -3,7 +3,7 @@
  */
 
 #include "postgres.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 
 #define ST_SORT qsort_interruptible
 #define ST_ELEMENT_TYPE_VOID

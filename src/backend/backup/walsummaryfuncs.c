@@ -16,7 +16,7 @@
 #include "backup/walsummary.h"
 #include "common/blkreftable.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "postmaster/walsummarizer.h"
 #include "utils/fmgrprotos.h"
 #include "utils/pg_lsn.h"

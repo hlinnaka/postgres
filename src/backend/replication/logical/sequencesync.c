@@ -56,6 +56,7 @@
 #include "catalog/pg_sequence.h"
 #include "catalog/pg_subscription_rel.h"
 #include "commands/sequence.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/interrupt.h"
 #include "replication/logicalworker.h"
