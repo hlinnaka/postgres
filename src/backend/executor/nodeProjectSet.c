@@ -24,7 +24,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeProjectSet.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/nodeFuncs.h"
 
 

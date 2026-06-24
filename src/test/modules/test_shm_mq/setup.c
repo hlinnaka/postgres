@@ -15,6 +15,7 @@
 
 #include "postgres.h"
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"

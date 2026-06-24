@@ -79,7 +79,7 @@
 #include "catalog/indexing.h"
 #include "catalog/pg_subscription.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "pgstat.h"
 #include "replication/origin.h"

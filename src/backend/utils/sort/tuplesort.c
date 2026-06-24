@@ -102,7 +102,7 @@
 #include <limits.h>
 
 #include "commands/tablespace.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "port/atomics.h"
 #include "port/pg_bitutils.h"

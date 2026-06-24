@@ -157,6 +157,7 @@
 
 #include "postgres.h"
 
+#include "ipc/interrupt.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
 #include "pgstat.h"

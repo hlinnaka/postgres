@@ -20,7 +20,7 @@
 #include "catalog/pg_type.h"
 #include "common/pg_prng.h"
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/bitmapset.h"
 #include "nodes/nodes.h"
 #include "nodes/pg_list.h"

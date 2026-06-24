@@ -16,6 +16,7 @@
 
 #include <unistd.h>
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "postmaster/interrupt.h"
 #include "storage/ipc.h"

@@ -15,7 +15,7 @@
 #include "postgres.h"
 
 #include "backup/basebackup_sink.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/latch.h"
 #include "utils/timestamp.h"

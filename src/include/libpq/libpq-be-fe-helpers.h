@@ -30,12 +30,13 @@
 #ifndef LIBPQ_BE_FE_HELPERS_H
 #define LIBPQ_BE_FE_HELPERS_H
 
+#include "ipc/interrupt.h"
 #include "libpq/libpq-be-fe.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "storage/latch.h"
 #include "utils/timestamp.h"
-#include "utils/wait_event.h"
+#include "utils/wait_classes.h"
 
 
 extern bool libpqsrv_is_valid_proxy_option(const char *keyword);

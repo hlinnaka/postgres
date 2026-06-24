@@ -20,7 +20,7 @@
 #include "access/xact.h"
 #include "catalog/catalog.h"
 #include "executor/instrument_node.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/predicate.h"
 #include "utils/injection_point.h"

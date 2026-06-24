@@ -26,7 +26,7 @@
 #include "access/htup_details.h"
 #include "access/xloginsert.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/freespace.h"
 #include "storage/fsm_internals.h"
 #include "storage/smgr.h"

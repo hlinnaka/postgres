@@ -11,6 +11,7 @@
 #define BACKEND_STATUS_H
 
 #include "datatype/timestamp.h"
+#include "ipc/interrupt.h"
 #include "libpq/pqcomm.h"
 #include "miscadmin.h"			/* for BackendType */
 #include "storage/procnumber.h"

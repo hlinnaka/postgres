@@ -30,8 +30,8 @@
 
 #include <limits.h>
 
+#include "ipc/interrupt.h"
 #include "libpq/pqsignal.h"
-#include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/interrupt.h"

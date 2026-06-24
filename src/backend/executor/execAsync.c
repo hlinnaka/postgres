@@ -20,6 +20,7 @@
 #include "executor/nodeAppend.h"
 #include "executor/nodeForeignscan.h"
 #include "executor/nodeMergeAppend.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 
 #define EVENT_BUFFER_SIZE			16
