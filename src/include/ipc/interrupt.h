@@ -250,7 +250,7 @@ extern void SetInterruptAttentionMask(InterruptMask mask);
 extern PGDLLIMPORT uint32 InterruptHoldoffCount;
 extern PGDLLIMPORT uint32 CritSectionCount;
 
-extern const pg_atomic_uint32 ZeroPendingInterruptsFlags;
+extern PGDLLIMPORT const pg_atomic_uint32 ZeroPendingInterruptsFlags;
 
 static inline void
 HOLD_INTERRUPTS(void)
