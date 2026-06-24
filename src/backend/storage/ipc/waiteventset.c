@@ -167,10 +167,8 @@ struct WaitEventSet
 #endif
 };
 
-#ifndef WIN32
 /* Are we currently on a WaitEventSet? The signal handler would like to know. */
 static volatile sig_atomic_t waiting = false;
-#endif
 
 #ifdef WAIT_USE_SIGNALFD
 /* On Linux, we'll receive SIGURG via a signalfd file descriptor. */
@@ -211,6 +209,7 @@ static void WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event);
 static void WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event);
 #endif
 
+static void WaitEventSetWaitAbort(void);
 static inline int WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 										WaitEvent *occurred_events, int nevents);
 
@@ -1012,12 +1011,18 @@ WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event)
 		{
 			*handle = WSACreateEvent();
 			if (*handle == WSA_INVALID_EVENT)
+			{
+				WaitEventSetWaitAbort();
 				elog(ERROR, "failed to create event for socket: error code %d",
 					 WSAGetLastError());
+			}
 		}
 		if (WSAEventSelect(event->fd, *handle, flags) != 0)
+		{
+			WaitEventSetWaitAbort();
 			elog(ERROR, "failed to set up event for socket: error code %d",
 				 WSAGetLastError());
+		}
 
 		Assert(event->fd != PGINVALID_SOCKET);
 	}
@@ -1064,9 +1069,8 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 
 	pgstat_report_wait_start(wait_event_info);
 
-#ifndef WIN32
 	waiting = true;
-#else
+#ifdef WIN32
 	/* Ensure that signals are serviced even if interrupt is already pending */
 	pgwin32_dispatch_queued_signals();
 #endif
@@ -1198,18 +1202,36 @@ WaitEventSetWait(WaitEventSet *set, long timeout,
 		pg_atomic_write_u32(&MyPendingInterrupts->flags, 0);
 		SetInterruptAttentionMask(EnabledInterruptsMask);
 	}
+	waiting = false;
 
 	RESUME_INTERRUPTS();
-
-#ifndef WIN32
-	waiting = false;
-#endif
 
 	pgstat_report_wait_end();
 
 	return returned_events;
 }
 
+/*
+ * If WaitEventSetWaitBlock() errors out, it calls WaitEventSetWaitAbort() first to get
+ * us out of the waiting state.
+ */
+static void
+WaitEventSetWaitAbort(void)
+{
+	if (waiting)
+	{
+		/*
+		 * Clear the SLEEPING flag and reset attention mask for
+		 * CHECK_FOR_INTERRUPTS().  This is only necessary if we slept, but
+		 * there's no harm in doing it always and this error path isn't
+		 * performance sensitive.
+		 */
+		pg_atomic_write_u32(&MyPendingInterrupts->flags, 0);
+		SetInterruptAttentionMask(EnabledInterruptsMask);
+
+		waiting = false;
+	}
+}
 
 #if defined(WAIT_USE_EPOLL)
 
@@ -1240,7 +1262,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		/* EINTR is okay, otherwise complain */
 		if (errno != EINTR)
 		{
-			waiting = false;
+			WaitEventSetWaitAbort();
 			ereport(ERROR,
 					(errcode_for_socket_access(),
 					 errmsg("%s() failed: %m",
@@ -1302,7 +1324,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			if (!PostmasterIsAliveInternal())
 			{
 				if (set->exit_on_postmaster_death)
+				{
+					WaitEventSetWaitAbort();
 					proc_exit(1);
+				}
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_POSTMASTER_DEATH;
 				occurred_events++;
@@ -1384,7 +1409,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 	if (unlikely(set->report_postmaster_not_running))
 	{
 		if (set->exit_on_postmaster_death)
+		{
+			WaitEventSetWaitAbort();
 			proc_exit(1);
+		}
 		occurred_events->fd = PGINVALID_SOCKET;
 		occurred_events->events = WL_POSTMASTER_DEATH;
 		return 1;
@@ -1402,7 +1430,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		/* EINTR is okay, otherwise complain */
 		if (errno != EINTR)
 		{
-			waiting = false;
+			WaitEventSetWaitAbort();
 			ereport(ERROR,
 					(errcode_for_socket_access(),
 					 errmsg("%s() failed: %m",
@@ -1456,7 +1484,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			set->report_postmaster_not_running = true;
 
 			if (set->exit_on_postmaster_death)
+			{
+				WaitEventSetWaitAbort();
 				proc_exit(1);
+			}
 			occurred_events->fd = PGINVALID_SOCKET;
 			occurred_events->events = WL_POSTMASTER_DEATH;
 			occurred_events++;
@@ -1528,7 +1559,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		/* EINTR is okay, otherwise complain */
 		if (errno != EINTR)
 		{
-			waiting = false;
+			WaitEventSetWaitAbort();
 			ereport(ERROR,
 					(errcode_for_socket_access(),
 					 errmsg("%s() failed: %m",
@@ -1586,7 +1617,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			if (!PostmasterIsAliveInternal())
 			{
 				if (set->exit_on_postmaster_death)
+				{
+					WaitEventSetWaitAbort();
 					proc_exit(1);
+				}
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_POSTMASTER_DEATH;
 				occurred_events++;
@@ -1747,8 +1781,11 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 
 	/* Check return code */
 	if (rc == WAIT_FAILED)
+	{
+		WaitEventSetWaitAbort();
 		elog(ERROR, "WaitForMultipleObjects() failed: error code %lu",
 			 GetLastError());
+	}
 	else if (rc == WAIT_TIMEOUT)
 	{
 		/* timeout exceeded */
@@ -1780,7 +1817,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 		if (cur_event->events == WL_INTERRUPT)
 		{
 			if (!ResetEvent(set->handles[cur_event->pos + 1]))
+			{
+				WaitEventSetWaitAbort();
 				elog(ERROR, "ResetEvent failed: error code %lu", GetLastError());
+			}
 
 			if (set->interrupt_mask != 0 && InterruptPending(set->interrupt_mask))
 			{
@@ -1802,7 +1842,10 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 			if (!PostmasterIsAliveInternal())
 			{
 				if (set->exit_on_postmaster_death)
+				{
+					WaitEventSetWaitAbort();
 					proc_exit(1);
+				}
 				occurred_events->fd = PGINVALID_SOCKET;
 				occurred_events->events = WL_POSTMASTER_DEATH;
 				occurred_events++;
@@ -1820,8 +1863,11 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 
 			ZeroMemory(&resEvents, sizeof(resEvents));
 			if (WSAEnumNetworkEvents(cur_event->fd, handle, &resEvents) != 0)
+			{
+				WaitEventSetWaitAbort();
 				elog(ERROR, "failed to enumerate network events: error code %d",
 					 WSAGetLastError());
+			}
 			if ((cur_event->events & WL_SOCKET_READABLE) &&
 				(resEvents.lNetworkEvents & FD_READ))
 			{
@@ -2012,7 +2058,7 @@ drain(void)
 				continue;		/* retry */
 			else
 			{
-				waiting = false;
+				WaitEventSetWaitAbort();
 #ifdef WAIT_USE_SELF_PIPE
 				elog(ERROR, "read() on self-pipe failed: %m");
 #else
@@ -2022,7 +2068,7 @@ drain(void)
 		}
 		else if (rc == 0)
 		{
-			waiting = false;
+			WaitEventSetWaitAbort();
 #ifdef WAIT_USE_SELF_PIPE
 			elog(ERROR, "unexpected EOF on self-pipe");
 #else
