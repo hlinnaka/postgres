@@ -24,7 +24,7 @@
 #include "catalog/pg_collation.h"
 #include "commands/progress.h"
 #include "executor/instrument.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "pgstat.h"
 #include "storage/bufmgr.h"

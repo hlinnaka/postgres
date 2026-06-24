@@ -17,6 +17,7 @@
 #include "access/visibilitymap.h"
 #include "access/xloginsert.h"
 #include "catalog/pg_am_d.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
 #include "utils/acl.h"

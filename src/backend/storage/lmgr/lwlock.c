@@ -76,7 +76,7 @@
  */
 #include "postgres.h"
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
 #include "port/pg_bitutils.h"

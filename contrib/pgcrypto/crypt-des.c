@@ -61,7 +61,8 @@
  */
 
 #include "postgres.h"
-#include "miscadmin.h"
+
+#include "ipc/interrupt.h"
 #include "port/pg_bswap.h"
 
 #include "px-crypt.h"

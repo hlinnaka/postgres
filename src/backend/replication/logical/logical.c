@@ -32,7 +32,7 @@
 #include "access/xlog_internal.h"
 #include "access/xlogutils.h"
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "replication/decode.h"
 #include "replication/logical.h"

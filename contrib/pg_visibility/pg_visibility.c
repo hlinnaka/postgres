@@ -17,7 +17,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/storage_xlog.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/bufmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"

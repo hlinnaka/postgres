@@ -51,7 +51,7 @@
 #include "access/xlog.h"
 #include "access/xlogrecovery.h"
 #include "access/xlogwait.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "replication/walreceiver.h"
 #include "storage/latch.h"

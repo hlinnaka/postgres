@@ -27,6 +27,7 @@
 #include "executor/spi.h"
 #include "foreign/fdwapi.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"

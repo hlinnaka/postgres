@@ -29,7 +29,7 @@
 #include "catalog/pg_am.h"
 #include "commands/vacuum.h"
 #include "executor/instrument.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "storage/bufmgr.h"

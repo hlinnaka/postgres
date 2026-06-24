@@ -27,15 +27,14 @@
 #include "libpq-fe.h"
 #include "libpq/libpq-be-fe-helpers.h"
 #include "mb/pg_wchar.h"
-#include "miscadmin.h"
 #include "pgstat.h"
 #include "pqexpbuffer.h"
 #include "replication/walreceiver.h"
-#include "storage/latch.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/pg_lsn.h"
 #include "utils/tuplestore.h"
+#include "utils/wait_event.h"
 
 PG_MODULE_MAGIC_EXT(
 					.name = "libpqwalreceiver",

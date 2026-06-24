@@ -16,7 +16,7 @@
 #include "access/bufmask.h"
 #include "access/generic_xlog.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 
 /*-------------------------------------------------------------------------
  * Internally, a delta between pages consists of a set of fragments.  Each

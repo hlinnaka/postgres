@@ -133,6 +133,7 @@
 #include "access/slru.h"
 #include "fmgr.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "port/pg_numa.h"

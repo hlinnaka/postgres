@@ -8,6 +8,7 @@
 #include <ctype.h>
 
 #include "catalog/pg_collation.h"
+#include "ipc/interrupt.h"
 #include "ltree.h"
 #include "miscadmin.h"
 #include "utils/array.h"

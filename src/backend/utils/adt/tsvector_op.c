@@ -22,6 +22,7 @@
 #include "common/int.h"
 #include "executor/spi.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "lib/qunique.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"

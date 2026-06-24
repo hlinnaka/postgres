@@ -37,7 +37,7 @@
 #include "access/twophase_rmgr.h"
 #include "access/xlog.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
 #include "storage/lmgr.h"

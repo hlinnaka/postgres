@@ -23,7 +23,7 @@
 #include "common/hmac.h"
 #include "common/scram-common.h"
 #ifndef FRONTEND
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #endif
 #include "port/pg_bswap.h"
 

@@ -22,7 +22,7 @@
 #include "catalog/pg_am.h"
 #include "catalog/pg_class.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/bufmgr.h"
 #include "storage/lwlock.h"
 #include "storage/procarray.h"

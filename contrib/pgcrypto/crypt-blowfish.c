@@ -33,7 +33,8 @@
  */
 
 #include "postgres.h"
-#include "miscadmin.h"
+
+#include "ipc/interrupt.h"
 
 #include "px-crypt.h"
 #include "px.h"

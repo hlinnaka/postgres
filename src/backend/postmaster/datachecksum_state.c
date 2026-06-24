@@ -198,7 +198,7 @@
 #include "commands/progress.h"
 #include "commands/vacuum.h"
 #include "common/relpath.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
 #include "postmaster/bgwriter.h"

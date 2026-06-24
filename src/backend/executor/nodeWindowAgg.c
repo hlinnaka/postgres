@@ -41,6 +41,7 @@
 #include "executor/executor.h"
 #include "executor/instrument.h"
 #include "executor/nodeWindowAgg.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"

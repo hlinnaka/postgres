@@ -19,6 +19,7 @@
 #include "access/xloginsert.h"
 #include "catalog/pg_collation.h"
 #include "commands/vacuum.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/execnodes.h"
 #include "storage/predicate.h"

@@ -76,7 +76,7 @@
 #include "access/xlog.h"
 #include "access/xloginsert.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"

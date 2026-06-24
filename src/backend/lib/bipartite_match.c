@@ -18,6 +18,7 @@
 
 #include <limits.h>
 
+#include "ipc/interrupt.h"
 #include "lib/bipartite_match.h"
 #include "miscadmin.h"
 

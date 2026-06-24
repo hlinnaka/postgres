@@ -28,7 +28,7 @@
 
 #include "access/tsmapi.h"
 #include "catalog/pg_type.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "optimizer/optimizer.h"
 #include "portability/instr_time.h"
 #include "utils/sampling.h"

@@ -42,7 +42,7 @@
 #include "commands/progress.h"
 #include "commands/repack.h"
 #include "commands/vacuum.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/makefuncs.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
