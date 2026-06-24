@@ -537,10 +537,7 @@ errfinish(const char *filename, int lineno, const char *funcname)
 		 * could save and restore InterruptHoldoffCount for itself, but this
 		 * should make life easier for most.)
 		 */
-		InterruptHoldoffCount = 0;
-		QueryCancelHoldoffCount = 0;
-
-		CritSectionCount = 0;	/* should be unnecessary, but... */
+		ResetInterruptHoldoffCounts(0, 0);
 
 		/*
 		 * Note that we leave CurrentMemoryContext set to ErrorContext. The

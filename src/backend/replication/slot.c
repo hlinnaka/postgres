@@ -45,7 +45,6 @@
 #include "common/file_utils.h"
 #include "common/string.h"
 #include "ipc/interrupt.h"
-#include "ipc/signal_handlers.h"
 #include "pgstat.h"
 #include "replication/logicallauncher.h"
 #include "replication/slotsync.h"
@@ -2119,7 +2118,8 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 			 */
 			if (last_signaled_pid != active_pid)
 			{
-				ReportSlotInvalidation(invalidation_cause, true, active_pid,
+				ReportSlotInvalidation(invalidation_cause, true,
+									   active_pid,
 									   slotname, restart_lsn,
 									   oldestLSN, snapshotConflictHorizon,
 									   slot_idle_secs);
@@ -2129,7 +2129,7 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 												  active_pid,
 												  RECOVERY_CONFLICT_LOGICALSLOT);
 				else
-					(void) kill(active_pid, SIGTERM);
+					SendInterruptWithPid(INTERRUPT_TERMINATE, active_proc, active_pid);
 
 				last_signaled_pid = active_pid;
 			}
@@ -2172,7 +2172,8 @@ InvalidatePossiblyObsoleteSlot(uint32 possible_causes,
 			ReplicationSlotSave();
 			ReplicationSlotRelease();
 
-			ReportSlotInvalidation(invalidation_cause, false, active_pid,
+			ReportSlotInvalidation(invalidation_cause, false,
+								   active_pid,
 								   slotname, restart_lsn,
 								   oldestLSN, snapshotConflictHorizon,
 								   slot_idle_secs);
@@ -3270,11 +3271,8 @@ WaitForStandbyConfirmation(XLogRecPtr wait_for_lsn)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		/* Exit if done waiting for every slot. */
 		if (StandbySlotsHaveCaughtup(wait_for_lsn, WARNING))

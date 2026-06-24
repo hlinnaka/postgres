@@ -1678,8 +1678,9 @@ interpret_ident_response(const char *ident_response,
  *	owns the tcp connection to "local_addr"
  *	If the username is successfully retrieved, check the usermap.
  *
- *	XXX: Using WaitLatchOrSocket() and doing a CHECK_FOR_INTERRUPTS() if the
- *	latch was set would improve the responsiveness to timeouts/cancellations.
+ *	XXX: Using WaitInterruptOrSocket() and doing a CHECK_FOR_INTERRUPTS()
+ *	if the interrupt was pending would improve the responsiveness to
+ *	timeouts/cancellations.
  */
 static int
 ident_inet(Port *port)

@@ -173,15 +173,13 @@ proc_exit_prepare(int code)
 	proc_exit_inprogress = true;
 
 	/*
-	 * Forget any pending cancel or die requests; we're doing our best to
-	 * close up shop already.  Note that the signal handlers will not set
-	 * these flags again, now that proc_exit_inprogress is set.
+	 * Forget any pending cancel or die requests and hold interrupts to
+	 * prevent any more interrupts from being processed; we're doing our best
+	 * to close up shop already.
 	 */
-	InterruptPending = false;
-	ProcDiePending = false;
-	QueryCancelPending = false;
-	InterruptHoldoffCount = 1;
-	CritSectionCount = 0;
+	ClearInterrupt(INTERRUPT_TERMINATE);
+	ClearInterrupt(INTERRUPT_QUERY_CANCEL);
+	ResetInterruptHoldoffCounts(1, 0);
 
 	/*
 	 * Also clear the error context stack, to prevent error callbacks from

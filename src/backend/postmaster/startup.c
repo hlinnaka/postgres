@@ -22,13 +22,14 @@
 #include "access/xlog.h"
 #include "access/xlogrecovery.h"
 #include "access/xlogutils.h"
-#include "libpq/pqsignal.h"
 #include "ipc/interrupt.h"
+#include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/startup.h"
 #include "storage/ipc.h"
 #include "storage/pmsignal.h"
+#include "storage/proc.h"
 #include "storage/procsignal.h"
 #include "storage/standby.h"
 #include "utils/guc.h"
@@ -39,20 +40,13 @@
 #ifndef USE_POSTMASTER_DEATH_SIGNAL
 /*
  * On systems that need to make a system call to find out if the postmaster has
- * gone away, we'll do so only every Nth call to ProcessStartupProcInterrupts().
+ * gone away, we'll do so only every Nth call to StartupCheckPostmasterDeath().
  * This only affects how long it takes us to detect the condition while we're
- * busy replaying WAL.  Latch waits and similar which should react immediately
+ * busy replaying WAL.  Interrupt waits and similar should react immediately
  * through the usual techniques.
  */
 #define POSTMASTER_POLL_RATE_LIMIT 1024
 #endif
-
-/*
- * Flags set by interrupt handlers for later service in the redo loop.
- */
-static volatile sig_atomic_t got_SIGHUP = false;
-static volatile sig_atomic_t shutdown_requested = false;
-static volatile sig_atomic_t promote_signaled = false;
 
 /*
  * Flag set when executing a restore command, to tell SIGTERM signal handler
@@ -78,7 +72,7 @@ int			log_startup_progress_interval = 10000;	/* 10 sec */
 
 /* Signal handlers */
 static void StartupProcTriggerHandler(SIGNAL_ARGS);
-static void StartupProcSigHupHandler(SIGNAL_ARGS);
+static void StartupProcShutdownHandler(SIGNAL_ARGS);
 
 /* Callbacks */
 static void StartupProcExit(int code, Datum arg);
@@ -93,16 +87,12 @@ static void StartupProcExit(int code, Datum arg);
 static void
 StartupProcTriggerHandler(SIGNAL_ARGS)
 {
-	promote_signaled = true;
-	WakeupRecovery();
-}
-
-/* SIGHUP: set flag to re-read config file at next convenient time */
-static void
-StartupProcSigHupHandler(SIGNAL_ARGS)
-{
-	got_SIGHUP = true;
-	WakeupRecovery();
+	/*
+	 * The INTERRUPT_CHECK_PROMOTE flag hints the startup process to check for
+	 * the signal file, while INTERRUPT_WAL_ARRIVED wakes up the process from
+	 * sleep.
+	 */
+	RaiseInterrupt(INTERRUPT_CHECK_PROMOTE | INTERRUPT_WAL_ARRIVED);
 }
 
 /* SIGTERM: set flag to abort redo and exit */
@@ -112,8 +102,16 @@ StartupProcShutdownHandler(SIGNAL_ARGS)
 	if (in_restore_command)
 		proc_exit(1);
 	else
-		shutdown_requested = true;
-	WakeupRecovery();
+		RaiseInterrupt(INTERRUPT_TERMINATE);
+}
+
+/* Process various interrupts that might be sent to the startup process */
+
+static void
+ProcessStartupProcTerminateInterrupt(void)
+{
+	/* we were requested to exit without finishing recovery. */
+	proc_exit(1);
 }
 
 /*
@@ -123,7 +121,8 @@ StartupProcShutdownHandler(SIGNAL_ARGS)
  * process to restart the walreceiver.
  */
 static void
-StartupRereadConfig(void)
+ProcessStartupProcConfigReloadInterrupt(void)
+
 {
 	char	   *conninfo = pstrdup(PrimaryConnInfo);
 	char	   *slotname = pstrdup(PrimarySlotName);
@@ -150,28 +149,12 @@ StartupRereadConfig(void)
 		StartupRequestWalReceiverRestart();
 }
 
-/* Process various signals that might be sent to the startup process */
 void
-ProcessStartupProcInterrupts(void)
+StartupProcCheckPostmasterDeath(void)
 {
 #ifdef POSTMASTER_POLL_RATE_LIMIT
 	static uint32 postmaster_poll_count = 0;
 #endif
-
-	/*
-	 * Process any requests or signals received recently.
-	 */
-	if (got_SIGHUP)
-	{
-		got_SIGHUP = false;
-		StartupRereadConfig();
-	}
-
-	/*
-	 * Check if we were requested to exit without finishing recovery.
-	 */
-	if (shutdown_requested)
-		proc_exit(1);
 
 	/*
 	 * Emergency bailout if postmaster has died.  This is to avoid the
@@ -185,14 +168,6 @@ ProcessStartupProcInterrupts(void)
 #endif
 		!PostmasterIsAlive())
 		exit(1);
-
-	/* Process barrier events */
-	if (ProcSignalBarrierPending)
-		ProcessProcSignalBarrier();
-
-	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
-		ProcessLogMemoryContextInterrupt();
 }
 
 
@@ -226,14 +201,12 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	/*
 	 * Properly accept or ignore signals the postmaster might send us.
 	 */
-	pqsignal(SIGHUP, StartupProcSigHupHandler); /* reload config file */
-	pqsignal(SIGINT, PG_SIG_IGN);	/* ignore query cancel */
+
+	/* override SIGTERM because we need a little more complicated handling */
 	pqsignal(SIGTERM, StartupProcShutdownHandler);	/* request shutdown */
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	InitializeTimeouts();		/* establishes SIGALRM handler */
-	pqsignal(SIGPIPE, PG_SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
 	pqsignal(SIGUSR2, StartupProcTriggerHandler);
+
+	InitializeTimeouts();		/* establishes SIGALRM handler */
 
 	/*
 	 * Register timeouts needed for standby mode
@@ -241,6 +214,13 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	RegisterTimeout(STANDBY_DEADLOCK_TIMEOUT, StandbyDeadLockHandler);
 	RegisterTimeout(STANDBY_TIMEOUT, StandbyTimeoutHandler);
 	RegisterTimeout(STANDBY_LOCK_TIMEOUT, StandbyLockTimeoutHandler);
+
+	/* Only set up a subset of the standard interrupt handlers */
+	SetStandardInterruptHandlers();
+	SetInterruptHandler(INTERRUPT_TERMINATE, ProcessStartupProcTerminateInterrupt);
+	EnableInterrupt(INTERRUPT_TERMINATE);
+	SetInterruptHandler(INTERRUPT_CONFIG_RELOAD, ProcessStartupProcConfigReloadInterrupt);
+	EnableInterrupt(INTERRUPT_CONFIG_RELOAD);
 
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
@@ -269,7 +249,7 @@ PreRestoreCommand(void)
 	 * shutdown request received just before this.
 	 */
 	in_restore_command = true;
-	if (shutdown_requested)
+	if (InterruptPending(INTERRUPT_TERMINATE))
 		proc_exit(1);
 }
 
@@ -277,18 +257,6 @@ void
 PostRestoreCommand(void)
 {
 	in_restore_command = false;
-}
-
-bool
-IsPromoteSignaled(void)
-{
-	return promote_signaled;
-}
-
-void
-ResetPromoteSignaled(void)
-{
-	promote_signaled = false;
 }
 
 /*

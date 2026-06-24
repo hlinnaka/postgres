@@ -14,19 +14,19 @@
 #include <sys/stat.h>
 
 #include "common/hashfn.h"
-#include "ipc/signal_handlers.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pg_stash_advice.h"
 #include "postmaster/bgworker.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
 #include "utils/backend_status.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
+#include "utils/wait_classes.h"
 
 typedef struct pgsa_writer_context
 {
@@ -96,10 +96,11 @@ pg_stash_advice_worker_main(Datum main_arg)
 	uint64		last_change_count;
 	TimestampTz last_write_time = 0;
 
-	/* Establish signal handlers; once that's done, unblock signals. */
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+	/* Establish interrupt handlers */
+	SetStandardInterruptHandlers();
+	/* we'll check for INTERRUPT_TERMINATE ourselves in the main loop */
+	DisableInterrupt(INTERRUPT_TERMINATE);
+	/* Default signal handlers are OK for us; unblock signals. */
 	BackgroundWorkerUnblockSignals();
 
 	/* Log a debug message */
@@ -151,22 +152,21 @@ pg_stash_advice_worker_main(Datum main_arg)
 	last_change_count = pg_atomic_read_u64(&pgsa_state->change_count);
 
 	/* Periodically write to disk until terminated. */
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_TERMINATE))
 	{
 		/* In case of a SIGHUP, just reload the configuration. */
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		if (pg_stash_advice_persist_interval <= 0)
 		{
 			/* Only writing at shutdown, so just wait forever. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-							 -1L,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_TERMINATE |
+								 INTERRUPT_CONFIG_RELOAD,
+								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+								 -1L,
+								 PG_WAIT_EXTENSION);
 		}
 		else
 		{
@@ -201,13 +201,15 @@ pg_stash_advice_worker_main(Datum main_arg)
 			}
 
 			/* Sleep until the next write time. */
-			(void) WaitLatch(MyLatch,
-							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							 delay_in_ms,
-							 PG_WAIT_EXTENSION);
+			(void) WaitInterrupt(CheckForInterruptsMask |
+								 INTERRUPT_TERMINATE |
+								 INTERRUPT_CONFIG_RELOAD,
+								 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								 delay_in_ms,
+								 PG_WAIT_EXTENSION);
 		}
 
-		ResetLatch(MyLatch);
+		CHECK_FOR_INTERRUPTS();
 	}
 
 	/* Write one last time before exiting. */

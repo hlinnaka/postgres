@@ -43,7 +43,6 @@
 #include "commands/repack.h"
 #include "commands/vacuum.h"
 #include "ipc/interrupt.h"
-#include "ipc/signal_handlers.h"
 #include "nodes/makefuncs.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
@@ -2442,9 +2441,6 @@ vacuum_delay_point(bool is_analyze)
 	/* Always check for interrupts */
 	CHECK_FOR_INTERRUPTS();
 
-	if (InterruptPending)
-		return;
-
 	if (IsParallelWorker())
 	{
 		/*
@@ -2455,7 +2451,7 @@ vacuum_delay_point(bool is_analyze)
 		parallel_vacuum_update_shared_delay_params();
 	}
 
-	if (!VacuumCostActive && !ConfigReloadPending)
+	if (!VacuumCostActive && !InterruptPending(INTERRUPT_CONFIG_RELOAD))
 		return;
 
 	/*
@@ -2464,9 +2460,9 @@ vacuum_delay_point(bool is_analyze)
 	 * [autovacuum_]vacuum_cost_delay to take effect while a table is being
 	 * vacuumed or analyzed.
 	 */
-	if (ConfigReloadPending && AmAutoVacuumWorkerProcess())
+	if (InterruptPending(INTERRUPT_CONFIG_RELOAD) && AmAutoVacuumWorkerProcess())
 	{
-		ConfigReloadPending = false;
+		ClearInterrupt(INTERRUPT_CONFIG_RELOAD);
 		ProcessConfigFile(PGC_SIGHUP);
 		VacuumUpdateCosts();
 
@@ -2559,8 +2555,8 @@ vacuum_delay_point(bool is_analyze)
 		/*
 		 * We don't want to ignore postmaster death during very long vacuums
 		 * with vacuum_cost_delay configured.  We can't use the usual
-		 * WaitLatch() approach here because we want microsecond-based sleep
-		 * durations above.
+		 * WaitInterrupt() approach here because we want microsecond-based
+		 * sleep durations above.
 		 */
 		if (IsUnderPostmaster && !PostmasterIsAlive())
 			exit(1);
