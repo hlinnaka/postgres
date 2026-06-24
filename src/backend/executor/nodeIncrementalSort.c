@@ -80,6 +80,7 @@
 
 #include "executor/execdebug.h"
 #include "executor/nodeIncrementalSort.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/lsyscache.h"
 #include "utils/tuplesort.h"

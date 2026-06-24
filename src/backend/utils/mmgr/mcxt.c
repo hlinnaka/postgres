@@ -39,6 +39,7 @@
 #include "postgres.h"
 
 #include "common/int.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "utils/memdebug.h"

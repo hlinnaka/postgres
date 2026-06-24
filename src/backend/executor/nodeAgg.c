@@ -259,6 +259,7 @@
 #include "executor/executor.h"
 #include "executor/instrument.h"
 #include "executor/nodeAgg.h"
+#include "ipc/interrupt.h"
 #include "lib/hyperloglog.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"

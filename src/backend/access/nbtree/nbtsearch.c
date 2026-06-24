@@ -19,7 +19,7 @@
 #include "access/relscan.h"
 #include "access/xact.h"
 #include "executor/instrument_node.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/predicate.h"
 #include "utils/lsyscache.h"

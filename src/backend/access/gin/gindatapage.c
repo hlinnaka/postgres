@@ -17,8 +17,8 @@
 #include "access/gin_private.h"
 #include "access/ginxlog.h"
 #include "access/xloginsert.h"
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
-#include "miscadmin.h"
 #include "storage/predicate.h"
 #include "utils/rel.h"
 

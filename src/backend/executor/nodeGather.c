@@ -34,6 +34,7 @@
 #include "executor/executor.h"
 #include "executor/nodeGather.h"
 #include "executor/tqueue.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "optimizer/optimizer.h"
 #include "storage/latch.h"

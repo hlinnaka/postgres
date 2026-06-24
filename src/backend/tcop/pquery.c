@@ -21,7 +21,7 @@
 #include "commands/prepare.h"
 #include "executor/executor.h"
 #include "executor/tstoreReceiver.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pg_trace.h"
 #include "tcop/pquery.h"
 #include "tcop/utility.h"

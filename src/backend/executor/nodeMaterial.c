@@ -23,6 +23,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeMaterial.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/tuplestore.h"
 

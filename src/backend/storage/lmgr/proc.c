@@ -38,7 +38,7 @@
 #include "access/twophase.h"
 #include "access/xlogutils.h"
 #include "access/xlogwait.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "replication/slotsync.h"

@@ -73,8 +73,8 @@
 #endif
 
 #include "common/ip.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
-#include "miscadmin.h"
 #include "port/pg_bswap.h"
 #include "postmaster/postmaster.h"
 #include "storage/ipc.h"

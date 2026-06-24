@@ -14,8 +14,8 @@
 
 #include "common/pg_prng.h"
 #include "fmgr.h"
+#include "ipc/interrupt.h"
 #include "lib/bloomfilter.h"
-#include "miscadmin.h"
 
 PG_MODULE_MAGIC;
 

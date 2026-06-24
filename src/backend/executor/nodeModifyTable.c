@@ -63,7 +63,7 @@
 #include "executor/instrument.h"
 #include "executor/nodeModifyTable.h"
 #include "foreign/fdwapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/optimizer.h"
 #include "pgstat.h"

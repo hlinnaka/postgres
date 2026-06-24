@@ -16,8 +16,8 @@
 #include "postgres.h"
 
 #include "common/int.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
-#include "miscadmin.h"
 #include "utils/builtins.h"
 #include "utils/formatting.h"
 #include "utils/memutils.h"

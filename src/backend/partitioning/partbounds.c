@@ -24,7 +24,7 @@
 #include "commands/tablecmds.h"
 #include "common/hashfn.h"
 #include "executor/executor.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/pathnodes.h"

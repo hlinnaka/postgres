@@ -23,6 +23,7 @@
 #include "access/xlogrecovery.h"
 #include "access/xlogutils.h"
 #include "libpq/pqsignal.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/startup.h"

@@ -36,7 +36,7 @@
 #include "executor/executor.h"
 #include "executor/instrument.h"
 #include "foreign/fdwapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_relation.h"

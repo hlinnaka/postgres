@@ -25,7 +25,7 @@
 #include <unistd.h>
 
 #include "common/file_utils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/copydir.h"
 #include "storage/fd.h"

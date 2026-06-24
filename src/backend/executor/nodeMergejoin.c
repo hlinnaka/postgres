@@ -96,7 +96,7 @@
 #include "executor/execdebug.h"
 #include "executor/instrument.h"
 #include "executor/nodeMergejoin.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/lsyscache.h"
 #include "utils/sortsupport.h"
 

@@ -47,7 +47,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeResult.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 
 
 /* ----------------------------------------------------------------

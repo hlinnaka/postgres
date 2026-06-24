@@ -15,10 +15,10 @@
 
 #include "access/parallel.h"
 #include "commands/repack.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
-#include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/logicalworker.h"
 #include "storage/latch.h"

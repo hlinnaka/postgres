@@ -25,6 +25,7 @@
 #include "access/tableam.h"
 #include "access/transam.h"
 #include "catalog/index.h"
+#include "ipc/interrupt.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"

@@ -19,6 +19,7 @@
 #include "catalog/pg_am_d.h"
 #include "commands/vacuum.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
 #include "storage/freespace.h"

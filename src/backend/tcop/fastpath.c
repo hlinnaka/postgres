@@ -22,6 +22,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_proc.h"
+#include "ipc/interrupt.h"
 #include "libpq/pqformat.h"
 #include "libpq/protocol.h"
 #include "mb/pg_wchar.h"

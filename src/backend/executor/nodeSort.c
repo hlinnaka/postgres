@@ -18,6 +18,7 @@
 #include "access/parallel.h"
 #include "executor/execdebug.h"
 #include "executor/nodeSort.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/tuplesort.h"
 

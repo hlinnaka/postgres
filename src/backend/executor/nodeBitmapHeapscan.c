@@ -41,7 +41,7 @@
 #include "executor/executor.h"
 #include "executor/instrument.h"
 #include "executor/nodeBitmapHeapscan.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"

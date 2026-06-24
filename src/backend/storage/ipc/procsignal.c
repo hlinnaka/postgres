@@ -20,7 +20,7 @@
 #include "access/parallel.h"
 #include "commands/async.h"
 #include "commands/repack.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "port/pg_bitutils.h"
 #include "postmaster/datachecksum_state.h"
