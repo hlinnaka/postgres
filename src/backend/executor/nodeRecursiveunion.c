@@ -20,6 +20,7 @@
 
 #include "executor/executor.h"
 #include "executor/nodeRecursiveunion.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/memutils.h"
 #include "utils/tuplestore.h"

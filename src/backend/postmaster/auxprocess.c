@@ -16,7 +16,7 @@
 #include <signal.h>
 
 #include "access/xlog.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "storage/condition_variable.h"

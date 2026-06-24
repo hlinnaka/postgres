@@ -19,7 +19,7 @@
 
 #include "postgres.h"
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/proc.h"

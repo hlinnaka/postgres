@@ -29,6 +29,7 @@
 #include <float.h>
 #include <ctype.h>
 
+#include "ipc/interrupt.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "nodes/miscnodes.h"

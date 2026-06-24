@@ -29,6 +29,7 @@
 #include "access/table.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/multibitmapset.h"

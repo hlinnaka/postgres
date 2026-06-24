@@ -13,7 +13,7 @@
 #include "access/parallel.h"
 #include "executor/executor.h"
 #include "executor/nodeCustom.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "nodes/extensible.h"
 #include "nodes/plannodes.h"

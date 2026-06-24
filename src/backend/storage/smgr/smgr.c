@@ -64,8 +64,8 @@
 #include "postgres.h"
 
 #include "access/xlogutils.h"
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
-#include "miscadmin.h"
 #include "storage/aio.h"
 #include "storage/bufmgr.h"
 #include "storage/ipc.h"

@@ -19,6 +19,7 @@
 #include "postgres.h"
 
 #include "common/file_perm.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq-be.h"
 #include "libpq/pqcomm.h"
 #include "miscadmin.h"

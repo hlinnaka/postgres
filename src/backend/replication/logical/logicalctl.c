@@ -66,7 +66,7 @@
 #include "access/xloginsert.h"
 #include "access/xlogrecovery.h"
 #include "catalog/pg_control.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "replication/slot.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"

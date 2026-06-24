@@ -34,7 +34,7 @@
 
 #include <liburing.h>
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/aio_internal.h"
 #include "storage/fd.h"
 #include "storage/proc.h"

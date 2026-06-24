@@ -29,6 +29,7 @@
 #include "access/xlog.h"
 #include "access/xloginsert.h"
 #include "common/int.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/indexfsm.h"
 #include "storage/predicate.h"

@@ -16,6 +16,7 @@
 
 #include <sys/time.h>
 
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/latch.h"
 #include "utils/timeout.h"

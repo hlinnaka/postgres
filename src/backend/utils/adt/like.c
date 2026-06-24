@@ -20,6 +20,7 @@
 #include <ctype.h>
 
 #include "catalog/pg_collation.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "utils/fmgrprotos.h"

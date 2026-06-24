@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include "fmgr.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "plperl.h"
 #include "utils/fmgrprotos.h"

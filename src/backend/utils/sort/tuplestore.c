@@ -59,7 +59,7 @@
 #include "access/htup_details.h"
 #include "commands/tablespace.h"
 #include "executor/executor.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/buffile.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"

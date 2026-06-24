@@ -15,6 +15,7 @@
 #include "pgpa_ast.h"
 
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/array.h"
 #include "utils/builtins.h"

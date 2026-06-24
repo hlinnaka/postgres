@@ -35,6 +35,7 @@
 #include "executor/instrument.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"
 #include "utils/lsyscache.h"

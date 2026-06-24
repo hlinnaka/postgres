@@ -70,6 +70,7 @@
 #include "common/hashfn.h"
 #include "executor/executor.h"
 #include "executor/nodeMemoize.h"
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
 #include "utils/datum.h"

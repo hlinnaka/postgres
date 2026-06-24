@@ -19,8 +19,8 @@
 #include "executor/execParallel.h"
 #include "executor/nodeGatherMerge.h"
 #include "executor/tqueue.h"
+#include "ipc/interrupt.h"
 #include "lib/binaryheap.h"
-#include "miscadmin.h"
 #include "optimizer/optimizer.h"
 #include "utils/sortsupport.h"
 

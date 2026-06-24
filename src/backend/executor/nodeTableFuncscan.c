@@ -25,6 +25,7 @@
 #include "executor/executor.h"
 #include "executor/nodeTableFuncscan.h"
 #include "executor/tablefunc.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/execnodes.h"
 #include "utils/builtins.h"

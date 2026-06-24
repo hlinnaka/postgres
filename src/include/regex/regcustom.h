@@ -42,6 +42,7 @@
 #include <limits.h>
 #include <wctype.h>
 
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 
 #include "miscadmin.h"			/* needed by rstacktoodeep */

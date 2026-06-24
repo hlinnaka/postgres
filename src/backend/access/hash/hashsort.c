@@ -27,7 +27,7 @@
 
 #include "access/hash.h"
 #include "commands/progress.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "port/pg_bitutils.h"
 #include "utils/tuplesort.h"

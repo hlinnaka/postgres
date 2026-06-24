@@ -76,7 +76,7 @@
 
 #include "access/xact.h"
 #include "common/int.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "replication/syncrep.h"
 #include "replication/walsender.h"

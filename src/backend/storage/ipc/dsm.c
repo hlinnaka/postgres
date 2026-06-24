@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 
 #include "common/pg_prng.h"
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
 #include "port/pg_bitutils.h"

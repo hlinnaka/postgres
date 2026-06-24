@@ -169,7 +169,7 @@
 #include "executor/instrument.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/lsyscache.h"
 #include "utils/sharedtuplestore.h"
 #include "utils/tuplestore.h"

@@ -22,7 +22,7 @@
 #include "catalog/objectaccess.h"
 #include "catalog/pg_proc.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parse_coerce.h"
 #include "pgstat.h"

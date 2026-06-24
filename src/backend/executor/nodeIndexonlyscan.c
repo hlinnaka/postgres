@@ -37,7 +37,7 @@
 #include "executor/instrument.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "utils/rel.h"
 
 

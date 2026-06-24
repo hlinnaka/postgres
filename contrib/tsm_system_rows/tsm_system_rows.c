@@ -30,7 +30,7 @@
 
 #include "access/tsmapi.h"
 #include "catalog/pg_type.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "optimizer/optimizer.h"
 #include "utils/sampling.h"
 

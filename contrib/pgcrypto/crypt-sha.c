@@ -46,8 +46,8 @@
 #include "postgres.h"
 
 #include "common/string.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
-#include "miscadmin.h"
 
 #include "px-crypt.h"
 #include "px.h"

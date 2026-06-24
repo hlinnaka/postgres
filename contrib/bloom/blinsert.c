@@ -16,7 +16,7 @@
 #include "access/generic_xlog.h"
 #include "access/tableam.h"
 #include "bloom.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/execnodes.h"
 #include "storage/bufmgr.h"
 #include "utils/memutils.h"

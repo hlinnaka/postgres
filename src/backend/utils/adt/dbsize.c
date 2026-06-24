@@ -20,6 +20,7 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_tablespace.h"
 #include "commands/tablespace.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
 #include "utils/acl.h"
