@@ -56,7 +56,7 @@ pgstat_lock_flush_cb(bool nowait)
 	if (!have_lockstats)
 		return false;
 
-	shstats = &pgStatLocal.shmem->lock;
+	shstats = &pgStatShared->lock;
 	lckstat_lock = &shstats->lock;
 
 	if (!nowait)
@@ -93,14 +93,14 @@ pgstat_lock_init_shmem_cb(void *stats)
 void
 pgstat_lock_reset_all_cb(TimestampTz ts)
 {
-	LWLock	   *lckstat_lock = &pgStatLocal.shmem->lock.lock;
+	LWLock	   *lckstat_lock = &pgStatShared->lock.lock;
 
 	LWLockAcquire(lckstat_lock, LW_EXCLUSIVE);
 
-	pgStatLocal.shmem->lock.stats.stat_reset_timestamp = ts;
+	pgStatShared->lock.stats.stat_reset_timestamp = ts;
 
-	memset(pgStatLocal.shmem->lock.stats.stats, 0,
-		   sizeof(pgStatLocal.shmem->lock.stats.stats));
+	memset(pgStatShared->lock.stats.stats, 0,
+		   sizeof(pgStatShared->lock.stats.stats));
 
 	LWLockRelease(lckstat_lock);
 }
@@ -108,11 +108,11 @@ pgstat_lock_reset_all_cb(TimestampTz ts)
 void
 pgstat_lock_snapshot_cb(void)
 {
-	LWLock	   *lckstat_lock = &pgStatLocal.shmem->lock.lock;
+	LWLock	   *lckstat_lock = &pgStatShared->lock.lock;
 
 	LWLockAcquire(lckstat_lock, LW_SHARED);
 
-	pgStatLocal.snapshot.lock = pgStatLocal.shmem->lock.stats;
+	pgStatLocal.snapshot.lock = pgStatShared->lock.stats;
 
 	LWLockRelease(lckstat_lock);
 }

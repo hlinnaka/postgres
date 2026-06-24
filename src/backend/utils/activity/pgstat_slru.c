@@ -139,7 +139,7 @@ pgstat_get_slru_index(const char *name)
 bool
 pgstat_slru_flush_cb(bool nowait)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 	int			i;
 
 	if (!have_slrustats)
@@ -194,7 +194,7 @@ pgstat_slru_reset_all_cb(TimestampTz ts)
 void
 pgstat_slru_snapshot_cb(void)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 
 	LWLockAcquire(&stats_shmem->lock, LW_SHARED);
 
@@ -230,7 +230,7 @@ get_slru_entry(int slru_idx)
 static void
 pgstat_reset_slru_counter_internal(int index, TimestampTz ts)
 {
-	PgStatShared_SLRU *stats_shmem = &pgStatLocal.shmem->slru;
+	PgStatShared_SLRU *stats_shmem = &pgStatShared->slru;
 
 	LWLockAcquire(&stats_shmem->lock, LW_EXCLUSIVE);
 

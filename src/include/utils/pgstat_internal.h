@@ -636,7 +636,6 @@ typedef struct PgStat_Snapshot
  */
 typedef struct PgStat_LocalState
 {
-	PgStat_ShmemControl *shmem;
 	dsa_area   *dsa;
 	dshash_table *shared_hash;
 
@@ -885,6 +884,7 @@ extern PGDLLIMPORT bool pgstat_report_fixed;
 
 /* Backend-local stats state */
 extern PGDLLIMPORT PgStat_LocalState pgStatLocal;
+extern PGDLLIMPORT PgStat_ShmemControl *pgStatShared;
 
 /* Helper functions for reading and writing of on-disk stats file */
 extern void pgstat_write_chunk(FILE *fpout, void *ptr, size_t len);
@@ -1025,7 +1025,7 @@ pgstat_get_entry_count(PgStat_Kind kind)
 {
 	Assert(pgstat_get_kind_info(kind)->track_entry_count);
 
-	return pg_atomic_read_u64(&pgStatLocal.shmem->entry_counts[kind - 1]);
+	return pg_atomic_read_u64(&pgStatShared->entry_counts[kind - 1]);
 }
 
 /*
@@ -1040,7 +1040,7 @@ pgstat_get_custom_shmem_data(PgStat_Kind kind)
 	Assert(pgstat_is_kind_custom(kind));
 	Assert(pgstat_get_kind_info(kind)->fixed_amount);
 
-	return pgStatLocal.shmem->custom_data[idx];
+	return pgStatShared->custom_data[idx];
 }
 
 /*

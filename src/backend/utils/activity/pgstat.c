@@ -212,6 +212,7 @@ int			pgstat_fetch_consistency = PGSTAT_FETCH_CONSISTENCY_CACHE;
  */
 
 PgStat_LocalState pgStatLocal;
+PgStat_ShmemControl *pgStatShared;
 
 /*
  * Track pending reports for fixed-numbered stats, used by
@@ -590,8 +591,8 @@ pgstat_discard_stats(void)
 void
 pgstat_before_server_shutdown(int code, Datum arg)
 {
-	Assert(pgStatLocal.shmem != NULL);
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(pgStatShared != NULL);
+	Assert(!pgStatShared->is_shutdown);
 
 	/*
 	 * Stats should only be reported after pgstat_initialize() and before
@@ -610,7 +611,7 @@ pgstat_before_server_shutdown(int code, Datum arg)
 	 */
 	if (code == 0)
 	{
-		pgStatLocal.shmem->is_shutdown = true;
+		pgStatShared->is_shutdown = true;
 		pgstat_write_statsfile();
 	}
 }
@@ -751,7 +752,7 @@ pgstat_report_stat(bool force)
 	 * pgstat_report_stat() call in pgstat_shutdown_hook() - which at least
 	 * the process that ran pgstat_before_server_shutdown() will still call.
 	 */
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(!pgStatShared->is_shutdown);
 
 	if (force)
 	{
@@ -1813,7 +1814,7 @@ pgstat_read_statsfile(void)
 	int32		format_id;
 	bool		found;
 	const char *statfile = PGSTAT_STAT_PERMANENT_FILENAME;
-	PgStat_ShmemControl *shmem = pgStatLocal.shmem;
+	PgStat_ShmemControl *shmem = pgStatShared;
 
 	/* shouldn't be called from postmaster */
 	Assert(IsUnderPostmaster || !IsPostmasterEnvironment);

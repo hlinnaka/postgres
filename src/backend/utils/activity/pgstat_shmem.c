@@ -84,11 +84,11 @@ static const dshash_parameters dsh_params = {
  *
  * When a stats entry is dropped each backend needs to release its reference
  * to it before the memory can be released. To trigger that
- * pgStatLocal.shmem->gc_request_count is incremented - which each backend
+ * pgStatShared->gc_request_count is incremented - which each backend
  * compares to their copy of pgStatSharedRefAge on a regular basis.
  */
 static pgstat_entry_ref_hash_hash *pgStatEntryRefHash = NULL;
-static int	pgStatSharedRefAge = 0; /* cache age of pgStatLocal.shmem */
+static int	pgStatSharedRefAge = 0; /* cache age of pgStatShared */
 
 /*
  * Memory contexts containing the pgStatEntryRefHash table and the
@@ -164,7 +164,7 @@ StatsShmemRequest(void *arg)
 {
 	ShmemRequestStruct(.name = "Shared Memory Stats",
 					   .size = StatsShmemSize(),
-					   .ptr = (void **) &pgStatLocal.shmem,
+					   .ptr = (void **) &pgStatShared,
 		);
 }
 
@@ -176,10 +176,10 @@ StatsShmemInit(void *arg)
 {
 	dsa_area   *dsa;
 	dshash_table *dsh;
-	PgStat_ShmemControl *ctl = pgStatLocal.shmem;
+	PgStat_ShmemControl *ctl = pgStatShared;
 	char	   *p = (char *) ctl;
 
-	/* the allocation of pgStatLocal.shmem itself */
+	/* the allocation of pgStatShared itself */
 	p += MAXALIGN(sizeof(PgStat_ShmemControl));
 
 	/*
@@ -262,12 +262,12 @@ pgstat_attach_shmem(void)
 	/* stats shared memory persists for the backend lifetime */
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
-	pgStatLocal.dsa = dsa_attach_in_place(pgStatLocal.shmem->raw_dsa_area,
+	pgStatLocal.dsa = dsa_attach_in_place(pgStatShared->raw_dsa_area,
 										  NULL);
 	dsa_pin_mapping(pgStatLocal.dsa);
 
 	pgStatLocal.shared_hash = dshash_attach(pgStatLocal.dsa, &dsh_params,
-											pgStatLocal.shmem->hash_handle,
+											pgStatShared->hash_handle,
 											NULL);
 
 	MemoryContextSwitchTo(oldcontext);
@@ -291,7 +291,7 @@ pgstat_detach_shmem(void)
 	 * was provided to dsa_attach_in_place(), causing no cleanup callbacks to
 	 * be registered.  Hence, release it manually now.
 	 */
-	dsa_release_in_place(pgStatLocal.shmem->raw_dsa_area);
+	dsa_release_in_place(pgStatShared->raw_dsa_area);
 
 	pgStatLocal.dsa = NULL;
 }
@@ -346,7 +346,7 @@ pgstat_init_entry(PgStat_Kind kind,
 
 	/* Increment entry count, if required. */
 	if (kind_info->track_entry_count)
-		pg_atomic_fetch_add_u64(&pgStatLocal.shmem->entry_counts[kind - 1], 1);
+		pg_atomic_fetch_add_u64(&pgStatShared->entry_counts[kind - 1], 1);
 
 	LWLockInitialize(&shheader->lock, LWTRANCHE_PGSTATS_DATA);
 
@@ -387,7 +387,7 @@ pgstat_setup_shared_refs(void)
 	pgStatEntryRefHash =
 		pgstat_entry_ref_hash_create(pgStatEntryRefHashContext,
 									 PGSTAT_ENTRY_REF_HASH_SIZE, NULL);
-	pgStatSharedRefAge = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	pgStatSharedRefAge = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 	Assert(pgStatSharedRefAge != 0);
 }
 
@@ -490,7 +490,7 @@ pgstat_get_entry_ref(PgStat_Kind kind, Oid dboid, uint64 objid, bool create,
 	Assert(create || created_entry == NULL);
 	pgstat_assert_is_up();
 	Assert(pgStatLocal.shared_hash != NULL);
-	Assert(!pgStatLocal.shmem->is_shutdown);
+	Assert(!pgStatShared->is_shutdown);
 
 	pgstat_setup_memcxt();
 	pgstat_setup_shared_refs();
@@ -749,7 +749,7 @@ pgstat_get_entry_ref_locked(PgStat_Kind kind, Oid dboid, uint64 objid,
 void
 pgstat_request_entry_refs_gc(void)
 {
-	pg_atomic_fetch_add_u64(&pgStatLocal.shmem->gc_request_count, 1);
+	pg_atomic_fetch_add_u64(&pgStatShared->gc_request_count, 1);
 }
 
 static bool
@@ -763,7 +763,7 @@ pgstat_need_entry_refs_gc(void)
 	/* should have been initialized when creating pgStatEntryRefHash */
 	Assert(pgStatSharedRefAge != 0);
 
-	curage = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	curage = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 
 	return pgStatSharedRefAge != curage;
 }
@@ -775,7 +775,7 @@ pgstat_gc_entry_refs(void)
 	PgStat_EntryRefHashEntry *ent;
 	uint64		curage;
 
-	curage = pg_atomic_read_u64(&pgStatLocal.shmem->gc_request_count);
+	curage = pg_atomic_read_u64(&pgStatShared->gc_request_count);
 	Assert(curage != 0);
 
 	/*
@@ -894,7 +894,7 @@ pgstat_free_entry(PgStatShared_HashEntry *shent, dshash_seq_status *hstat)
 
 	/* Decrement entry count, if required. */
 	if (pgstat_get_kind_info(kind)->track_entry_count)
-		pg_atomic_sub_fetch_u64(&pgStatLocal.shmem->entry_counts[kind - 1], 1);
+		pg_atomic_sub_fetch_u64(&pgStatShared->entry_counts[kind - 1], 1);
 }
 
 /*
@@ -981,7 +981,7 @@ pgstat_drop_database_and_contents(Oid dboid)
 
 	/*
 	 * If some of the stats data could not be freed, signal the reference
-	 * holders to run garbage collection of their cached pgStatLocal.shmem.
+	 * holders to run garbage collection of their cached pgStatShared.
 	 */
 	if (not_freed_count > 0)
 		pgstat_request_entry_refs_gc();
