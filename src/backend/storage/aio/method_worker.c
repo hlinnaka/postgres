@@ -40,11 +40,9 @@
 #include "storage/aio_subsys.h"
 #include "storage/io_worker.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/injection_point.h"
@@ -379,8 +377,8 @@ pgaio_worker_choose_idle(int only_workers_above)
 }
 
 /*
- * Try to wake a worker by setting its latch, to tell it there are IOs to
- * process in the submission queue.
+ * Try to wake a worker by sending it an interrupt, to tell it there are IOs
+ * to process in the submission queue.
  */
 static void
 pgaio_worker_wake(int worker)
@@ -396,7 +394,7 @@ pgaio_worker_wake(int worker)
 	 */
 	proc_number = io_worker_control->workers[worker].proc_number;
 	if (proc_number != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(proc_number)->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, proc_number);
 }
 
 /*
@@ -678,19 +676,18 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	AuxiliaryProcessMainCommon();
 
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, die);		/* to allow manually triggering worker restart */
+	pqsignal(SIGINT, SignalHandlerForShutdownRequest);	/* to allow manually
+														 * triggering worker
+														 * restart */
 
 	/*
 	 * Ignore SIGTERM, will get explicit shutdown via SIGUSR2 later in the
 	 * shutdown sequence, similar to checkpointer.
 	 */
 	pqsignal(SIGTERM, PG_SIG_IGN);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, PG_SIG_IGN);
-	pqsignal(SIGPIPE, PG_SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
 	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+
+	SetStandardInterruptHandlers();
 
 	/* also registers a shutdown callback to unregister */
 	pgaio_worker_register();
@@ -739,7 +736,7 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
-	while (!ShutdownRequestPending)
+	while (!InterruptPending(INTERRUPT_TERMINATE))
 	{
 		uint32		io_index;
 		int			worker = -1;
@@ -987,9 +984,13 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 			set_ps_display(cmd);
 #endif
 
-			if (WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
-						  timeout_ms,
-						  WAIT_EVENT_IO_WORKER_MAIN) == WL_TIMEOUT)
+			if (WaitInterrupt(CheckForInterruptsMask |
+							  INTERRUPT_CONFIG_RELOAD |
+							  INTERRUPT_TERMINATE |
+							  INTERRUPT_WAIT_WAKEUP,
+							  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
+							  timeout_ms,
+							  WAIT_EVENT_IO_WORKER_MAIN) == WL_TIMEOUT)
 			{
 				/* WL_TIMEOUT */
 				if (pgaio_worker_can_timeout())
@@ -1005,14 +1006,13 @@ IoWorkerMain(const void *startup_data, size_t startup_data_len)
 					hist_ios /= 2;
 				}
 			}
-			ResetLatch(MyLatch);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		}
 
 		CHECK_FOR_INTERRUPTS();
 
-		if (ConfigReloadPending)
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 		{
-			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/* If io_max_workers has been decreased, exit highest first. */

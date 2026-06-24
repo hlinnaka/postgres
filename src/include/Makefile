@@ -28,6 +28,7 @@ SUBDIRS = \
 	executor \
 	fe_utils \
 	foreign \
+	ipc \
 	jit \
 	lib \
 	libpq \

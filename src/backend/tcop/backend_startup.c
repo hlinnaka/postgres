@@ -199,6 +199,14 @@ BackendInitialize(ClientSocket *client_sock, CAC_state cac)
 	sigprocmask(SIG_SETMASK, &StartupBlockSig, NULL);
 
 	/*
+	 * FIXME: install INTERRUPT_TERMINATE handler at least? Not really needed
+	 * because no one else can send us interrupts yet, and we don't raise them
+	 * within the backend yet either. But if we changed postmaster to send
+	 * INTERRUPT_TERMINATE directly, for example, we'd need to handle it
+	 * already.
+	 */
+
+	/*
 	 * Get the remote host name and port for logging and status display.
 	 */
 	remote_host[0] = '\0';

@@ -3355,7 +3355,7 @@ querying some intermediate replication node rather than the primary.
 
 When the standby is passed as a PostgreSQL::Test::Cluster instance and the
 mode is replay, write, or flush, the function uses WAIT FOR LSN on the
-standby for latch-based wakeup instead of polling.  If the standby has been
+standby for interrupt-based wakeup instead of polling.  If the standby has been
 promoted, if the session is interrupted by a recovery conflict, or if the
 standby is unreachable, it falls back to polling.
 
@@ -3417,7 +3417,7 @@ sub wait_for_catchup
 	# - The mode is replay, write, or flush (not 'sent')
 	# - There is no sparc64+ext4 bug
 	# This is more efficient than polling pg_stat_replication on the upstream,
-	# as WAIT FOR LSN uses a latch-based wakeup mechanism.
+	# as WAIT FOR LSN uses a interrupt-based wakeup mechanism.
 	#
 	# We skip the pg_is_in_recovery() pre-check and just attempt WAIT FOR
 	# LSN directly.  If the standby was promoted, it returns 'not_in_recovery'

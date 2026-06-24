@@ -860,7 +860,7 @@ $arc_primary->poll_query_until('postgres',
   or die "Timed out waiting for WAL archiving on arc_primary (round 2)";
 
 # Start background waiters.  With replay paused, target > replay, so they
-# will sleep on WaitLatch.  They can only be woken by the replay-loop
+# will sleep on WaitInterrupt.  They can only be woken by the replay-loop
 # WaitLSNWakeup calls.
 my $arc_write_session = $arc_standby->background_psql('postgres');
 $arc_write_session->query_until(

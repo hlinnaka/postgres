@@ -263,7 +263,7 @@
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "executor/execPartition.h"
-#include "ipc/signal_handlers.h"
+#include "ipc/interrupt.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "optimizer/optimizer.h"
@@ -284,7 +284,6 @@
 #include "rewrite/rewriteHandler.h"
 #include "storage/buffile.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lmgr.h"
 #include "storage/procarray.h"
 #include "tcop/tcopprot.h"
@@ -4046,6 +4045,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		bool		endofstream = false;
 		long		wait_time;
 
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 
 		MemoryContextSwitchTo(ApplyMessageContext);
@@ -4075,11 +4075,8 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 					int			c;
 					StringInfoData s;
 
-					if (ConfigReloadPending)
-					{
-						ConfigReloadPending = false;
+					if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 						ProcessConfigFile(PGC_SIGHUP);
-					}
 
 					/* Reset timeout. */
 					last_recv_timestamp = GetCurrentTimestamp();
@@ -4198,11 +4195,11 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 			break;
 
 		/*
-		 * Wait for more data or latch.  If we have unflushed transactions,
-		 * wake up after WalWriterDelay to see if they've been flushed yet (in
-		 * which case we should send a feedback message).  Otherwise, there's
-		 * no particular urgency about waking up unless we get data or a
-		 * signal.
+		 * Wait for more data or wakeup interrupt.  If we have unflushed
+		 * transactions, wake up after WalWriterDelay to see if they've been
+		 * flushed yet (in which case we should send a feedback message).
+		 * Otherwise, there's no particular urgency about waking up unless we
+		 * get data or a signal.
 		 */
 		if (!dlist_is_empty(&lsn_mapping))
 			wait_time = WalWriterDelay;
@@ -4223,23 +4220,16 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 				wait_time = Min(wait_time, MySubscription->maxretention);
 		}
 
-		rc = WaitLatchOrSocket(MyLatch,
-							   WL_SOCKET_READABLE | WL_LATCH_SET |
-							   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-							   fd, wait_time,
-							   WAIT_EVENT_LOGICAL_APPLY_MAIN);
+		rc = WaitInterruptOrSocket(CheckForInterruptsMask |
+								   INTERRUPT_WAIT_WAKEUP |
+								   INTERRUPT_CONFIG_RELOAD,
+								   WL_SOCKET_READABLE | WL_INTERRUPT |
+								   WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+								   fd, wait_time,
+								   WAIT_EVENT_LOGICAL_APPLY_MAIN);
 
-		if (rc & WL_LATCH_SET)
-		{
-			ResetLatch(MyLatch);
-			CHECK_FOR_INTERRUPTS();
-		}
-
-		if (ConfigReloadPending)
-		{
-			ConfigReloadPending = false;
+		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
-		}
 
 		if (rc & WL_TIMEOUT)
 		{
@@ -5967,8 +5957,9 @@ SetupApplyOrSyncWorker(int worker_slot)
 
 	Assert(am_tablesync_worker() || am_sequencesync_worker() || am_leader_apply_worker());
 
-	/* Setup signal handling */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	/* Setup interrupt handling */
+	SetStandardInterruptHandlers();
+
 	BackgroundWorkerUnblockSignals();
 
 	/*

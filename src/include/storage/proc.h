@@ -15,9 +15,9 @@
 #define _PROC_H_
 
 #include "access/xlogdefs.h"
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
 #include "storage/lock.h"
 #include "storage/pg_sema.h"
 #include "storage/proclist_types.h"
@@ -259,11 +259,17 @@ typedef struct PGPROC
 	 * Inter-process signaling
 	 ************************************************************************/
 
-	Latch		procLatch;		/* generic latch for process */
-
 	PGSemaphore sem;			/* ONE semaphore to sleep on */
 
 	int			delayChkptFlags;	/* for DELAY_CHKPT_* flags */
+
+	/* Bit mask of pending interrupts, waiting to be processed */
+	PendingInterrupts pendingInterrupts;
+
+#ifdef WIN32
+	/* Event handle to wake up the process when sending an interrupt */
+	HANDLE		interruptWakeupEvent;
+#endif
 
 	/*
 	 * While in hot standby mode, shows that a conflict signal has been sent
@@ -494,6 +500,8 @@ typedef struct PROC_HDR
 	pg_atomic_uint32 avLauncherProc;
 	pg_atomic_uint32 walwriterProc;
 	pg_atomic_uint32 checkpointerProc;
+	pg_atomic_uint32 walreceiverProc;
+	pg_atomic_uint32 startupProc;
 
 	/* Current shared estimate of appropriate spins_per_delay value */
 	int			spins_per_delay;
@@ -574,9 +582,6 @@ extern void GetLockHoldersAndWaiters(LOCALLOCK *locallock,
 									 StringInfo lock_holders_sbuf,
 									 StringInfo lock_waiters_sbuf,
 									 int *lockHoldersNum);
-
-extern void ProcWaitForSignal(uint32 wait_event_info);
-extern void ProcSendSignal(ProcNumber procNumber);
 
 extern PGPROC *AuxiliaryPidGetProc(int pid);
 
