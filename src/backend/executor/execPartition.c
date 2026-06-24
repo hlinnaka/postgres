@@ -22,6 +22,7 @@
 #include "executor/executor.h"
 #include "executor/nodeModifyTable.h"
 #include "foreign/fdwapi.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "partitioning/partbounds.h"

@@ -38,6 +38,7 @@
 #include "access/gist_private.h"
 #include "access/tableam.h"
 #include "access/xloginsert.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/execnodes.h"
 #include "optimizer/optimizer.h"

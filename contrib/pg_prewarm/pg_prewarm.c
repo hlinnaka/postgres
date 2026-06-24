@@ -18,6 +18,7 @@
 #include "access/relation.h"
 #include "catalog/index.h"
 #include "fmgr.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
 #include "storage/lmgr.h"

@@ -27,7 +27,7 @@
 #include "access/brin_xlog.h"
 #include "access/rmgr.h"
 #include "access/xloginsert.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/bufmgr.h"
 #include "utils/rel.h"
 

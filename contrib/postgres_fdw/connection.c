@@ -34,6 +34,7 @@
 #include "utils/inval.h"
 #include "utils/syscache.h"
 #include "utils/tuplestore.h"
+#include "utils/wait_event.h"
 
 /*
  * Connection cache hash table entry

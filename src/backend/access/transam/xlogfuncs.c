@@ -25,7 +25,7 @@
 #include "catalog/pg_authid.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "utils/acl.h"
 #include "replication/walreceiver.h"

@@ -26,6 +26,7 @@
 #include "executor/instrument.h"
 #include "executor/nodeBitmapIndexscan.h"
 #include "executor/nodeIndexscan.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/tidbitmap.h"
 

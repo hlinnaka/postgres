@@ -17,6 +17,7 @@
 #include "access/htup_details.h"
 #include "executor/nodeSetOp.h"
 #include "foreign/fdwapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/extensible.h"
 #include "optimizer/appendinfo.h"

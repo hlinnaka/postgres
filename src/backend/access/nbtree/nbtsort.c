@@ -49,7 +49,7 @@
 #include "catalog/index.h"
 #include "commands/progress.h"
 #include "executor/instrument.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/bulk_write.h"
 #include "storage/condition_variable.h"

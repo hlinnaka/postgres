@@ -38,6 +38,7 @@
 
 #include "postgres.h"
 
+#include "ipc/interrupt.h"
 #include "lib/ilist.h"
 #include "miscadmin.h"
 #include "port/atomics.h"

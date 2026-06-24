@@ -34,7 +34,7 @@
 #include "commands/sequence_xlog.h"
 #include "commands/tablecmds.h"
 #include "funcapi.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/makefuncs.h"
 #include "parser/parse_type.h"
 #include "storage/bufmgr.h"

@@ -22,7 +22,7 @@
 #include "catalog/pg_type.h"
 #include "commands/progress.h"
 #include "commands/vacuum.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/indexfsm.h"
 #include "utils/builtins.h"
 #include "utils/index_selfuncs.h"

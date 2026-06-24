@@ -22,6 +22,7 @@
 #include "commands/progress.h"
 #include "commands/repack.h"
 #include "commands/repack_internal.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
 #include "libpq/pqmq.h"
 #include "replication/snapbuild.h"

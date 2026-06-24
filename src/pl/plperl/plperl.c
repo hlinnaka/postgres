@@ -23,6 +23,7 @@
 #include "commands/trigger.h"
 #include "executor/spi.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "parser/parse_type.h"
 #include "storage/ipc.h"

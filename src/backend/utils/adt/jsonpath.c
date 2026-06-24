@@ -64,6 +64,7 @@
 #include "postgres.h"
 
 #include "catalog/pg_type.h"
+#include "ipc/interrupt.h"
 #include "lib/stringinfo.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"

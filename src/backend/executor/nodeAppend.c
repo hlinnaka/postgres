@@ -62,7 +62,7 @@
 #include "executor/execPartition.h"
 #include "executor/executor.h"
 #include "executor/nodeAppend.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "storage/latch.h"
 #include "storage/lwlock.h"

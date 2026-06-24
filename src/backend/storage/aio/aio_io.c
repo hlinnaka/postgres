@@ -18,7 +18,7 @@
 
 #include "postgres.h"
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/aio.h"
 #include "storage/aio_internal.h"
 #include "storage/fd.h"

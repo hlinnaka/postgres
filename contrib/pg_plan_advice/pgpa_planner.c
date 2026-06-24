@@ -25,7 +25,7 @@
 
 #include "commands/defrem.h"
 #include "common/hashfn_unstable.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/makefuncs.h"
 #include "optimizer/extendplan.h"
 #include "optimizer/pathnode.h"

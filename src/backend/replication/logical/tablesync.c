@@ -100,7 +100,7 @@
 #include "catalog/pg_subscription_rel.h"
 #include "catalog/pg_type.h"
 #include "commands/copy.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "nodes/makefuncs.h"
 #include "parser/parse_relation.h"
 #include "pgstat.h"

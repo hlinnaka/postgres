@@ -33,7 +33,7 @@
 #include "access/xlogutils.h"
 #include "commands/repack.h"
 #include "fmgr.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "replication/decode.h"
 #include "replication/logical.h"

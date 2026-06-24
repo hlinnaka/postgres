@@ -23,7 +23,7 @@
 #include "access/xlogrecovery.h"
 #include "access/xlog_internal.h"
 #include "access/xlogutils.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/fd.h"
 #include "storage/smgr.h"
 #include "utils/hsearch.h"

@@ -143,7 +143,7 @@
 #include "common/int.h"
 #include "common/pg_prng.h"
 #include "executor/instrument.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "portability/instr_time.h"
 #include "postmaster/autovacuum.h"

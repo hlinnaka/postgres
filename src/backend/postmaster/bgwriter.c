@@ -32,8 +32,8 @@
 #include "postgres.h"
 
 #include "access/xlog.h"
+#include "ipc/interrupt.h"
 #include "libpq/pqsignal.h"
-#include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
 #include "postmaster/bgwriter.h"

@@ -91,7 +91,7 @@
 #include "common/file_perm.h"
 #include "common/file_utils.h"
 #include "common/pg_prng.h"
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "pgstat.h"
 #include "postmaster/startup.h"
 #include "storage/aio.h"

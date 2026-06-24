@@ -117,6 +117,7 @@
 #include "executor/nodeValuesscan.h"
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 

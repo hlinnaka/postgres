@@ -41,6 +41,7 @@
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_type.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "utils/fmgroids.h"
 #include "utils/fmgrprotos.h"

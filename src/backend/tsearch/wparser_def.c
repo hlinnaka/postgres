@@ -18,6 +18,7 @@
 #include <wctype.h>
 
 #include "commands/defrem.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "tsearch/ts_public.h"

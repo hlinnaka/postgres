@@ -20,6 +20,7 @@
 #include "fmgr.h"
 #include "funcapi.h"
 #include "injection_points.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "nodes/pg_list.h"
 #include "nodes/value.h"

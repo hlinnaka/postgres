@@ -42,6 +42,7 @@
 #include "common/keywords.h"
 #include "executor/spi.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
