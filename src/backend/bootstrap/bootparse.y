@@ -43,27 +43,25 @@
 #define YYMALLOC palloc
 #define YYFREE   pfree
 
-static MemoryContext per_line_ctx = NULL;
-
 static void
-do_start(void)
+do_start(bki_parse_state *parse_state)
 {
 	Assert(CurrentMemoryContext == CurTransactionContext);
 	/* First time through, create the per-line working context */
-	if (per_line_ctx == NULL)
-		per_line_ctx = AllocSetContextCreate(CurTransactionContext,
-											 "bootstrap per-line processing",
-											 ALLOCSET_DEFAULT_SIZES);
-	MemoryContextSwitchTo(per_line_ctx);
+	if (parse_state->per_line_ctx == NULL)
+		parse_state->per_line_ctx = AllocSetContextCreate(CurTransactionContext,
+														  "bootstrap per-line processing",
+														  ALLOCSET_DEFAULT_SIZES);
+	MemoryContextSwitchTo(parse_state->per_line_ctx);
 }
 
 
 static void
-do_end(void)
+do_end(bki_parse_state *parse_state)
 {
 	/* Reclaim memory allocated while processing this line */
 	MemoryContextSwitchTo(CurTransactionContext);
-	MemoryContextReset(per_line_ctx);
+	MemoryContextReset(parse_state->per_line_ctx);
 	CHECK_FOR_INTERRUPTS();		/* allow SIGINT to kill bootstrap run */
 	if (isatty(0))
 	{
@@ -71,9 +69,6 @@ do_end(void)
 		fflush(stdout);
 	}
 }
-
-
-static int num_columns_read = 0;
 
 %}
 
@@ -137,9 +132,11 @@ Boot_Query :
 Boot_OpenStmt:
 		  OPEN boot_ident
 				{
-					do_start();
-					boot_openrel($2);
-					do_end();
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_start(parse_state);
+					boot_openrel(parse_state, $2);
+					do_end(parse_state);
 
 					(void) yynerrs; /* suppress compiler warning */
 				}
@@ -148,18 +145,22 @@ Boot_OpenStmt:
 Boot_CloseStmt:
 		  XCLOSE boot_ident
 				{
-					do_start();
-					closerel($2);
-					do_end();
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_start(parse_state);
+					closerel(parse_state, $2);
+					do_end(parse_state);
 				}
 		;
 
 Boot_CreateStmt:
 		  XCREATE boot_ident oidspec optbootstrap optsharedrelation optrowtypeoid LPAREN
 				{
-					do_start();
-					numattr = 0;
-					elog(LOG, "creating%s%s relation %s %u",
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_start(parse_state);
+					parse_state->numattr = 0;
+					elog(DEBUG4, "creating%s%s relation %s %u",
 						 $4 ? " bootstrap" : "",
 						 $5 ? " shared" : "",
 						 $2,
@@ -167,17 +168,20 @@ Boot_CreateStmt:
 				}
 		  boot_column_list
 				{
-					do_end();
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_end(parse_state);
 				}
 		  RPAREN
 				{
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
 					TupleDesc	tupdesc;
 					bool		shared_relation;
 					bool		mapped_relation;
 
-					do_start();
+					do_start(parse_state);
 
-					tupdesc = CreateTupleDesc(numattr, attrtypes);
+					tupdesc = CreateTupleDesc(parse_state->numattr, parse_state->attrtypes);
 
 					shared_relation = $5;
 
@@ -197,13 +201,13 @@ Boot_CreateStmt:
 						TransactionId relfrozenxid;
 						MultiXactId relminmxid;
 
-						if (boot_reldesc)
+						if (parse_state->boot_reldesc)
 						{
 							elog(DEBUG4, "create bootstrap: warning, open relation exists, closing first");
-							closerel(NULL);
+							closerel(parse_state, NULL);
 						}
 
-						boot_reldesc = heap_create($2,
+						parse_state->boot_reldesc = heap_create($2,
 												   PG_CATALOG_NAMESPACE,
 												   shared_relation ? GLOBALTABLESPACE_OID : 0,
 												   $3,
@@ -247,38 +251,43 @@ Boot_CreateStmt:
 													  NULL);
 						elog(DEBUG4, "relation created with OID %u", id);
 					}
-					do_end();
+					do_end(parse_state);
 				}
 		;
 
 Boot_InsertStmt:
 		  INSERT_TUPLE
 				{
-					do_start();
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_start(parse_state);
 					elog(DEBUG4, "inserting row");
-					num_columns_read = 0;
+					parse_state->num_columns_read = 0;
 				}
 		  LPAREN boot_column_val_list RPAREN
 				{
-					if (num_columns_read != numattr)
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					if (parse_state->num_columns_read != parse_state->numattr)
 						elog(ERROR, "incorrect number of columns in row (expected %d, got %d)",
-							 numattr, num_columns_read);
-					if (boot_reldesc == NULL)
+							 parse_state->numattr, parse_state->num_columns_read);
+					if (parse_state->boot_reldesc == NULL)
 						elog(FATAL, "relation not open");
-					InsertOneTuple();
-					do_end();
+					InsertOneTuple(parse_state);
+					do_end(parse_state);
 				}
 		;
 
 Boot_DeclareIndexStmt:
 		  XDECLARE INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN
 				{
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
 					IndexStmt  *stmt = makeNode(IndexStmt);
 					Oid			relationId;
 
 					elog(DEBUG4, "creating index \"%s\"", $3);
 
-					do_start();
+					do_start(parse_state);
 
 					stmt->idxname = $3;
 					stmt->relation = makeRangeVar(NULL, $6, -1);
@@ -320,19 +329,20 @@ Boot_DeclareIndexStmt:
 								false,
 								true, /* skip_build */
 								false);
-					do_end();
+					do_end(parse_state);
 				}
 		;
 
 Boot_DeclareUniqueIndexStmt:
 		  XDECLARE UNIQUE INDEX boot_ident oidspec ON boot_ident USING boot_ident LPAREN boot_index_params RPAREN
 				{
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
 					IndexStmt  *stmt = makeNode(IndexStmt);
 					Oid			relationId;
 
 					elog(DEBUG4, "creating unique index \"%s\"", $4);
 
-					do_start();
+					do_start(parse_state);
 
 					stmt->idxname = $4;
 					stmt->relation = makeRangeVar(NULL, $7, -1);
@@ -374,28 +384,31 @@ Boot_DeclareUniqueIndexStmt:
 								false,
 								true, /* skip_build */
 								false);
-					do_end();
+					do_end(parse_state);
 				}
 		;
 
 Boot_DeclareToastStmt:
 		  XDECLARE XTOAST oidspec oidspec ON boot_ident
 				{
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
 					elog(DEBUG4, "creating toast table for table \"%s\"", $6);
 
-					do_start();
-
+					do_start(parse_state);
 					BootstrapToastTable($6, $3, $4);
-					do_end();
+					do_end(parse_state);
 				}
 		;
 
 Boot_BuildIndsStmt:
 		  XBUILD INDICES
 				{
-					do_start();
-					build_indices();
-					do_end();
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					do_start(parse_state);
+					build_indices(parse_state);
+					do_end(parse_state);
 				}
 		;
 
@@ -445,9 +458,11 @@ boot_column_list:
 boot_column_def:
 		  boot_ident EQUALS boot_ident boot_column_nullness
 				{
-				   if (++numattr > MAXATTR)
+					bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+					if (++parse_state->numattr > MAXATTR)
 						elog(FATAL, "too many columns");
-				   DefineAttr($1, $3, numattr-1, $4);
+					DefineAttr(parse_state, $1, $3, parse_state->numattr-1, $4);
 				}
 		;
 
@@ -469,9 +484,17 @@ boot_column_val_list:
 
 boot_column_val:
 		  boot_ident
-			{ InsertOneValue($1, num_columns_read++); }
+			{
+				bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+				InsertOneValue(parse_state, $1, parse_state->num_columns_read++);
+			}
 		| NULLVAL
-			{ InsertOneNull(num_columns_read++); }
+			{
+				bki_parse_state *parse_state = boot_yyget_extra(yyscanner);
+
+				InsertOneNull(parse_state, parse_state->num_columns_read++);
+			}
 		;
 
 boot_ident:

@@ -54,6 +54,7 @@ fprintf_to_ereport(const char *fmt, const char *msg)
 %option noyyfree
 %option warn
 %option prefix="boot_yy"
+%option extra-type="struct bki_parse_state *"
 
 
 id		[-A-Za-z0-9_]+

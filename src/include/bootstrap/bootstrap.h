@@ -29,23 +29,32 @@
 #define BOOTCOL_NULL_FORCE_NULL		2
 #define BOOTCOL_NULL_FORCE_NOT_NULL 3
 
-extern PGDLLIMPORT Relation boot_reldesc;
-extern PGDLLIMPORT Form_pg_attribute attrtypes[MAXATTR];
-extern PGDLLIMPORT int numattr;
+struct bki_parse_state
+{
+	MemoryContext per_line_ctx;
 
+	Relation	boot_reldesc;
+	Form_pg_attribute attrtypes[MAXATTR];
+	int			numattr;
+
+	Datum		values[MAXATTR];	/* current row's attribute values */
+	bool		Nulls[MAXATTR];
+	int			num_columns_read;
+};
+typedef struct bki_parse_state bki_parse_state;
 
 pg_noreturn extern void BootstrapModeMain(int argc, char *argv[], bool check_only);
 
-extern void closerel(char *relname);
-extern void boot_openrel(char *relname);
+extern void closerel(bki_parse_state *parse_state, char *relname);
+extern void boot_openrel(bki_parse_state *parse_state, char *relname);
 
-extern void DefineAttr(char *name, char *type, int attnum, int nullness);
-extern void InsertOneTuple(void);
-extern void InsertOneValue(char *value, int i);
-extern void InsertOneNull(int i);
+extern void DefineAttr(bki_parse_state *parse_state, char *name, char *type, int attnum, int nullness);
+extern void InsertOneTuple(bki_parse_state *parse_state);
+extern void InsertOneValue(bki_parse_state *parse_state, char *value, int i);
+extern void InsertOneNull(bki_parse_state *parse_state, int i);
 
 extern void index_register(Oid heap, Oid ind, const IndexInfo *indexInfo);
-extern void build_indices(void);
+extern void build_indices(bki_parse_state *parse_state);
 
 extern void boot_get_type_io_data(Oid typid,
 								  int16 *typlen,
@@ -65,6 +74,7 @@ typedef void *yyscan_t;
 extern int	boot_yyparse(yyscan_t yyscanner);
 extern int	boot_yylex_init(yyscan_t *yyscannerp);
 extern int	boot_yylex(union YYSTYPE *yylval_param, yyscan_t yyscanner);
+extern struct bki_parse_state *boot_yyget_extra(yyscan_t yyscanner);
 pg_noreturn extern void boot_yyerror(yyscan_t yyscanner, const char *message);
 
 #endif							/* BOOTSTRAP_H */

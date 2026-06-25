@@ -51,21 +51,11 @@
 static void CheckerModeMain(void);
 static void bootstrap_signals(void);
 static Form_pg_attribute AllocateAttribute(void);
-static void InsertOneProargdefaultsValue(char *value);
+static void InsertOneProargdefaultsValue(bki_parse_state *parse_state, char *value);
 static void populate_typ_list(void);
 static const struct typinfo *get_builtin_type(char *type);
 static struct typinfo *get_type(char *type);
-static void cleanup(void);
-
-/* ----------------
- *		global variables
- * ----------------
- */
-
-Relation	boot_reldesc;		/* current relation descriptor */
-
-Form_pg_attribute attrtypes[MAXATTR];	/* points to attribute info */
-int			numattr;			/* number of attributes for cur. rel */
+static void cleanup(bki_parse_state *parse_state);
 
 
 /*
@@ -184,9 +174,6 @@ static const struct rolinfo RolInfo[] = {
 };
 
 
-static Datum values[MAXATTR];	/* current row's attribute values */
-static bool Nulls[MAXATTR];
-
 static MemoryContext nogc = NULL;	/* special no-gc mem context */
 
 /*
@@ -240,6 +227,7 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	char	   *userDoption = NULL;
 	uint32		bootstrap_data_checksum_version = PG_DATA_CHECKSUM_OFF;
 	yyscan_t	scanner;
+	bki_parse_state parse_state = { NULL };
 
 	Assert(!IsUnderPostmaster);
 
@@ -416,8 +404,8 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	/* Initialize stuff for bootstrap-file processing */
 	for (i = 0; i < MAXATTR; i++)
 	{
-		attrtypes[i] = NULL;
-		Nulls[i] = false;
+		parse_state.attrtypes[i] = NULL;
+		parse_state.Nulls[i] = false;
 	}
 
 	if (boot_yylex_init(&scanner) != 0)
@@ -437,7 +425,7 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	RelationMapFinishBootstrap();
 
 	/* Clean up and exit */
-	cleanup();
+	cleanup(&parse_state);
 	proc_exit(0);
 }
 
@@ -478,7 +466,7 @@ bootstrap_signals(void)
  * ----------------
  */
 void
-boot_openrel(char *relname)
+boot_openrel(bki_parse_state *parse_state, char *relname)
 {
 	int			i;
 
@@ -494,24 +482,24 @@ boot_openrel(char *relname)
 	if (Typ == NIL)
 		populate_typ_list();
 
-	if (boot_reldesc != NULL)
-		closerel(NULL);
+	if (parse_state->boot_reldesc != NULL)
+		closerel(parse_state, NULL);
 
 	elog(DEBUG4, "open relation %s, attrsize %d",
 		 relname, (int) ATTRIBUTE_FIXED_PART_SIZE);
 
-	boot_reldesc = table_openrv(makeRangeVar(NULL, relname, -1), NoLock);
-	numattr = RelationGetNumberOfAttributes(boot_reldesc);
-	for (i = 0; i < numattr; i++)
+	parse_state->boot_reldesc = table_openrv(makeRangeVar(NULL, relname, -1), NoLock);
+	parse_state->numattr = RelationGetNumberOfAttributes(parse_state->boot_reldesc);
+	for (i = 0; i < parse_state->numattr; i++)
 	{
-		if (attrtypes[i] == NULL)
-			attrtypes[i] = AllocateAttribute();
-		memmove(attrtypes[i],
-				TupleDescAttr(boot_reldesc->rd_att, i),
+		if (parse_state->attrtypes[i] == NULL)
+			parse_state->attrtypes[i] = AllocateAttribute();
+		memmove(parse_state->attrtypes[i],
+				TupleDescAttr(parse_state->boot_reldesc->rd_att, i),
 				ATTRIBUTE_FIXED_PART_SIZE);
 
 		{
-			Form_pg_attribute at = attrtypes[i];
+			Form_pg_attribute at = parse_state->attrtypes[i];
 
 			elog(DEBUG4, "create attribute %d name %s len %d num %d type %u",
 				 i, NameStr(at->attname), at->attlen, at->attnum,
@@ -525,29 +513,29 @@ boot_openrel(char *relname)
  * ----------------
  */
 void
-closerel(char *relname)
+closerel(bki_parse_state *parse_state, char *relname)
 {
 	if (relname)
 	{
-		if (boot_reldesc)
+		if (parse_state->boot_reldesc)
 		{
-			if (strcmp(RelationGetRelationName(boot_reldesc), relname) != 0)
+			if (strcmp(RelationGetRelationName(parse_state->boot_reldesc), relname) != 0)
 				elog(ERROR, "close of %s when %s was expected",
-					 relname, RelationGetRelationName(boot_reldesc));
+					 relname, RelationGetRelationName(parse_state->boot_reldesc));
 		}
 		else
 			elog(ERROR, "close of %s before any relation was opened",
 				 relname);
 	}
 
-	if (boot_reldesc == NULL)
+	if (parse_state->boot_reldesc == NULL)
 		elog(ERROR, "no open relation to close");
 	else
 	{
 		elog(DEBUG4, "close relation %s",
-			 RelationGetRelationName(boot_reldesc));
-		table_close(boot_reldesc, NoLock);
-		boot_reldesc = NULL;
+			 RelationGetRelationName(parse_state->boot_reldesc));
+		table_close(parse_state->boot_reldesc, NoLock);
+		parse_state->boot_reldesc = NULL;
 	}
 }
 
@@ -562,19 +550,20 @@ closerel(char *relname)
  * ----------------
  */
 void
-DefineAttr(char *name, char *type, int attnum, int nullness)
+DefineAttr(bki_parse_state *parse_state, char *name, char *type, int attnum, int nullness)
 {
+	Form_pg_attribute *attrtypes = parse_state->attrtypes;
 	const struct typinfo *tp = NULL;
 
-	if (boot_reldesc != NULL)
+	if (parse_state->boot_reldesc != NULL)
 	{
 		elog(WARNING, "no open relations allowed with CREATE command");
-		closerel(NULL);
+		closerel(parse_state, NULL);
 	}
 
 	if (attrtypes[attnum] == NULL)
 		attrtypes[attnum] = AllocateAttribute();
-	MemSet(attrtypes[attnum], 0, ATTRIBUTE_FIXED_PART_SIZE);
+	MemSet(parse_state->attrtypes[attnum], 0, ATTRIBUTE_FIXED_PART_SIZE);
 
 	namestrcpy(&attrtypes[attnum]->attname, name);
 	elog(DEBUG4, "column %s %s", NameStr(attrtypes[attnum]->attname), type);
@@ -667,27 +656,27 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
  * ----------------
  */
 void
-InsertOneTuple(void)
+InsertOneTuple(bki_parse_state *parse_state)
 {
 	HeapTuple	tuple;
 	TupleDesc	tupDesc;
 	int			i;
 
-	elog(DEBUG4, "inserting row with %d columns", numattr);
+	elog(DEBUG4, "inserting row with %d columns", parse_state->numattr);
 
-	tupDesc = CreateTupleDesc(numattr, attrtypes);
-	tuple = heap_form_tuple(tupDesc, values, Nulls);
+	tupDesc = CreateTupleDesc(parse_state->numattr, parse_state->attrtypes);
+	tuple = heap_form_tuple(tupDesc, parse_state->values, parse_state->Nulls);
 	pfree(tupDesc);				/* just free's tupDesc, not the attrtypes */
 
-	simple_heap_insert(boot_reldesc, tuple);
+	simple_heap_insert(parse_state->boot_reldesc, tuple);
 	heap_freetuple(tuple);
 	elog(DEBUG4, "row inserted");
 
 	/*
 	 * Reset null markers for next tuple
 	 */
-	for (i = 0; i < numattr; i++)
-		Nulls[i] = false;
+	for (i = 0; i < parse_state->numattr; i++)
+		parse_state->Nulls[i] = false;
 }
 
 /* ----------------
@@ -695,7 +684,7 @@ InsertOneTuple(void)
  * ----------------
  */
 void
-InsertOneValue(char *value, int i)
+InsertOneValue(bki_parse_state *parse_state, char *value, int i)
 {
 	Form_pg_attribute attr;
 	Oid			typoid;
@@ -712,7 +701,7 @@ InsertOneValue(char *value, int i)
 
 	elog(DEBUG4, "inserting column %d value \"%s\"", i, value);
 
-	attr = TupleDescAttr(RelationGetDescr(boot_reldesc), i);
+	attr = TupleDescAttr(RelationGetDescr(parse_state->boot_reldesc), i);
 	typoid = attr->atttypid;
 
 	boot_get_type_io_data(typoid,
@@ -729,18 +718,18 @@ InsertOneValue(char *value, int i)
 	if (typoid == PG_NODE_TREEOID)
 	{
 		/* pg_proc.proargdefaults */
-		if (RelationGetRelid(boot_reldesc) == ProcedureRelationId &&
+		if (RelationGetRelid(parse_state->boot_reldesc) == ProcedureRelationId &&
 			i == Anum_pg_proc_proargdefaults - 1)
-			InsertOneProargdefaultsValue(value);
+			InsertOneProargdefaultsValue(parse_state, value);
 		else					/* maybe other cases later */
 			elog(ERROR, "can't handle pg_node_tree input for %s.%s",
-				 RelationGetRelationName(boot_reldesc),
+				 RelationGetRelationName(parse_state->boot_reldesc),
 				 NameStr(attr->attname));
 	}
 	else
 	{
 		/* Normal case */
-		values[i] = OidInputFunctionCall(typinput, value, typioparam, -1);
+		parse_state->values[i] = OidInputFunctionCall(typinput, value, typioparam, -1);
 	}
 
 	/*
@@ -749,7 +738,7 @@ InsertOneValue(char *value, int i)
 	 */
 	ereport(DEBUG4,
 			(errmsg_internal("inserted -> %s",
-							 OidOutputFunctionCall(typoutput, values[i]))));
+							 OidOutputFunctionCall(typoutput, parse_state->values[i]))));
 }
 
 /* ----------------
@@ -762,7 +751,7 @@ InsertOneValue(char *value, int i)
  * ----------------
  */
 static void
-InsertOneProargdefaultsValue(char *value)
+InsertOneProargdefaultsValue(bki_parse_state *parse_state, char *value)
 {
 	int			pronargs;
 	oidvector  *proargtypes;
@@ -780,12 +769,12 @@ InsertOneProargdefaultsValue(char *value)
 					 "pronargdefaults must come before proargdefaults");
 	StaticAssertDecl(Anum_pg_proc_proargtypes < Anum_pg_proc_proargdefaults,
 					 "proargtypes must come before proargdefaults");
-	if (Nulls[Anum_pg_proc_pronargs - 1])
+	if (parse_state->Nulls[Anum_pg_proc_pronargs - 1])
 		elog(ERROR, "pronargs must not be null");
-	if (Nulls[Anum_pg_proc_proargtypes - 1])
+	if (parse_state->Nulls[Anum_pg_proc_proargtypes - 1])
 		elog(ERROR, "proargtypes must not be null");
-	pronargs = DatumGetInt16(values[Anum_pg_proc_pronargs - 1]);
-	proargtypes = DatumGetPointer(values[Anum_pg_proc_proargtypes - 1]);
+	pronargs = DatumGetInt16(parse_state->values[Anum_pg_proc_pronargs - 1]);
+	proargtypes = DatumGetPointer(parse_state->values[Anum_pg_proc_proargtypes - 1]);
 	Assert(pronargs == proargtypes->dim1);
 
 	/* Parse the input string as an array value, then deconstruct to Datums */
@@ -846,15 +835,15 @@ InsertOneProargdefaultsValue(char *value)
 	 * which is the storage representation of pg_node_tree.
 	 */
 	nodestring = nodeToString(proargdefaults);
-	values[Anum_pg_proc_proargdefaults - 1] = CStringGetTextDatum(nodestring);
-	Nulls[Anum_pg_proc_proargdefaults - 1] = false;
+	parse_state->values[Anum_pg_proc_proargdefaults - 1] = CStringGetTextDatum(nodestring);
+	parse_state->Nulls[Anum_pg_proc_proargdefaults - 1] = false;
 
 	/*
 	 * Hack: fill in pronargdefaults with the right value.  This is surely
 	 * ugly, but it beats making the programmer do it.
 	 */
-	values[Anum_pg_proc_pronargdefaults - 1] = Int16GetDatum(array_count);
-	Nulls[Anum_pg_proc_pronargdefaults - 1] = false;
+	parse_state->values[Anum_pg_proc_pronargdefaults - 1] = Int16GetDatum(array_count);
+	parse_state->Nulls[Anum_pg_proc_pronargdefaults - 1] = false;
 }
 
 /* ----------------
@@ -862,17 +851,17 @@ InsertOneProargdefaultsValue(char *value)
  * ----------------
  */
 void
-InsertOneNull(int i)
+InsertOneNull(bki_parse_state *parse_state, int i)
 {
 	elog(DEBUG4, "inserting column %d NULL", i);
 	Assert(i >= 0 && i < MAXATTR);
-	if (TupleDescAttr(boot_reldesc->rd_att, i)->attnotnull)
+	if (TupleDescAttr(parse_state->boot_reldesc->rd_att, i)->attnotnull)
 		elog(ERROR,
 			 "NULL value specified for not-null column \"%s\" of relation \"%s\"",
-			 NameStr(TupleDescAttr(boot_reldesc->rd_att, i)->attname),
-			 RelationGetRelationName(boot_reldesc));
-	values[i] = PointerGetDatum(NULL);
-	Nulls[i] = true;
+			 NameStr(TupleDescAttr(parse_state->boot_reldesc->rd_att, i)->attname),
+			 RelationGetRelationName(parse_state->boot_reldesc));
+	parse_state->values[i] = PointerGetDatum(NULL);
+	parse_state->Nulls[i] = true;
 }
 
 /* ----------------
@@ -880,10 +869,10 @@ InsertOneNull(int i)
  * ----------------
  */
 static void
-cleanup(void)
+cleanup(bki_parse_state *parse_state)
 {
-	if (boot_reldesc != NULL)
-		closerel(NULL);
+	if (parse_state->boot_reldesc != NULL)
+		closerel(parse_state, NULL);
 }
 
 /* ----------------
@@ -1140,7 +1129,7 @@ index_register(Oid heap,
  * build_indices -- fill in all the indexes registered earlier
  */
 void
-build_indices(void)
+build_indices(bki_parse_state *parse_state)
 {
 	for (; ILHead != NULL; ILHead = ILHead->il_next)
 	{
