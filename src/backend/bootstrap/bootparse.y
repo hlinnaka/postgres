@@ -159,7 +159,7 @@ Boot_CreateStmt:
 				{
 					do_start();
 					numattr = 0;
-					elog(DEBUG4, "creating%s%s relation %s %u",
+					elog(LOG, "creating%s%s relation %s %u",
 						 $4 ? " bootstrap" : "",
 						 $5 ? " shared" : "",
 						 $2,

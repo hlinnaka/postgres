@@ -53,7 +53,8 @@ static void bootstrap_signals(void);
 static Form_pg_attribute AllocateAttribute(void);
 static void InsertOneProargdefaultsValue(char *value);
 static void populate_typ_list(void);
-static Oid	gettype(char *type);
+static const struct typinfo *get_builtin_type(char *type);
+static struct typinfo *get_type(char *type);
 static void cleanup(void);
 
 /* ----------------
@@ -78,16 +79,19 @@ int			numattr;			/* number of attributes for cur. rel */
  */
 struct typinfo
 {
-	char		name[NAMEDATALEN];
+	char		typname[NAMEDATALEN];
 	Oid			oid;
-	Oid			elem;
-	int16		len;
-	bool		byval;
-	char		align;
-	char		storage;
-	Oid			collation;
-	Oid			inproc;
-	Oid			outproc;
+	Oid			typelem;
+	int16		typlen;
+	bool		typbyval;
+	char		typalign;
+	char		typstorage;
+	Oid			typcollation;
+	Oid			typinput;
+	Oid			typoutput;
+
+	/* XXX: missing on purpose */
+	char		typdelim;
 };
 
 static const struct typinfo TypInfo[] = {
@@ -141,14 +145,7 @@ static const struct typinfo TypInfo[] = {
 
 static const int n_types = sizeof(TypInfo) / sizeof(struct typinfo);
 
-struct typmap
-{								/* a hack */
-	Oid			am_oid;
-	FormData_pg_type am_typ;
-};
-
-static List *Typ = NIL;			/* List of struct typmap* */
-static struct typmap *Ap = NULL;
+static List *Typ = NIL;			/* List of struct typinfo* */
 
 /*
  * Basic information about built-in roles.
@@ -485,6 +482,8 @@ boot_openrel(char *relname)
 {
 	int			i;
 
+	elog(LOG, "OPEN %s", relname);
+
 	if (strlen(relname) >= NAMEDATALEN)
 		relname[NAMEDATALEN - 1] = '\0';
 
@@ -565,7 +564,7 @@ closerel(char *relname)
 void
 DefineAttr(char *name, char *type, int attnum, int nullness)
 {
-	Oid			typeoid;
+	const struct typinfo *tp = NULL;
 
 	if (boot_reldesc != NULL)
 	{
@@ -581,39 +580,37 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 	elog(DEBUG4, "column %s %s", NameStr(attrtypes[attnum]->attname), type);
 	attrtypes[attnum]->attnum = attnum + 1;
 
-	typeoid = gettype(type);
-
-	if (Typ != NIL)
-	{
-		attrtypes[attnum]->atttypid = Ap->am_oid;
-		attrtypes[attnum]->attlen = Ap->am_typ.typlen;
-		attrtypes[attnum]->attbyval = Ap->am_typ.typbyval;
-		attrtypes[attnum]->attalign = Ap->am_typ.typalign;
-		attrtypes[attnum]->attstorage = Ap->am_typ.typstorage;
-		attrtypes[attnum]->attcompression = InvalidCompressionMethod;
-		attrtypes[attnum]->attcollation = Ap->am_typ.typcollation;
-		/* if an array type, assume 1-dimensional attribute */
-		if (Ap->am_typ.typelem != InvalidOid && Ap->am_typ.typlen < 0)
-			attrtypes[attnum]->attndims = 1;
-		else
-			attrtypes[attnum]->attndims = 0;
-	}
+	if (Typ == NIL)
+		tp = get_builtin_type(type);
 	else
+		tp = get_type(type);
+	if (!tp)
 	{
-		attrtypes[attnum]->atttypid = TypInfo[typeoid].oid;
-		attrtypes[attnum]->attlen = TypInfo[typeoid].len;
-		attrtypes[attnum]->attbyval = TypInfo[typeoid].byval;
-		attrtypes[attnum]->attalign = TypInfo[typeoid].align;
-		attrtypes[attnum]->attstorage = TypInfo[typeoid].storage;
-		attrtypes[attnum]->attcompression = InvalidCompressionMethod;
-		attrtypes[attnum]->attcollation = TypInfo[typeoid].collation;
-		/* if an array type, assume 1-dimensional attribute */
-		if (TypInfo[typeoid].elem != InvalidOid &&
-			attrtypes[attnum]->attlen < 0)
-			attrtypes[attnum]->attndims = 1;
-		else
-			attrtypes[attnum]->attndims = 0;
+		/*
+		 * The type wasn't known; reload the pg_type contents and check again
+		 * to handle composite types, added since last populating the list.
+		 */
+		list_free_deep(Typ);
+		Typ = NIL;
+		populate_typ_list();
+
+		tp = get_type(type);
+		if (!tp)
+			elog(ERROR, "unrecognized type \"%s\"", type);
 	}
+
+	attrtypes[attnum]->atttypid = tp->oid;
+	attrtypes[attnum]->attlen = tp->typlen;
+	attrtypes[attnum]->attbyval = tp->typbyval;
+	attrtypes[attnum]->attalign = tp->typalign;
+	attrtypes[attnum]->attstorage = tp->typstorage;
+	attrtypes[attnum]->attcompression = InvalidCompressionMethod;
+	attrtypes[attnum]->attcollation = tp->typcollation;
+	/* if an array type, assume 1-dimensional attribute */
+	if (tp->typelem != InvalidOid && tp->typlen < 0)
+		attrtypes[attnum]->attndims = 1;
+	else
+		attrtypes[attnum]->attndims = 0;
 
 	/*
 	 * If a system catalog column is collation-aware, force it to use C
@@ -903,6 +900,8 @@ populate_typ_list(void)
 	HeapTuple	tup;
 	MemoryContext old;
 
+	elog(LOG, "POPULATE");
+
 	Assert(Typ == NIL);
 
 	rel = table_open(TypeRelationId, NoLock);
@@ -911,13 +910,23 @@ populate_typ_list(void)
 	while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Form_pg_type typForm = (Form_pg_type) GETSTRUCT(tup);
-		struct typmap *newtyp;
+		struct typinfo *newtyp;
 
-		newtyp = palloc_object(struct typmap);
+		newtyp = palloc_object(struct typinfo);
+		newtyp->oid = typForm->oid;
+		/* NB: We need to zero-pad the destination. */
+		strncpy(newtyp->typname, NameStr(typForm->typname), NAMEDATALEN);
+		newtyp->oid = typForm->oid;
+		newtyp->typelem = typForm->typelem;
+		newtyp->typlen = typForm->typlen;
+		newtyp->typbyval = typForm->typbyval;
+		newtyp->typalign = typForm->typalign;
+		newtyp->typstorage = typForm->typstorage;
+		newtyp->typcollation = typForm->typcollation;
+		newtyp->typinput = typForm->typinput;
+		newtyp->typoutput = typForm->typoutput;
+
 		Typ = lappend(Typ, newtyp);
-
-		newtyp->am_oid = typForm->oid;
-		memcpy(&newtyp->am_typ, typForm, sizeof(newtyp->am_typ));
 	}
 	MemoryContextSwitchTo(old);
 	table_endscan(scan);
@@ -935,65 +944,30 @@ populate_typ_list(void)
  * still NIL to determine what the return value is!
  * ----------------
  */
-static Oid
-gettype(char *type)
+static const struct typinfo *
+get_builtin_type(char *type)
 {
-	if (Typ != NIL)
+	elog(LOG, "get_builtin_type(%s)", type);
+	for (int i = 0; i < n_types; i++)
 	{
-		ListCell   *lc;
-
-		foreach(lc, Typ)
-		{
-			struct typmap *app = lfirst(lc);
-
-			if (strncmp(NameStr(app->am_typ.typname), type, NAMEDATALEN) == 0)
-			{
-				Ap = app;
-				return app->am_oid;
-			}
-		}
-
-		/*
-		 * The type wasn't known; reload the pg_type contents and check again
-		 * to handle composite types, added since last populating the list.
-		 */
-
-		list_free_deep(Typ);
-		Typ = NIL;
-		populate_typ_list();
-
-		/*
-		 * Calling gettype would result in infinite recursion for types
-		 * missing in pg_type, so just repeat the lookup.
-		 */
-		foreach(lc, Typ)
-		{
-			struct typmap *app = lfirst(lc);
-
-			if (strncmp(NameStr(app->am_typ.typname), type, NAMEDATALEN) == 0)
-			{
-				Ap = app;
-				return app->am_oid;
-			}
-		}
+		if (strncmp(type, TypInfo[i].typname, NAMEDATALEN) == 0)
+			return &TypInfo[i];
 	}
-	else
+	return NULL;
+}
+
+static struct typinfo *
+get_type(char *type)
+{
+	elog(LOG, "get_type(%s)", type);
+	Assert(Typ != NIL);
+
+	foreach_ptr(struct typinfo, app, Typ)
 	{
-		int			i;
-
-		for (i = 0; i < n_types; i++)
-		{
-			if (strncmp(type, TypInfo[i].name, NAMEDATALEN) == 0)
-				return i;
-		}
-		/* Not in TypInfo, so we'd better be able to read pg_type now */
-		elog(DEBUG4, "external type: %s", type);
-		populate_typ_list();
-		return gettype(type);
+		if (strncmp(app->typname, type, NAMEDATALEN) == 0)
+			return app;
 	}
-	elog(ERROR, "unrecognized type \"%s\"", type);
-	/* not reached, here to make compiler happy */
-	return 0;
+	return NULL;
 }
 
 /* ----------------
@@ -1018,37 +992,24 @@ boot_get_type_io_data(Oid typid,
 					  Oid *typoutput,
 					  Oid *typcollation)
 {
+	const struct typinfo *tp = NULL;
+
+	elog(LOG, "boot_get_type_io_data(%u)", typid);
+
 	if (Typ != NIL)
 	{
 		/* We have the boot-time contents of pg_type, so use it */
-		struct typmap *ap = NULL;
 		ListCell   *lc;
 
 		foreach(lc, Typ)
 		{
-			ap = lfirst(lc);
-			if (ap->am_oid == typid)
+			tp = lfirst(lc);
+			if (tp->oid == typid)
 				break;
 		}
 
-		if (!ap || ap->am_oid != typid)
+		if (!tp || tp->oid != typid)
 			elog(ERROR, "type OID %u not found in Typ list", typid);
-
-		*typlen = ap->am_typ.typlen;
-		*typbyval = ap->am_typ.typbyval;
-		*typalign = ap->am_typ.typalign;
-		*typdelim = ap->am_typ.typdelim;
-
-		/* XXX this logic must match getTypeIOParam() */
-		if (OidIsValid(ap->am_typ.typelem))
-			*typioparam = ap->am_typ.typelem;
-		else
-			*typioparam = typid;
-
-		*typinput = ap->am_typ.typinput;
-		*typoutput = ap->am_typ.typoutput;
-
-		*typcollation = ap->am_typ.typcollation;
 	}
 	else
 	{
@@ -1058,28 +1019,30 @@ boot_get_type_io_data(Oid typid,
 		for (typeindex = 0; typeindex < n_types; typeindex++)
 		{
 			if (TypInfo[typeindex].oid == typid)
+			{
+				tp = &TypInfo[typeindex];
 				break;
+			}
 		}
 		if (typeindex >= n_types)
 			elog(ERROR, "type OID %u not found in TypInfo", typid);
-
-		*typlen = TypInfo[typeindex].len;
-		*typbyval = TypInfo[typeindex].byval;
-		*typalign = TypInfo[typeindex].align;
-		/* We assume typdelim is ',' for all boot-time types */
-		*typdelim = ',';
-
-		/* XXX this logic must match getTypeIOParam() */
-		if (OidIsValid(TypInfo[typeindex].elem))
-			*typioparam = TypInfo[typeindex].elem;
-		else
-			*typioparam = typid;
-
-		*typinput = TypInfo[typeindex].inproc;
-		*typoutput = TypInfo[typeindex].outproc;
-
-		*typcollation = TypInfo[typeindex].collation;
 	}
+
+	*typlen = tp->typlen;
+	*typbyval = tp->typbyval;
+	*typalign = tp->typalign;
+	/* We assume typdelim is ',' for all boot-time types */
+	*typdelim = Typ == NIL ? ',': tp->typdelim;
+
+	/* XXX this logic must match getTypeIOParam() */
+	if (OidIsValid(tp->typelem))
+		*typioparam = tp->typelem;
+	else
+		*typioparam = typid;
+
+	*typinput = tp->typinput;
+	*typoutput = tp->typoutput;
+	*typcollation = tp->typcollation;
 }
 
 /* ----------------
