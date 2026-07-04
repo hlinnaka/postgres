@@ -27,8 +27,10 @@
 #include "fe_utils/cancel.h"
 #include "fe_utils/mbprint.h"
 #include "fe_utils/string_utils.h"
+#include "input.h"
 #include "portability/instr_time.h"
 #include "settings.h"
+#include "tab-complete.h"
 
 static bool DescribeQuery(const char *query, double *elapsed_msec);
 static int	ExecQueryAndProcessResults(const char *query,
@@ -1105,6 +1107,117 @@ PrintQueryResult(PGresult *result, bool last,
 }
 
 /*
+ * Ask the user if the query should be executed, for --single-step mode.
+ *
+ * Returns true if it should be executed, false otherwise.
+ */
+static bool
+singlestep_verify(const char *query)
+{
+	const char *header;
+	const char *instructions;
+	char	   *first_prompt;
+	const char *prompt;
+	bool		result;
+
+	/*
+	 * --single-step mode only makes sense when there's a human at the
+	 * terminal approving the queries.  Perhaps it could also be used by a
+	 * program connected to psql's stdin and stdout, while reading the SQL
+	 * from a file, but it seems far-fetched.  The point of --single-step mode
+	 * is to be extra careful before executing commands, so let's play it safe
+	 * and refuse to execute anything if the input is not an interactive
+	 * terminal, to prevent accidentally running commands that the user didn't
+	 * really mean to.
+	 */
+	if (pset.notty)
+	{
+		pg_log_error("single-step mode is active but not a tty, skipping command: %s", query);
+		return false;
+	}
+
+	/*
+	 * Construct the prompt.  On first call, print the query we're about to
+	 * execute and instructions.  If the user types something invalid, we'll
+	 * ask again with just the instructions.
+	 */
+	header = _("/**(Single step mode: verify command)******************************************/");
+	instructions = _("/**(press return to proceed or enter x and return to cancel)*******************/\n");
+	first_prompt = psprintf("%s\n%s\n%s",
+							header, query, instructions);
+	prompt = first_prompt;
+
+	/*
+	 * Establish longjmp destination for exiting from wait-for-input.  (This
+	 * is only effective while sigint_interrupt_enabled is TRUE.)
+	 */
+	if (sigsetjmp(sigint_interrupt_jmp, 1) != 0)
+	{
+		/* got here with longjmp from gets_interactive() */
+		result = false;
+		cancel_pressed = true;
+	}
+	else
+	{
+		for (;;)
+		{
+			char	   *line;
+
+			if (cancel_pressed)
+			{
+				result = false;
+				break;
+			}
+
+			line = gets_interactive(prompt, NULL, COMPLETE_DISABLE);
+
+			/*
+			 * gets_interactive returns NULL if the user hits Ctrl-D.  Treat
+			 * it the same as Ctrl-C.  (NULL means "end-of-file", but in
+			 * interactive mode we're not really reading from a file.)
+			 */
+			if (line == NULL)
+			{
+				result = false;
+				cancel_pressed = true;
+				break;
+			}
+			else
+			{
+				/* Return on an empty line executes the query */
+				if (strcmp(line, "") == 0)
+				{
+					pg_free(line);
+					result = true;
+					break;
+				}
+				/* 'x' + return skips the query */
+				else if (strcmp(line, "x") == 0)
+				{
+					pg_free(line);
+					result = false;
+					pg_log_info("skipping");
+					break;
+				}
+
+				/*
+				 * Any other response is invalid.  Ask again, but prompt with
+				 * just the instruction without the query.
+				 */
+				else
+				{
+					pg_free(line);
+					prompt = instructions;
+					continue;
+				}
+			}
+		}
+	}
+	pg_free(first_prompt);
+	return result;
+}
+
+/*
  * SendQuery: send the query string to the backend
  * (and print out result)
  *
@@ -1135,18 +1248,7 @@ SendQuery(const char *query)
 
 	if (pset.singlestep)
 	{
-		char		buf[3];
-
-		fflush(stderr);
-		printf(_("/**(Single step mode: verify command)******************************************/\n"
-				 "%s\n"
-				 "/**(press return to proceed or enter x and return to cancel)*******************/\n"),
-			   query);
-		fflush(stdout);
-		if (fgets(buf, sizeof(buf), stdin) != NULL)
-			if (buf[0] == 'x')
-				goto sendquery_cleanup;
-		if (cancel_pressed)
+		if (!singlestep_verify(query))
 			goto sendquery_cleanup;
 	}
 	else if (pset.echo == PSQL_ECHO_QUERIES)
@@ -1294,6 +1396,7 @@ SendQuery(const char *query)
 	/* perform cleanup that should occur after any attempted query */
 
 sendquery_cleanup:
+	sigint_interrupt_enabled = false;
 
 	/* global cancellation reset */
 	ResetCancelConn();

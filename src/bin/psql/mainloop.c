@@ -15,6 +15,7 @@
 #include "mb/pg_wchar.h"
 #include "prompt.h"
 #include "settings.h"
+#include "tab-complete.h"
 
 /* callback functions for our flex lexer */
 const PsqlScanCallbacks psqlscan_callbacks = {
@@ -164,7 +165,8 @@ MainLoop(FILE *source)
 			}
 			/* Now we can fetch a line */
 			line = gets_interactive(get_prompt(prompt_status, cond_stack),
-									query_buf);
+									query_buf,
+									COMPLETE_MAINLOOP);
 		}
 		else
 		{

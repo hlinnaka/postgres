@@ -4352,6 +4352,7 @@ substitute_grouped_columns_context
 substitute_phv_relids_context
 subxids_array_status
 symbol
+tabCompletionMode
 tablespaceinfo
 tar_file
 td_entry

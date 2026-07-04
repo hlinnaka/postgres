@@ -85,6 +85,8 @@
 /* word break characters */
 #define WORD_BREAKS		"\t\n@><=;|&() "
 
+tabCompletionMode tab_completion_mode;
+
 /*
  * Since readline doesn't let us pass any state through to the tab completion
  * callback, we have to use this global variable to let get_previous_words()
@@ -1467,6 +1469,7 @@ static const char *const view_optional_parameters[] = {
 
 /* Forward declaration of functions */
 static char **psql_completion(const char *text, int start, int end);
+static char **mainloop_completion(const char *text, int start, int end);
 static char **match_previous_words(int pattern_id,
 								   const char *text, int start, int end,
 								   char **previous_words,
@@ -1859,6 +1862,43 @@ psql_completion(const char *text, int start, int end)
 	/* This is the variable we'll return. */
 	char	  **matches = NULL;
 
+	/*
+	 * Dispatch to the correct completion function depending on the context
+	 * we're being called in.
+	 */
+	switch (tab_completion_mode)
+	{
+		case COMPLETE_MAINLOOP:
+			matches = mainloop_completion(text, start, end);
+			break;
+		case COMPLETE_DISABLE:
+			break;
+	}
+
+	/*
+	 * If we still don't have anything to match we have to fabricate some sort
+	 * of default list. If we were to just return NULL, readline automatically
+	 * attempts filename completion, and that's usually no good.
+	 */
+	if (matches == NULL)
+	{
+		COMPLETE_WITH_CONST(true, "");
+		/* Also, prevent Readline from appending stuff to the non-match */
+		rl_completion_append_character = '\0';
+#ifdef HAVE_RL_COMPLETION_SUPPRESS_QUOTE
+		rl_completion_suppress_quote = 1;
+#endif
+	}
+	return matches;
+}
+
+/* The main completion function, for when we are in the main prompt */
+static char **
+mainloop_completion(const char *text, int start, int end)
+{
+	/* This is the variable we'll return. */
+	char	  **matches = NULL;
+
 	/* Workspace for parsed words. */
 	char	   *words_buffer;
 
@@ -2107,21 +2147,6 @@ psql_completion(const char *text, int start, int end)
 				break;
 			}
 		}
-	}
-
-	/*
-	 * If we still don't have anything to match we have to fabricate some sort
-	 * of default list. If we were to just return NULL, readline automatically
-	 * attempts filename completion, and that's usually no good.
-	 */
-	if (matches == NULL)
-	{
-		COMPLETE_WITH_CONST(true, "");
-		/* Also, prevent Readline from appending stuff to the non-match */
-		rl_completion_append_character = '\0';
-#ifdef HAVE_RL_COMPLETION_SUPPRESS_QUOTE
-		rl_completion_suppress_quote = 1;
-#endif
 	}
 
 	/* free storage */

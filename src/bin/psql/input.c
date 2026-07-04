@@ -58,13 +58,14 @@ static void finishInput(void);
  * prompt: the prompt string to be used
  * query_buf: buffer containing lines already read in the current command
  * (query_buf is not modified here, but may be consulted for tab completion)
+ * completion_mode: context for tab-completion
  *
  * The result is a malloc'd string.
  *
  * Caller *must* have set up sigint_interrupt_jmp before calling.
  */
 char *
-gets_interactive(const char *prompt, PQExpBuffer query_buf)
+gets_interactive(const char *prompt, PQExpBuffer query_buf, tabCompletionMode completion_mode)
 {
 #ifdef USE_READLINE
 	if (useReadline)
@@ -81,6 +82,8 @@ gets_interactive(const char *prompt, PQExpBuffer query_buf)
 #ifdef HAVE_RL_RESET_SCREEN_SIZE
 		rl_reset_screen_size();
 #endif
+
+		tab_completion_mode = completion_mode;
 
 		/* Make current query_buf available to tab completion callback */
 		tab_completion_query_buf = query_buf;

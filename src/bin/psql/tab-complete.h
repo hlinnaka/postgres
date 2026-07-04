@@ -10,6 +10,13 @@
 
 #include "pqexpbuffer.h"
 
+typedef enum tabCompletionMode
+{
+	COMPLETE_DISABLE = 0,
+	COMPLETE_MAINLOOP,
+} tabCompletionMode;
+
+extern tabCompletionMode tab_completion_mode;
 extern PQExpBuffer tab_completion_query_buf;
 
 extern void initialize_readline(void);
