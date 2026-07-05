@@ -68,7 +68,6 @@ enum FileExtendMethod
 
 /* GUC parameter */
 extern PGDLLIMPORT int max_files_per_process;
-extern PGDLLIMPORT int recovery_init_sync_method;
 extern PGDLLIMPORT int io_direct_flags;
 extern PGDLLIMPORT int file_extend_method;
 
@@ -140,8 +139,6 @@ extern mode_t FileGetRawMode(File file);
 extern File PathNameCreateTemporaryFile(const char *path, bool error_on_failure);
 extern File PathNameOpenTemporaryFile(const char *path, int mode);
 extern bool PathNameDeleteTemporaryFile(const char *path, bool error_on_failure);
-extern void PathNameCreateTemporaryDir(const char *basedir, const char *directory);
-extern void PathNameDeleteTemporaryDir(const char *dirname);
 extern void TempTablespacePath(char *path, Oid tablespace);
 
 /* Operations that allow use of regular stdio --- USE WITH CAUTION */
@@ -173,9 +170,6 @@ extern bool AcquireExternalFD(void);
 extern void ReserveExternalFD(void);
 extern void ReleaseExternalFD(void);
 
-/* Make a directory with default permissions */
-extern int	MakePGDirectory(const char *directoryName);
-
 /* Miscellaneous support routines */
 extern void InitFileAccess(void);
 extern void InitTemporaryFileAccess(void);
@@ -192,8 +186,6 @@ extern void RemovePgTempFiles(void);
 extern void RemovePgTempFilesInDir(const char *tmpdirname, bool missing_ok,
 								   bool unlink_all);
 extern bool looks_like_temp_rel_name(const char *name);
-
-extern void SyncDataDirectory(void);
 
 static inline ssize_t
 FileRead(File file, void *buffer, size_t amount, pgoff_t offset,

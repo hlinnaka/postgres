@@ -15,6 +15,7 @@ include $(top_builddir)/src/Makefile.global
 OBJS = \
 	buffile.o \
 	copydir.o \
+	datadir.o \
 	fd.o \
 	fileset.o \
 	file_utils.o \

@@ -55,6 +55,7 @@
 #include "postmaster/bgwriter.h"
 #include "replication/slot.h"
 #include "storage/copydir.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "storage/ipc.h"

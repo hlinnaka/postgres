@@ -86,6 +86,7 @@
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/bufmgr.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "storage/ipc.h"

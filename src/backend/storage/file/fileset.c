@@ -27,6 +27,7 @@
 #include "common/file_utils.h"
 #include "common/hashfn.h"
 #include "miscadmin.h"
+#include "storage/datadir.h"
 #include "storage/fileset.h"
 
 static void FileSetPath(char *path, FileSet *fileset, Oid tablespace);

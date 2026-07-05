@@ -69,6 +69,7 @@
 #include "common/file_perm.h"
 #include "miscadmin.h"
 #include "postmaster/bgwriter.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/lwlock.h"
 #include "storage/procsignal.h"

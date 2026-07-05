@@ -28,6 +28,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/copydir.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "utils/wait_event.h"

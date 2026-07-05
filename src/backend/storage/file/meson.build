@@ -3,6 +3,7 @@
 backend_sources += files(
   'buffile.c',
   'copydir.c',
+  'datadir.c',
   'fd.c',
   'fileset.c',
   'file_utils.c',

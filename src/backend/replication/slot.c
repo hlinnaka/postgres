@@ -51,6 +51,7 @@
 #include "replication/slotsync.h"
 #include "replication/slot.h"
 #include "replication/walsender_private.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "storage/ipc.h"

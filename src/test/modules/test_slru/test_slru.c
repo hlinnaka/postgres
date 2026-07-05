@@ -17,6 +17,7 @@
 #include "access/slru.h"
 #include "access/transam.h"
 #include "miscadmin.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/shmem.h"

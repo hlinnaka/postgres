@@ -80,6 +80,7 @@
 #include "storage/bufmgr.h"
 #include "storage/bufpage.h"
 #include "storage/copydir.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "storage/io_worker.h"

@@ -14,6 +14,7 @@
 #include "backup/basebackup_sink.h"
 #include "catalog/pg_authid.h"
 #include "miscadmin.h"
+#include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
 #include "utils/acl.h"
