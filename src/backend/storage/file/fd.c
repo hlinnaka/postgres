@@ -177,14 +177,14 @@ int			io_direct_flags;
 
 #define FileIsNotOpen(file) (VfdCache[file].fd == VFD_CLOSED)
 
-/* these are the assigned bits in fdstate below: */
+/* these are the assigned bits in tempFlags below: */
 #define FD_DELETE_AT_CLOSE	(1 << 0)	/* T = delete when closed */
 #define FD_TEMP_FILE_LIMIT	(1 << 1)	/* T = respect temp_file_limit */
 
 typedef struct vfd
 {
 	int			fd;				/* current FD, or VFD_CLOSED if none */
-	unsigned short fdstate;		/* bitflags for VFD's state */
+	unsigned short tempFlags;	/* bitflags for temporary file VFDs */
 	ResourceOwner resowner;		/* owner, for automatic cleanup */
 	File		nextFree;		/* link to next free VFD, if in freelist */
 	File		lruMoreRecently;	/* doubly linked recency-of-use list */
@@ -746,7 +746,7 @@ LruDelete(File file)
 	 * to leak the FD than to mess up our internal state.
 	 */
 	if (close(vfdP->fd) != 0)
-		elog(vfdP->fdstate & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
+		elog(vfdP->tempFlags & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
 			 "could not close file \"%s\": %m", vfdP->fileName);
 	vfdP->fd = VFD_CLOSED;
 	--nfile;
@@ -927,7 +927,7 @@ FreeVfd(File file)
 		free(vfdP->fileName);
 		vfdP->fileName = NULL;
 	}
-	vfdP->fdstate = 0x0;
+	vfdP->tempFlags = 0x0;
 
 	vfdP->nextFree = VfdCache[0].nextFree;
 	VfdCache[0].nextFree = file;
@@ -985,15 +985,25 @@ ReportTemporaryFileUsage(const char *path, pgoff_t size)
 }
 
 /*
- * Called to register a temporary file for automatic close.
- * ResourceOwnerEnlarge(CurrentResourceOwner) must have been called
- * before the file was opened.
+ * Register a file as a temporary file.
+ *
+ * If 'resowner' is given, the file is registered to be automatically closed
+ * by the resource owner.  ResourceOwnerEnlarge(resowner) must have been
+ * called before the file was opened.
+ *
+ * 'flags' indicate whether the file is to be deleted on close
+ * (FD_DELETE_AT_CLOSE) and whether it counts towards the temp_file_limit
+ * (FD_TEMP_FILE_LIMIT)
  */
 static void
-RegisterTemporaryFile(File file)
+RegisterTemporaryFile(File file, ResourceOwner resowner, unsigned short flags)
 {
-	ResourceOwnerRememberFile(CurrentResourceOwner, file);
-	VfdCache[file].resowner = CurrentResourceOwner;
+	if (resowner)
+	{
+		ResourceOwnerRememberFile(resowner, file);
+		VfdCache[file].resowner = resowner;
+	}
+	VfdCache[file].tempFlags |= flags;
 }
 
 /*
@@ -1079,7 +1089,7 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 	vfdP->fileFlags = fileFlags & ~(O_CREAT | O_TRUNC | O_EXCL);
 	vfdP->fileMode = fileMode;
 	vfdP->fileSize = 0;
-	vfdP->fdstate = 0x0;
+	vfdP->tempFlags = 0x0;
 	vfdP->resowner = NULL;
 
 	Insert(file);
@@ -1143,12 +1153,13 @@ OpenTemporaryFile(bool interXact)
 											 DEFAULTTABLESPACE_OID,
 											 true);
 
-	/* Mark it for deletion at close and temporary file size limit */
-	VfdCache[file].fdstate |= FD_DELETE_AT_CLOSE | FD_TEMP_FILE_LIMIT;
-
-	/* Register it with the current resource owner */
-	if (!interXact)
-		RegisterTemporaryFile(file);
+	/*
+	 * Register it with the current resource owner (unless it's a cross-xact
+	 * temp file), and mark for deletion at close and temp_file_limit
+	 * accounting.
+	 */
+	RegisterTemporaryFile(file, interXact ? NULL : CurrentResourceOwner,
+						  FD_DELETE_AT_CLOSE | FD_TEMP_FILE_LIMIT);
 
 	return file;
 }
@@ -1263,11 +1274,8 @@ PathNameCreateTemporaryFile(const char *path, bool error_on_failure)
 			return file;
 	}
 
-	/* Mark it for temp_file_limit accounting. */
-	VfdCache[file].fdstate |= FD_TEMP_FILE_LIMIT;
-
-	/* Register it for automatic close. */
-	RegisterTemporaryFile(file);
+	/* Register it for automatic close and temp_file_limit accounting */
+	RegisterTemporaryFile(file, CurrentResourceOwner, FD_TEMP_FILE_LIMIT);
 
 	return file;
 }
@@ -1298,8 +1306,11 @@ PathNameOpenTemporaryFile(const char *path, int mode)
 
 	if (file > 0)
 	{
-		/* Register it for automatic close. */
-		RegisterTemporaryFile(file);
+		/*
+		 * Register it for automatic close (but no delete-at-close or
+		 * temp_file_limit accounting)
+		 */
+		RegisterTemporaryFile(file, CurrentResourceOwner, 0);
 	}
 
 	return file;
@@ -1378,7 +1389,7 @@ FileClose(File file)
 			 * We may need to panic on failure to close non-temporary files;
 			 * see LruDelete.
 			 */
-			elog(vfdP->fdstate & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
+			elog(vfdP->tempFlags & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
 				 "could not close file \"%s\": %m", vfdP->fileName);
 		}
 
@@ -1389,7 +1400,7 @@ FileClose(File file)
 		Delete(file);
 	}
 
-	if (vfdP->fdstate & FD_TEMP_FILE_LIMIT)
+	if (vfdP->tempFlags & FD_TEMP_FILE_LIMIT)
 	{
 		/* Subtract its size from current usage (do first in case of error) */
 		temporary_files_size -= vfdP->fileSize;
@@ -1399,7 +1410,7 @@ FileClose(File file)
 	/*
 	 * Delete the file if it was temporary, and make a log entry if wanted
 	 */
-	if (vfdP->fdstate & FD_DELETE_AT_CLOSE)
+	if (vfdP->tempFlags & FD_DELETE_AT_CLOSE)
 	{
 		struct stat filestats;
 		int			stat_errno;
@@ -1411,7 +1422,7 @@ FileClose(File file)
 		 * is arranged to ensure that the worst-case consequence is failing to
 		 * emit log message(s), not failing to attempt the unlink.
 		 */
-		vfdP->fdstate &= ~FD_DELETE_AT_CLOSE;
+		vfdP->tempFlags &= ~FD_DELETE_AT_CLOSE;
 
 
 		/* first try the stat() */
@@ -1648,7 +1659,7 @@ FileWriteV(File file, const struct iovec *iov, int iovcnt, pgoff_t offset,
 	 * message if we do that.  All current callers would just throw error
 	 * immediately anyway, so this is safe at present.
 	 */
-	if (temp_file_limit >= 0 && (vfdP->fdstate & FD_TEMP_FILE_LIMIT))
+	if (temp_file_limit >= 0 && (vfdP->tempFlags & FD_TEMP_FILE_LIMIT))
 	{
 		pgoff_t		past_write = offset;
 
@@ -1687,7 +1698,7 @@ retry:
 		/*
 		 * Maintain fileSize and temporary_files_size if it's a temp file.
 		 */
-		if (vfdP->fdstate & FD_TEMP_FILE_LIMIT)
+		if (vfdP->tempFlags & FD_TEMP_FILE_LIMIT)
 		{
 			pgoff_t		past_write = offset + returnCode;
 
@@ -1875,7 +1886,7 @@ FileTruncate(File file, pgoff_t offset, uint32 wait_event_info)
 	if (returnCode == 0 && VfdCache[file].fileSize > offset)
 	{
 		/* adjust our state for truncation of a temp file */
-		Assert(VfdCache[file].fdstate & FD_TEMP_FILE_LIMIT);
+		Assert(VfdCache[file].tempFlags & FD_TEMP_FILE_LIMIT);
 		temporary_files_size -= VfdCache[file].fileSize - offset;
 		VfdCache[file].fileSize = offset;
 	}
@@ -2650,9 +2661,9 @@ CleanupTempFiles(bool isCommit, bool isProcExit)
 		Assert(FileIsNotOpen(0));	/* Make sure ring not corrupted */
 		for (i = 1; i < SizeVfdCache; i++)
 		{
-			unsigned short fdstate = VfdCache[i].fdstate;
+			unsigned short tempFlags = VfdCache[i].tempFlags;
 
-			if ((fdstate & FD_DELETE_AT_CLOSE) && VfdCache[i].fileName != NULL)
+			if ((tempFlags & FD_DELETE_AT_CLOSE) && VfdCache[i].fileName != NULL)
 				FileClose(i);
 		}
 	}
