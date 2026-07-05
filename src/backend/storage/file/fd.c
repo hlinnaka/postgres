@@ -194,8 +194,7 @@ int			io_direct_flags;
 
 /* these are the assigned bits in fdstate below: */
 #define FD_DELETE_AT_CLOSE	(1 << 0)	/* T = delete when closed */
-#define FD_CLOSE_AT_EOXACT	(1 << 1)	/* T = close at eoXact */
-#define FD_TEMP_FILE_LIMIT	(1 << 2)	/* T = respect temp_file_limit */
+#define FD_TEMP_FILE_LIMIT	(1 << 1)	/* T = respect temp_file_limit */
 
 typedef struct vfd
 {
@@ -224,12 +223,6 @@ static Size SizeVfdCache = 0;
  * Number of file descriptors known to be in use by VFD entries.
  */
 static int	nfile = 0;
-
-/*
- * Flag to tell whether it's worth scanning VfdCache looking for temp files
- * to close
- */
-static bool have_xact_temporary_files = false;
 
 /*
  * Tracks the total size of all temporary files.  Note: when temp_file_limit
@@ -1536,10 +1529,6 @@ RegisterTemporaryFile(File file)
 {
 	ResourceOwnerRememberFile(CurrentResourceOwner, file);
 	VfdCache[file].resowner = CurrentResourceOwner;
-
-	/* Backup mechanism for closing at end of xact. */
-	VfdCache[file].fdstate |= FD_CLOSE_AT_EOXACT;
-	have_xact_temporary_files = true;
 }
 
 /*
@@ -3201,11 +3190,9 @@ AtEOSubXact_Files(bool isCommit, SubTransactionId mySubid,
 /*
  * AtEOXact_Files
  *
- * This routine is called during transaction commit or abort.  All still-open
- * per-transaction temporary file VFDs are closed, which also causes the
- * underlying files to be deleted (although they should've been closed already
- * by the ResourceOwner cleanup). Furthermore, all "allocated" stdio files are
- * closed. We also forget any transaction-local temp tablespace list.
+ * This routine is called during transaction commit or abort.  All "allocated"
+ * stdio files are closed.  We also forget any transaction-local temp
+ * tablespace list.
  *
  * The isCommit flag is used only to decide whether to emit warnings about
  * unclosed files.
@@ -3242,10 +3229,8 @@ BeforeShmemExit_Files(int code, Datum arg)
  * expect any remaining files; warn if there are some.
  *
  * isProcExit: if true, this is being called as the backend process is
- * exiting. If that's the case, we should remove all temporary files; if
- * that's not the case, we are being called for transaction commit/abort
- * and should only remove transaction-local temp files.  In either case,
- * also clean up "allocated" stdio files, dirs and fds.
+ * exiting.  If that's the case, we should remove all temporary files.  In
+ * either case, also clean up "allocated" stdio files, dirs and fds.
  */
 static void
 CleanupTempFiles(bool isCommit, bool isProcExit)
@@ -3253,39 +3238,19 @@ CleanupTempFiles(bool isCommit, bool isProcExit)
 	Index		i;
 
 	/*
-	 * Careful here: at proc_exit we need extra cleanup, not just
-	 * xact_temporary files.
+	 * If we're in the process of exiting a backend process, close all
+	 * temporary files.
 	 */
-	if (isProcExit || have_xact_temporary_files)
+	if (isProcExit)
 	{
 		Assert(FileIsNotOpen(0));	/* Make sure ring not corrupted */
 		for (i = 1; i < SizeVfdCache; i++)
 		{
 			unsigned short fdstate = VfdCache[i].fdstate;
 
-			if (((fdstate & FD_DELETE_AT_CLOSE) || (fdstate & FD_CLOSE_AT_EOXACT)) &&
-				VfdCache[i].fileName != NULL)
-			{
-				/*
-				 * If we're in the process of exiting a backend process, close
-				 * all temporary files. Otherwise, only close temporary files
-				 * local to the current transaction. They should be closed by
-				 * the ResourceOwner mechanism already, so this is just a
-				 * debugging cross-check.
-				 */
-				if (isProcExit)
-					FileClose(i);
-				else if (fdstate & FD_CLOSE_AT_EOXACT)
-				{
-					elog(WARNING,
-						 "temporary file %s not closed at end-of-transaction",
-						 VfdCache[i].fileName);
-					FileClose(i);
-				}
-			}
+			if ((fdstate & FD_DELETE_AT_CLOSE) && VfdCache[i].fileName != NULL)
+				FileClose(i);
 		}
-
-		have_xact_temporary_files = false;
 	}
 
 	/* Complain if any allocated files remain open at commit. */
