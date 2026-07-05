@@ -41,6 +41,7 @@
 #include "access/xlogdefs.h"
 #include "pgstat.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "utils/wait_event.h"
 
 /*

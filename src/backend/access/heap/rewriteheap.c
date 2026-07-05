@@ -119,6 +119,7 @@
 #include "storage/bufmgr.h"
 #include "storage/bulk_write.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/procarray.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"

@@ -41,6 +41,7 @@
 #include "replication/walreceiver.h"
 #include "storage/aio_subsys.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/lwlock.h"

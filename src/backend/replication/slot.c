@@ -52,6 +52,7 @@
 #include "replication/slot.h"
 #include "replication/walsender_private.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"

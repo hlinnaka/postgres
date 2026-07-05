@@ -87,6 +87,7 @@
 #include "replication/walsender.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/large_object.h"
 #include "storage/latch.h"

@@ -108,6 +108,7 @@
 #include "lib/dshash.h"
 #include "pgstat.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "utils/guc_hooks.h"

@@ -30,6 +30,7 @@
 #include "postmaster/startup.h"
 #include "replication/walsender.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "utils/wait_event.h"
 

@@ -37,6 +37,7 @@
 #include "storage/dsm.h"
 #include "storage/dsm_registry.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/lwlock.h"

@@ -15,6 +15,7 @@
 #include "catalog/pg_authid.h"
 #include "miscadmin.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "utils/acl.h"
 #include "utils/wait_event.h"
 

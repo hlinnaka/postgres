@@ -68,7 +68,6 @@ enum FileExtendMethod
 
 /* GUC parameter */
 extern PGDLLIMPORT int max_files_per_process;
-extern PGDLLIMPORT bool data_sync_retry;
 extern PGDLLIMPORT int recovery_init_sync_method;
 extern PGDLLIMPORT int io_direct_flags;
 extern PGDLLIMPORT int file_extend_method;
@@ -77,19 +76,6 @@ extern PGDLLIMPORT int file_extend_method;
  * This is private to fd.c, but exported for save/restore_backend_variables()
  */
 extern PGDLLIMPORT int max_safe_fds;
-
-/*
- * On Windows, we have to interpret EACCES as possibly meaning the same as
- * ENOENT, because if a file is unlinked-but-not-yet-gone on that platform,
- * that's what you get.  Ugh.  This code is designed so that we don't
- * actually believe these cases are okay without further evidence (namely,
- * a pending fsync request getting canceled ... see ProcessSyncRequests).
- */
-#ifndef WIN32
-#define FILE_POSSIBLY_DELETED(err)	((err) == ENOENT)
-#else
-#define FILE_POSSIBLY_DELETED(err)	((err) == ENOENT || (err) == EACCES)
-#endif
 
 /*
  * O_DIRECT is not standard, but almost every Unix has it.  We translate it
@@ -207,19 +193,7 @@ extern void RemovePgTempFilesInDir(const char *tmpdirname, bool missing_ok,
 								   bool unlink_all);
 extern bool looks_like_temp_rel_name(const char *name);
 
-extern int	pg_fsync(int fd);
-extern int	pg_fsync_no_writethrough(int fd);
-extern int	pg_fsync_writethrough(int fd);
-extern int	pg_fdatasync(int fd);
-extern bool pg_file_exists(const char *name);
-extern void pg_flush_data(int fd, pgoff_t offset, pgoff_t nbytes);
-extern int	pg_truncate(const char *path, pgoff_t length);
-extern void fsync_fname(const char *fname, bool isdir);
-extern int	fsync_fname_ext(const char *fname, bool isdir, bool ignore_perm, int elevel);
-extern int	durable_rename(const char *oldfile, const char *newfile, int elevel);
-extern int	durable_unlink(const char *fname, int elevel);
 extern void SyncDataDirectory(void);
-extern int	data_sync_elevel(int elevel);
 
 static inline ssize_t
 FileRead(File file, void *buffer, size_t amount, pgoff_t offset,

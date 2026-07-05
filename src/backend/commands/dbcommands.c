@@ -56,6 +56,7 @@
 #include "replication/slot.h"
 #include "storage/copydir.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/md.h"

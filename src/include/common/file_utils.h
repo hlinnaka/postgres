@@ -10,8 +10,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef FILE_UTILS_H
-#define FILE_UTILS_H
+#ifndef COMMON_FILE_UTILS_H
+#define COMMON_FILE_UTILS_H
 
 #include <dirent.h>
 
@@ -32,6 +32,10 @@ typedef enum DataDirSyncMethod
 
 struct iovec;					/* avoid including port/pg_iovec.h here */
 
+/*
+ * These functions are frontend-only.  For backend code, they have
+ * counterparts in storage/file_utils.h
+ */
 #ifdef FRONTEND
 extern int	pre_sync_fname(const char *fname, bool isdir);
 extern int	fsync_fname(const char *fname, bool isdir);
@@ -63,4 +67,4 @@ extern ssize_t pg_pwrite_zeros(int fd, size_t size, pgoff_t offset);
 #define PG_TEMP_FILES_DIR "pgsql_tmp"
 #define PG_TEMP_FILE_PREFIX "pgsql_tmp"
 
-#endif							/* FILE_UTILS_H */
+#endif							/* COMMON_FILE_UTILS_H */

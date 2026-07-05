@@ -58,6 +58,7 @@
 #include "nodes/pg_list.h"
 #include "nodes/queryjumble.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "tcop/utility.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"

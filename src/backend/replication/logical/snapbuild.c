@@ -136,6 +136,7 @@
 #include "replication/snapbuild.h"
 #include "replication/snapbuild_internal.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"

@@ -53,6 +53,7 @@
 #include "replication/slotsync.h"
 #include "replication/walreceiver.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pmsignal.h"

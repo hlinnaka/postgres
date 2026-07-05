@@ -42,6 +42,7 @@
 #include "parser/scansup.h"
 #include "port/pg_bitutils.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
 #include "tcop/tcopprot.h"

@@ -35,6 +35,7 @@
 #include "storage/aio.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/md.h"
 #include "storage/relfilelocator.h"
 #include "storage/smgr.h"

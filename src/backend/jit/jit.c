@@ -26,7 +26,7 @@
 #include "miscadmin.h"
 #include "nodes/execnodes.h"
 #include "portability/instr_time.h"
-#include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "utils/fmgrprotos.h"
 
 /* GUCs */

@@ -69,6 +69,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/shmem.h"
 #include "storage/shmem_internal.h"
 #include "utils/guc.h"

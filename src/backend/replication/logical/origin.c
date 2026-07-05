@@ -86,6 +86,7 @@
 #include "replication/slot.h"
 #include "storage/condition_variable.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/lmgr.h"
 #include "storage/subsystems.h"

@@ -35,6 +35,7 @@
 #include "miscadmin.h"
 #include "storage/copydir.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "utils/guc.h"
 
 PG_MODULE_MAGIC_EXT(

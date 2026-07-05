@@ -51,6 +51,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/lwlock.h"
 #include "utils/inval.h"
 #include "utils/relmapper.h"

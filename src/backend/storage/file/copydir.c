@@ -29,6 +29,7 @@
 #include "pgstat.h"
 #include "storage/copydir.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "utils/wait_event.h"
 
 /* GUCs */

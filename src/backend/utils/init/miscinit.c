@@ -42,6 +42,7 @@
 #include "postmaster/postmaster.h"
 #include "replication/slotsync.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/pg_shmem.h"

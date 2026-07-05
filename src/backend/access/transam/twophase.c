@@ -97,6 +97,7 @@
 #include "replication/origin.h"
 #include "replication/syncrep.h"
 #include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/ipc.h"
 #include "storage/md.h"
 #include "storage/predicate.h"

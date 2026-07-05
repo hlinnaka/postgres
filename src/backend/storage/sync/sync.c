@@ -26,7 +26,7 @@
 #include "pgstat.h"
 #include "portability/instr_time.h"
 #include "postmaster/bgwriter.h"
-#include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/latch.h"
 #include "storage/md.h"
 #include "utils/hsearch.h"

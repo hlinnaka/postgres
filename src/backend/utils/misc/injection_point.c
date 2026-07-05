@@ -25,7 +25,7 @@
 
 #include "fmgr.h"
 #include "miscadmin.h"
-#include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/lwlock.h"
 #include "storage/shmem.h"
 #include "storage/subsystems.h"

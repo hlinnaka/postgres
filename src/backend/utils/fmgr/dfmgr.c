@@ -23,7 +23,7 @@
 #include "fmgr.h"
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
-#include "storage/fd.h"
+#include "storage/file_utils.h"
 #include "storage/shmem.h"
 #include "utils/hsearch.h"
 

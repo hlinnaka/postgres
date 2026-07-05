@@ -17,6 +17,7 @@ OBJS = \
 	copydir.o \
 	fd.o \
 	fileset.o \
+	file_utils.o \
 	reinit.o \
 	sharedfileset.o
 

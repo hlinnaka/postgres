@@ -5,6 +5,7 @@ backend_sources += files(
   'copydir.c',
   'fd.c',
   'fileset.c',
+  'file_utils.c',
   'reinit.c',
   'sharedfileset.c',
 )
