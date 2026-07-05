@@ -52,6 +52,7 @@
 #include "storage/buffile.h"
 #include "storage/bufmgr.h"
 #include "storage/fd.h"
+#include "storage/tempfile.h"
 #include "utils/resowner.h"
 #include "utils/wait_event.h"
 

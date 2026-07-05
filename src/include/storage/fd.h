@@ -117,7 +117,6 @@ struct PgAioHandle;
 /* Operations on virtual Files --- equivalent to Unix kernel file ops */
 extern File PathNameOpenFile(const char *fileName, int fileFlags);
 extern File PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode);
-extern File OpenTemporaryFile(bool interXact);
 extern void FileClose(File file);
 extern int	FilePrefetch(File file, pgoff_t offset, pgoff_t amount, uint32 wait_event_info);
 extern ssize_t FileReadV(File file, const struct iovec *iov, int iovcnt, pgoff_t offset, uint32 wait_event_info);
@@ -134,12 +133,6 @@ extern char *FilePathName(File file);
 extern int	FileGetRawDesc(File file);
 extern int	FileGetRawFlags(File file);
 extern mode_t FileGetRawMode(File file);
-
-/* Operations used for sharing named temporary files */
-extern File PathNameCreateTemporaryFile(const char *path, bool error_on_failure);
-extern File PathNameOpenTemporaryFile(const char *path, int mode);
-extern bool PathNameDeleteTemporaryFile(const char *path, bool error_on_failure);
-extern void TempTablespacePath(char *path, Oid tablespace);
 
 /* Operations that allow use of regular stdio --- USE WITH CAUTION */
 extern FILE *AllocateFile(const char *name, const char *mode);
@@ -172,20 +165,19 @@ extern void ReleaseExternalFD(void);
 
 /* Miscellaneous support routines */
 extern void InitFileAccess(void);
-extern void InitTemporaryFileAccess(void);
 extern void set_max_safe_fds(void);
 extern void closeAllVfds(void);
-extern void SetTempTablespaces(Oid *tableSpaces, int numSpaces);
-extern bool TempTablespacesAreSet(void);
-extern int	GetTempTablespaces(Oid *tableSpaces, int numSpaces);
-extern Oid	GetNextTempTableSpace(void);
 extern void AtEOXact_Files(bool isCommit);
 extern void AtEOSubXact_Files(bool isCommit, SubTransactionId mySubid,
 							  SubTransactionId parentSubid);
-extern void RemovePgTempFiles(void);
-extern void RemovePgTempFilesInDir(const char *tmpdirname, bool missing_ok,
-								   bool unlink_all);
-extern bool looks_like_temp_rel_name(const char *name);
+extern void CleanupTempFiles(void);
+
+/* flags to RegisterTemporaryFile (also stored in fd.c's internal Vfd struct) */
+#define FD_DELETE_AT_CLOSE	(1 << 0)	/* T = delete when closed */
+#define FD_TEMP_FILE_LIMIT	(1 << 1)	/* T = respect temp_file_limit */
+
+struct ResourceOwnerData;
+extern void RegisterTemporaryFile(File file, struct ResourceOwnerData *resowner, unsigned short flags);
 
 static inline ssize_t
 FileRead(File file, void *buffer, size_t amount, pgoff_t offset,

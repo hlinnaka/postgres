@@ -29,6 +29,7 @@
 #include "miscadmin.h"
 #include "storage/datadir.h"
 #include "storage/fileset.h"
+#include "storage/tempfile.h"
 
 static void FileSetPath(char *path, FileSet *fileset, Oid tablespace);
 static void FilePath(char *path, FileSet *fileset, const char *name);

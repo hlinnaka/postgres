@@ -116,6 +116,7 @@
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "storage/shmem_internal.h"
+#include "storage/tempfile.h"
 #include "tcop/backend_startup.h"
 #include "tcop/tcopprot.h"
 #include "utils/datetime.h"

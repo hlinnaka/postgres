@@ -56,6 +56,7 @@
 #include "storage/sinvaladt.h"
 #include "storage/smgr.h"
 #include "storage/sync.h"
+#include "storage/tempfile.h"
 #include "tcop/backend_startup.h"
 #include "tcop/tcopprot.h"
 #include "utils/acl.h"

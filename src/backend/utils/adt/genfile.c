@@ -31,6 +31,7 @@
 #include "postmaster/syslogger.h"
 #include "replication/slot.h"
 #include "storage/fd.h"
+#include "storage/tempfile.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"

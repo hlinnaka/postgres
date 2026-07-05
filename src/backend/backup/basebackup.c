@@ -43,6 +43,7 @@
 #include "storage/dsm_impl.h"
 #include "storage/ipc.h"
 #include "storage/reinit.h"
+#include "storage/tempfile.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/ps_status.h"

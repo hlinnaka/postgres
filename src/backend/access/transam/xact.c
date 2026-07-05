@@ -62,6 +62,7 @@
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
 #include "storage/smgr.h"
+#include "storage/tempfile.h"
 #include "utils/builtins.h"
 #include "utils/combocid.h"
 #include "utils/guc.h"
@@ -2512,6 +2513,7 @@ CommitTransaction(void)
 	AtEOXact_Namespace(true, is_parallel_worker);
 	AtEOXact_SMgr();
 	AtEOXact_Files(true);
+	AtEOXact_TempFiles();
 	AtEOXact_ComboCid();
 	AtEOXact_HashTables(true);
 	AtEOXact_RI(true);
@@ -2808,6 +2810,7 @@ PrepareTransaction(void)
 	AtEOXact_Namespace(true, false);
 	AtEOXact_SMgr();
 	AtEOXact_Files(true);
+	AtEOXact_TempFiles();
 	AtEOXact_ComboCid();
 	AtEOXact_HashTables(true);
 	AtEOXact_RI(true);
@@ -3039,6 +3042,7 @@ AbortTransaction(void)
 		AtEOXact_Namespace(false, is_parallel_worker);
 		AtEOXact_SMgr();
 		AtEOXact_Files(false);
+		AtEOXact_TempFiles();
 		AtEOXact_ComboCid();
 		AtEOXact_HashTables(false);
 		AtEOXact_RI(false);

@@ -74,6 +74,7 @@
 #include "storage/lwlock.h"
 #include "storage/procsignal.h"
 #include "storage/standby.h"
+#include "storage/tempfile.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"

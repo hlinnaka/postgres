@@ -25,6 +25,7 @@
 #include "storage/datadir.h"
 #include "storage/fd.h"
 #include "storage/file_utils.h"
+#include "storage/tempfile.h"
 
 /* Define PG_FLUSH_DATA_WORKS if we have an implementation for pg_flush_data */
 #if defined(HAVE_SYNC_FILE_RANGE)
