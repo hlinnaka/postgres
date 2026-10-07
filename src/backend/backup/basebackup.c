@@ -62,7 +62,7 @@
  * NB: The buffer size is required to be a multiple of the system block
  * size, so use that value instead if it's bigger than our preference.
  */
-#define SINK_BUFFER_LENGTH			Max(32768, BLCKSZ)
+#define SINK_BUFFER_LENGTH			Max(256 * 1024, BLCKSZ)
 
 typedef struct
 {
@@ -1768,11 +1768,12 @@ sendFile(bbsink *sink, const char *readfilename, const char *tarfilename,
 											 &checksum_failures);
 
 			/*
-			 * If we get a partial read, that must mean that the relation is
-			 * being truncated. Ultimately, it should be truncated to a
-			 * multiple of BLCKSZ, since this path should only be reached for
-			 * relation files, but we might transiently observe an
-			 * intermediate value.
+			 * read_file_data_into_buffer() retries short reads, so if we got
+			 * fewer bytes than requested we must have hit EOF (which means
+			 * that the relation is being truncated). Ultimately, it should be
+			 * truncated to a multiple of BLCKSZ, since this path  should only
+			 * be reached for relation files, but we might transiently observe
+			 * an intermediate value.
 			 *
 			 * It should be fine to treat this just as if the entire block had
 			 * been truncated away - i.e. fill this and all later blocks with
@@ -1877,8 +1878,9 @@ sendFile(bbsink *sink, const char *readfilename, const char *tarfilename,
  * 'offset' is the file offset from which we should begin to read, and
  * 'length' is the amount of data that should be read. The actual amount
  * of data read will be less than the requested amount if the bbsink's
- * buffer isn't big enough to hold it all, or if the underlying file has
- * been truncated. The return value is the number of bytes actually read.
+ * buffer isn't big enough to hold it all, or if we hit EOF, which means
+ * that the underlying file has been truncated. The return value is the
+ * number of bytes actually read.
  *
  * 'blkno' is the block number of the first page in the bbsink's buffer
  * relative to the start of the relation.
@@ -2206,7 +2208,8 @@ convert_link_to_directory(const char *pathbuf, struct stat *statbuf)
 
 /*
  * Read some data from a file, setting a wait event and reporting any error
- * encountered.
+ * encountered. Short reads are retried until either all requested bytes have
+ * been read or EOF is hit ( potentially due to concurrent truncation).
  *
  * If partial_read_ok is false, also report an error if the number of bytes
  * read is not equal to the number of bytes requested.
@@ -2217,21 +2220,45 @@ static ssize_t
 basebackup_read_file(int fd, char *buf, size_t nbytes, off_t offset,
 					 const char *filename, bool partial_read_ok)
 {
-	ssize_t		rc;
+	ssize_t		transferred = 0;
 
-	pgstat_report_wait_start(WAIT_EVENT_BASEBACKUP_READ);
-	rc = pg_pread(fd, buf, nbytes, offset);
-	pgstat_report_wait_end();
+	/*
+	 * Loop to continue after a short read. Short reads are more likely to
+	 * show up with large read requests such as ours due to e.g. signals. This
+	 * tries to mirror what mdreadv() does.
+	 */
+	while (transferred < nbytes)
+	{
+		ssize_t		rc;
 
-	if (rc < 0)
+		pgstat_report_wait_start(WAIT_EVENT_BASEBACKUP_READ);
+		rc = pg_pread(fd, buf + transferred, nbytes - transferred,
+					  offset + transferred);
+		pgstat_report_wait_end();
+
+#ifdef SIMULATE_SHORT_READ
+		rc = Min(rc, 4096);
+#endif
+		if (rc < 0 && errno == EINTR)
+			continue;
+
+		if (rc < 0)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not read file \"%s\": %m", filename)));
+
+		/* EOF */
+		if (rc == 0)
+			break;
+
+		transferred += rc;
+	}
+
+	if (!partial_read_ok && transferred > 0 && transferred != nbytes)
 		ereport(ERROR,
 				(errcode_for_file_access(),
-				 errmsg("could not read file \"%s\": %m", filename)));
-	if (!partial_read_ok && rc > 0 && rc != nbytes)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not read file \"%s\": read %zd of %zu",
-						filename, rc, nbytes)));
+				 errmsg("could not read file \"%s\": read %zu of %zu",
+						filename, transferred, nbytes)));
 
-	return rc;
+	return transferred;
 }
