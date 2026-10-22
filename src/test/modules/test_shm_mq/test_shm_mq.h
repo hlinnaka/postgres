@@ -15,6 +15,7 @@
 #define TEST_SHM_MQ_H
 
 #include "storage/dsm.h"
+#include "storage/procnumber.h"
 #include "storage/shm_mq.h"
 #include "storage/spin.h"
 
@@ -28,6 +29,8 @@
  */
 typedef struct
 {
+	ProcNumber	leader_proc_number;
+
 	slock_t		mutex;
 	int			workers_total;
 	int			workers_attached;

@@ -57,7 +57,6 @@
 #include "catalog/pg_subscription_rel.h"
 #include "commands/sequence.h"
 #include "ipc/interrupt.h"
-#include "ipc/signal_handlers.h"
 #include "pgstat.h"
 #include "replication/logicalworker.h"
 #include "replication/worker_internal.h"
@@ -645,11 +644,8 @@ copy_sequences(WalReceiverConn *conn)
 
 			CHECK_FOR_INTERRUPTS();
 
-			if (ConfigReloadPending)
-			{
-				ConfigReloadPending = false;
+			if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 				ProcessConfigFile(PGC_SIGHUP);
-			}
 
 			/*
 			 * Set up callback to identify the sequence in error messages.

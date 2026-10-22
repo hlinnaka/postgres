@@ -29,6 +29,7 @@
 #include "commands/repack.h"
 #include "commands/vacuum.h"
 #include "executor/execParallel.h"
+#include "ipc/interrupt.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
@@ -39,7 +40,6 @@
 #include "storage/ipc.h"
 #include "storage/predicate.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/combocid.h"
 #include "utils/guc.h"
@@ -115,9 +115,6 @@ typedef struct FixedParallelState
  */
 int			ParallelWorkerNumber = -1;
 
-/* Is there a parallel message pending which we need to receive? */
-volatile sig_atomic_t ParallelMessagePending = false;
-
 /* Are we initializing a parallel worker? */
 bool		InitializingParallelWorker = false;
 
@@ -126,9 +123,6 @@ static FixedParallelState *MyFixedParallelState;
 
 /* List of active parallel contexts. */
 static dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
-
-/* Backend-local copy of data from FixedParallelState. */
-static pid_t ParallelLeaderPid;
 
 /*
  * List of internal parallel worker entry points.  We need this for
@@ -612,7 +606,6 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	sprintf(worker.bgw_library_name, "postgres");
 	sprintf(worker.bgw_function_name, "ParallelWorkerMain");
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(pcxt->seg));
-	worker.bgw_notify_pid = MyProcPid;
 
 	/*
 	 * Start workers.
@@ -767,16 +760,21 @@ WaitForParallelWorkersToAttach(ParallelContext *pcxt)
 			{
 				/*
 				 * Worker not yet started, so we must wait.  The postmaster
-				 * will notify us if the worker's state changes.  Our latch
-				 * might also get set for some other reason, but if so we'll
-				 * just end up waiting for the same worker again.
+				 * will notify us if the worker's state changes with
+				 * INTERRUPT_WAIT_WAKEUP.  The interrupt might also get set
+				 * for some other reason, but if so we'll just end up waiting
+				 * for the same worker again.
 				 */
-				rc = WaitLatch(MyLatch,
-							   WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-							   -1, WAIT_EVENT_BGWORKER_STARTUP);
+				rc = WaitInterrupt(CheckForInterruptsMask |
+								   INTERRUPT_WAIT_WAKEUP,
+								   WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+								   -1, WAIT_EVENT_BGWORKER_STARTUP);
 
-				if (rc & WL_LATCH_SET)
-					ResetLatch(MyLatch);
+				if (rc & WL_INTERRUPT)
+				{
+					ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+					CHECK_FOR_INTERRUPTS();
+				}
 			}
 		}
 
@@ -808,6 +806,7 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 		bool		anyone_alive = false;
 		int			nfinished = 0;
 		int			i;
+		InterruptMask mask = 0;
 
 		/*
 		 * This will process any parallel messages that are pending, which may
@@ -825,7 +824,7 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 		 * cost limit reaches the parallel workers before they finish.
 		 */
 		if (AmAutoVacuumWorkerProcess())
-			parallel_vacuum_refresh_cost_params();
+			mask |= parallel_vacuum_refresh_cost_params();
 
 		for (i = 0; i < pcxt->nworkers_launched; ++i)
 		{
@@ -896,15 +895,21 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 				 * the worker writes messages and terminates after the
 				 * CHECK_FOR_INTERRUPTS() near the top of this function and
 				 * before the call to GetBackgroundWorkerPid().  In that case,
-				 * our latch should have been set as well and the right things
-				 * will happen on the next pass through the loop.
+				 * INTERRUPT_WAIT_WAKEUP should have been set as well and the
+				 * right things will happen on the next pass through the loop.
 				 */
 			}
 		}
 
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1,
-						 WAIT_EVENT_PARALLEL_FINISH);
-		ResetLatch(MyLatch);
+		/*
+		 * shm_mq sends INTERRUPT_WAIT_WAKEUP to indicate that the
+		 * counterparty has detached, so wake up on that too
+		 */
+		mask |= CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP;
+		(void) WaitInterrupt(mask,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
+							 WAIT_EVENT_PARALLEL_FINISH);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 
 	if (pcxt->toc != NULL)
@@ -1048,21 +1053,6 @@ ParallelContextActive(void)
 }
 
 /*
- * Handle receipt of an interrupt indicating a parallel worker message.
- *
- * Note: this is called within a signal handler!  All we can do is set
- * a flag that will cause the next CHECK_FOR_INTERRUPTS() to invoke
- * ProcessParallelMessages().
- */
-void
-HandleParallelMessageInterrupt(void)
-{
-	InterruptPending = true;
-	ParallelMessagePending = true;
-	/* latch will be set by procsignal_sigusr1_handler */
-}
-
-/*
  * Process any queued protocol messages received from parallel workers.
  */
 void
@@ -1095,9 +1085,6 @@ ProcessParallelMessageInterrupt(void)
 
 	oldcontext = MemoryContextSwitchTo(hpm_context);
 
-	/* OK to process messages.  Reset the flag saying there are more to do. */
-	ParallelMessagePending = false;
-
 	/* Process messages from parallel query workers */
 	ProcessParallelMessages();
 
@@ -1126,6 +1113,7 @@ ProcessParallelMessages(void)
 {
 	dlist_iter	iter;
 
+	/* OK to process messages */
 	dlist_foreach(iter, &pcxt_list)
 	{
 		ParallelContext *pcxt;
@@ -1360,7 +1348,10 @@ ParallelWorkerMain(Datum main_arg)
 	/* Set flag to indicate that we're initializing a parallel worker. */
 	InitializingParallelWorker = true;
 
-	/* Establish signal handlers. */
+	/*
+	 * Standard interrupt handlers have already been installed; unblock
+	 * signals.
+	 */
 	BackgroundWorkerUnblockSignals();
 
 	/* Determine and set our parallel worker number. */
@@ -1396,8 +1387,7 @@ ParallelWorkerMain(Datum main_arg)
 	fps = shm_toc_lookup(toc, PARALLEL_KEY_FIXED, false);
 	MyFixedParallelState = fps;
 
-	/* Arrange to signal the leader if we exit. */
-	ParallelLeaderPid = fps->parallel_leader_pid;
+	/* Arrange to send an interrupt to the leader if we exit. */
 	ParallelLeaderProcNumber = fps->parallel_leader_proc_number;
 	before_shmem_exit(ParallelWorkerShutdown, PointerGetDatum(seg));
 
@@ -1413,8 +1403,7 @@ ParallelWorkerMain(Datum main_arg)
 	shm_mq_set_sender(mq, MyProc);
 	mqh = shm_mq_attach(mq, seg, NULL);
 	pq_redirect_to_shm_mq(seg, mqh);
-	pq_set_parallel_leader(fps->parallel_leader_pid,
-						   fps->parallel_leader_proc_number);
+	pq_set_parallel_leader(fps->parallel_leader_proc_number);
 
 	/*
 	 * Hooray! Primary initialization is complete.  Now, we need to set up our
@@ -1650,9 +1639,8 @@ ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end)
 static void
 ParallelWorkerShutdown(int code, Datum arg)
 {
-	SendProcSignal(ParallelLeaderPid,
-				   PROCSIG_PARALLEL_MESSAGE,
-				   ParallelLeaderProcNumber);
+	SendInterrupt(INTERRUPT_PARALLEL_MESSAGE,
+				  ParallelLeaderProcNumber);
 
 	dsm_detach((dsm_segment *) DatumGetPointer(arg));
 }

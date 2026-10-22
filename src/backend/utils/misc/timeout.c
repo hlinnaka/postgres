@@ -14,11 +14,11 @@
  */
 #include "postgres.h"
 
+#include <signal.h>
 #include <sys/time.h>
 
 #include "ipc/interrupt.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
@@ -370,12 +370,6 @@ handle_sig_alarm(SIGNAL_ARGS)
 	 * failures are hard to debug, so better be sure.
 	 */
 	HOLD_INTERRUPTS();
-
-	/*
-	 * SIGALRM is always cause for waking anything waiting on the process
-	 * latch.
-	 */
-	SetLatch(MyLatch);
 
 	/*
 	 * Always reset signal_pending, even if !alarm_enabled, since indeed no

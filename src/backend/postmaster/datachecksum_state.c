@@ -204,6 +204,8 @@
  */
 #include "postgres.h"
 
+#include <signal.h>
+
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
@@ -224,10 +226,8 @@
 #include "storage/bufmgr.h"
 #include "storage/checksum.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lmgr.h"
 #include "storage/lwlock.h"
-#include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/smgr.h"
 #include "storage/subsystems.h"
@@ -386,9 +386,6 @@ typedef struct DataChecksumsWorkerDatabase
 	char	   *dbname;
 } DataChecksumsWorkerDatabase;
 
-/* Flag set by the interrupt handler */
-static volatile sig_atomic_t abort_requested = false;
-
 static uint64 worker_invocation;
 
 /*
@@ -414,7 +411,6 @@ static BgwHandleStatus WaitForDataChecksumsWorkerState(BackgroundWorkerHandle *h
 													   uint32 wait_event);
 static DataChecksumsWorkerResult ProcessDatabase(DataChecksumsWorkerDatabase *db);
 static void launcher_exit(int code, Datum arg);
-static void launcher_cancel_handler(SIGNAL_ARGS);
 static void WaitForAllTransactionsToFinish(void);
 static bool ProcessAllDatabases(void);
 static void DataChecksumsShmemRequest(void *arg);
@@ -432,7 +428,7 @@ const ShmemCallbacks DataChecksumsShmemCallbacks = {
 		Assert(MyBackendType == B_DATACHECKSUMSWORKER_LAUNCHER);	\
 		LWLockAcquire(DataChecksumsWorkerLock, LW_SHARED);			\
 		if (DataChecksumState->launch_operation != operation) 		\
-			abort_requested = true;									\
+			RaiseInterrupt(INTERRUPT_QUERY_CANCEL);					\
 		LWLockRelease(DataChecksumsWorkerLock);						\
 	} while (0)
 
@@ -442,7 +438,7 @@ const ShmemCallbacks DataChecksumsShmemCallbacks = {
 		LWLockAcquire(DataChecksumsWorkerLock, LW_SHARED);			\
 		if (DataChecksumState->worker_invocation != worker_invocation || \
 			DataChecksumState->launch_operation != operation) 		\
-			abort_requested = true;									\
+			RaiseInterrupt(INTERRUPT_QUERY_CANCEL);					\
 		LWLockRelease(DataChecksumsWorkerLock);						\
 	} while (0)
 
@@ -799,7 +795,7 @@ ProcessSingleRelationFork(Relation reln, ForkNumber forkNum, BufferAccessStrateg
 		/* Check if we are asked to abort, the abortion will bubble up. */
 		Assert(operation == ENABLE_DATACHECKSUMS);
 		CHECK_FOR_WORKER_ABORT_REQUEST();
-		if (abort_requested)
+		if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 			return false;
 
 		/* update the block counter */
@@ -918,6 +914,7 @@ WaitForDataChecksumsWorkerState(BackgroundWorkerHandle *handle,
 	{
 		int			rc;
 		pid_t		pid;
+		InterruptMask mask;
 
 		CHECK_FOR_INTERRUPTS();
 
@@ -925,7 +922,7 @@ WaitForDataChecksumsWorkerState(BackgroundWorkerHandle *handle,
 		if (status == BGWH_STARTED && pidp)
 			*pidp = pid;
 
-		if (abort_requested && !termination_requested)
+		if (InterruptPending(INTERRUPT_QUERY_CANCEL) && !termination_requested)
 		{
 			TerminateBackgroundWorker(handle);
 			termination_requested = true;
@@ -939,17 +936,18 @@ WaitForDataChecksumsWorkerState(BackgroundWorkerHandle *handle,
 			(wait_for_startup && status == BGWH_STARTED))
 			break;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
-					   wait_event);
+		mask = CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP;
+		if (!termination_requested)
+			mask |= INTERRUPT_QUERY_CANCEL;
+		rc = WaitInterrupt(mask,
+						   WL_INTERRUPT | WL_POSTMASTER_DEATH, 0,
+						   wait_event);
 
 		if (rc & WL_POSTMASTER_DEATH)
 		{
 			status = BGWH_POSTMASTER_DIED;
 			break;
 		}
-
-		ResetLatch(MyLatch);
 	}
 
 	return status;
@@ -1023,7 +1021,7 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 											 WAIT_EVENT_BGWORKER_STARTUP);
 	if (status == BGWH_STOPPED)
 	{
-		if (abort_requested)
+		if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 		{
 			result = DATACHECKSUMSWORKER_ABORTED;
 			goto done;
@@ -1106,7 +1104,7 @@ ProcessDatabase(DataChecksumsWorkerDatabase *db)
 		result = DATACHECKSUMSWORKER_DROPDB;
 
 	CHECK_FOR_LAUNCHER_ABORT_REQUEST();
-	if (abort_requested)
+	if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 		result = DATACHECKSUMSWORKER_ABORTED;
 
 done:
@@ -1131,8 +1129,6 @@ done:
 static void
 launcher_exit(int code, Datum arg)
 {
-	abort_requested = false;
-
 	if (launcher_running)
 	{
 		LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
@@ -1140,7 +1136,7 @@ launcher_exit(int code, Datum arg)
 		{
 			ereport(LOG,
 					errmsg("data checksums launcher exiting while worker is still running, signalling worker"));
-			kill(GetPGProcByNumber(DataChecksumState->worker_procno)->pid, SIGTERM);
+			SendInterrupt(INTERRUPT_TERMINATE, DataChecksumState->worker_procno);
 		}
 		LWLockRelease(DataChecksumsWorkerLock);
 	}
@@ -1157,29 +1153,6 @@ launcher_exit(int code, Datum arg)
 		DataChecksumState->launcher_running = false;
 	launcher_running = false;
 	LWLockRelease(DataChecksumsWorkerLock);
-}
-
-/*
- * launcher_cancel_handler
- *
- * Internal routine for reacting to SIGINT and flagging the launcher to abort.
- * If a worker is registered or running, the launcher will request worker
- * termination from its normal control flow.
- */
-static void
-launcher_cancel_handler(SIGNAL_ARGS)
-{
-	int			save_errno = errno;
-
-	abort_requested = true;
-
-	/*
-	 * Wake the launcher if it is waiting for transactions to finish or for a
-	 * worker to start up or shut down.
-	 */
-	SetLatch(MyLatch);
-
-	errno = save_errno;
 }
 
 /*
@@ -1214,11 +1187,11 @@ WaitForAllTransactionsToFinish(void)
 		pgstat_report_activity(STATE_RUNNING, activity);
 
 		/* Retry every 3 seconds */
-		ResetLatch(MyLatch);
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-					   3000,
-					   WAIT_EVENT_CHECKSUM_ENABLE_STARTCONDITION);
+		rc = WaitInterrupt(CheckForInterruptsMask |
+						   INTERRUPT_QUERY_CANCEL,
+						   WL_INTERRUPT | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+						   3000,
+						   WAIT_EVENT_CHECKSUM_ENABLE_STARTCONDITION);
 
 		/*
 		 * If the postmaster died, bail out.  But first print a log message to
@@ -1233,7 +1206,7 @@ WaitForAllTransactionsToFinish(void)
 		CHECK_FOR_INTERRUPTS();
 		CHECK_FOR_LAUNCHER_ABORT_REQUEST();
 
-		if (abort_requested)
+		if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 			break;
 	}
 
@@ -1255,11 +1228,7 @@ DataChecksumsWorkerLauncherMain(Datum arg)
 	ereport(DEBUG1,
 			errmsg("background worker \"datachecksums launcher\" started"));
 
-	pqsignal(SIGTERM, die);
-	pqsignal(SIGINT, launcher_cancel_handler);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, PG_SIG_IGN);
-
+	SetStandardInterruptHandlers();
 	BackgroundWorkerUnblockSignals();
 
 	MyBackendType = B_DATACHECKSUMSWORKER_LAUNCHER;
@@ -1334,7 +1303,7 @@ again:
 			 * launcher will restart processing with the new target state.
 			 */
 			CHECK_FOR_LAUNCHER_ABORT_REQUEST();
-			if (abort_requested)
+			if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 				goto done;
 			ereport(ERROR,
 					errcode(ERRCODE_INSUFFICIENT_RESOURCES),
@@ -1391,7 +1360,7 @@ done:
 		 * mind again before we had time to exit we need to clear the abort
 		 * flag.
 		 */
-		abort_requested = false;
+		ClearInterrupt(INTERRUPT_QUERY_CANCEL);
 		LWLockRelease(DataChecksumsWorkerLock);
 		goto again;
 	}
@@ -1425,7 +1394,7 @@ ProcessAllDatabases(void)
 
 	/* Get a list of all databases to process */
 	WaitForAllTransactionsToFinish();
-	if (abort_requested)
+	if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 		return false;
 	DatabaseList = BuildDatabaseList();
 
@@ -1480,7 +1449,7 @@ ProcessAllDatabases(void)
 					errmsg("data checksums failed to get enabled in all databases, aborting"),
 					errhint("The server log might have more information on the cause of the error."));
 		}
-		else if (result == DATACHECKSUMSWORKER_ABORTED || abort_requested)
+		else if (result == DATACHECKSUMSWORKER_ABORTED || InterruptPending(INTERRUPT_QUERY_CANCEL))
 		{
 			/* Abort flag set, so exit the whole process */
 			FreeDatabaseList(DatabaseList);
@@ -1784,9 +1753,7 @@ DataChecksumsWorkerMain(Datum arg)
 
 	operation = ENABLE_DATACHECKSUMS;
 
-	pqsignal(SIGTERM, die);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-
+	SetStandardInterruptHandlers();
 	BackgroundWorkerUnblockSignals();
 
 	MyBackendType = B_DATACHECKSUMSWORKER_WORKER;
@@ -1886,7 +1853,7 @@ DataChecksumsWorkerMain(Datum arg)
 		CHECK_FOR_INTERRUPTS();
 		CHECK_FOR_WORKER_ABORT_REQUEST();
 
-		if (abort_requested)
+		if (InterruptPending(INTERRUPT_QUERY_CANCEL))
 			break;
 
 		/*
@@ -1925,7 +1892,7 @@ DataChecksumsWorkerMain(Datum arg)
 	list_free(RelationList);
 	FreeAccessStrategy(strategy);
 
-	if (aborted || abort_requested)
+	if (aborted || InterruptPending(INTERRUPT_QUERY_CANCEL))
 	{
 		LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
 		if (DataChecksumState->worker_invocation == worker_invocation)
@@ -1989,16 +1956,16 @@ DataChecksumsWorkerMain(Datum arg)
 		pgstat_report_activity(STATE_RUNNING, activity);
 
 		/* Retry every 3 seconds */
-		ResetLatch(MyLatch);
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 3000,
-						 WAIT_EVENT_CHECKSUM_ENABLE_TEMPTABLE_WAIT);
+		(void) WaitInterrupt(CheckForInterruptsMask |
+							 INTERRUPT_QUERY_CANCEL,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 3000,
+							 WAIT_EVENT_CHECKSUM_ENABLE_TEMPTABLE_WAIT);
 
 		CHECK_FOR_INTERRUPTS();
 		CHECK_FOR_WORKER_ABORT_REQUEST();
 
-		if (aborted || abort_requested)
+		if (aborted || InterruptPending(INTERRUPT_QUERY_CANCEL))
 		{
 			LWLockAcquire(DataChecksumsWorkerLock, LW_EXCLUSIVE);
 			if (DataChecksumState->worker_invocation == worker_invocation)

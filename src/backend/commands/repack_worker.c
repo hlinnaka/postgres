@@ -27,7 +27,6 @@
 #include "replication/snapbuild.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
-#include "storage/procsignal.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -100,8 +99,7 @@ RepackWorkerMain(Datum main_arg)
 	shm_mq_set_sender(mq, MyProc);
 	mqh = shm_mq_attach(mq, seg, NULL);
 	pq_redirect_to_shm_mq(seg, mqh);
-	pq_set_parallel_leader(shared->backend_pid,
-						   shared->backend_proc_number);
+	pq_set_parallel_leader(shared->backend_proc_number);
 
 	/*
 	 * Connect to the database, skipping the connection authorization checks
@@ -188,12 +186,10 @@ RepackWorkerShutdown(int code, Datum arg)
 {
 	dsm_segment *seg;
 	DecodingWorkerShared *shared;
-	pid_t		pid;
 	ProcNumber	procno;
 
 	seg = (dsm_segment *) DatumGetPointer(arg);
 	shared = (DecodingWorkerShared *) dsm_segment_address(seg);
-	pid = shared->backend_pid;
 	procno = shared->backend_proc_number;
 
 	/*
@@ -205,7 +201,7 @@ RepackWorkerShutdown(int code, Datum arg)
 	 */
 	dsm_detach(seg);
 
-	SendProcSignal(pid, PROCSIG_PARALLEL_MESSAGE, procno);
+	SendInterrupt(INTERRUPT_PARALLEL_MESSAGE, procno);
 }
 
 bool

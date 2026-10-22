@@ -42,6 +42,9 @@
  * In the event of a general failure (return code 1), a warning message will
  * be emitted. For permission errors, doing that is the responsibility of
  * the caller.
+ *
+ * TODO: This could be changed to send an interrupt directly now. But sending
+ * a SIGTERM or SIGINT still works too.
  */
 #define SIGNAL_BACKEND_SUCCESS 0
 #define SIGNAL_BACKEND_ERROR 1
@@ -202,12 +205,10 @@ pg_wait_until_termination(int pid, int64 timeout)
 		/* Process interrupts, if any, before waiting */
 		CHECK_FOR_INTERRUPTS();
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 waittime,
-						 WAIT_EVENT_BACKEND_TERMINATION);
-
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 waittime,
+							 WAIT_EVENT_BACKEND_TERMINATION);
 
 		remainingtime -= waittime;
 	} while (remainingtime > 0);

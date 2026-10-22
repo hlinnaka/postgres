@@ -54,6 +54,7 @@
 #include "access/xlogutils.h"
 #include "catalog/catalog.h"
 #include "catalog/pg_authid.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
@@ -3463,7 +3464,7 @@ SignalRecoveryConflict(PGPROC *proc, pid_t pid, RecoveryConflictReason reason)
 	LWLockAcquire(ProcArrayLock, LW_SHARED);
 
 	/*
-	 * Kill the pid if it's still here. If not, that's what we wanted so
+	 * Kill the process if it's still here. If not, that's what we wanted so
 	 * ignore any errors.
 	 */
 	if (proc->pid == pid)
@@ -3471,7 +3472,7 @@ SignalRecoveryConflict(PGPROC *proc, pid_t pid, RecoveryConflictReason reason)
 		(void) pg_atomic_fetch_or_u32(&proc->pendingRecoveryConflicts, (1 << reason));
 
 		/* wake up the process */
-		(void) SendProcSignal(pid, PROCSIG_RECOVERY_CONFLICT, GetNumberFromPGProc(proc));
+		SendInterrupt(INTERRUPT_RECOVERY_CONFLICT, GetNumberFromPGProc(proc));
 		found = true;
 	}
 
@@ -3511,10 +3512,10 @@ SignalRecoveryConflictWithVirtualXID(VirtualTransactionId vxid, RecoveryConflict
 				(void) pg_atomic_fetch_or_u32(&proc->pendingRecoveryConflicts, (1 << reason));
 
 				/*
-				 * Kill the pid if it's still here. If not, that's what we
+				 * Kill the process if it's still here. If not, that's what we
 				 * wanted so ignore any errors.
 				 */
-				(void) SendProcSignal(pid, PROCSIG_RECOVERY_CONFLICT, vxid.procNumber);
+				SendInterrupt(INTERRUPT_RECOVERY_CONFLICT, vxid.procNumber);
 			}
 			break;
 		}
@@ -3546,10 +3547,7 @@ SignalRecoveryConflictWithDatabase(Oid databaseid, RecoveryConflictReason reason
 
 		if (databaseid == InvalidOid || proc->databaseId == databaseid)
 		{
-			VirtualTransactionId procvxid;
 			pid_t		pid;
-
-			GET_VXID_FROM_PGPROC(procvxid, *proc);
 
 			pid = proc->pid;
 			if (pid != 0)
@@ -3557,10 +3555,10 @@ SignalRecoveryConflictWithDatabase(Oid databaseid, RecoveryConflictReason reason
 				(void) pg_atomic_fetch_or_u32(&proc->pendingRecoveryConflicts, (1 << reason));
 
 				/*
-				 * Kill the pid if it's still here. If not, that's what we
+				 * Kill the process if it's still here. If not, that's what we
 				 * wanted so ignore any errors.
 				 */
-				(void) SendProcSignal(pid, PROCSIG_RECOVERY_CONFLICT, procvxid.procNumber);
+				SendInterrupt(INTERRUPT_RECOVERY_CONFLICT, GetNumberFromPGProc(proc));
 			}
 		}
 	}

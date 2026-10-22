@@ -33,7 +33,6 @@
 #include "commands/dbcommands_xlog.h"
 #include "common/blkreftable.h"
 #include "ipc/interrupt.h"
-#include "ipc/signal_handlers.h"
 #include "libpq/pqsignal.h"
 #include "pgstat.h"
 #include "postmaster/auxprocess.h"
@@ -42,7 +41,6 @@
 #include "storage/aio_subsys.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
-#include "storage/latch.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/procsignal.h"
@@ -161,7 +159,7 @@ static XLogRecPtr GetLatestLSN(TimeLineID *tli);
 static XLogRecPtr WalSummarizerSwitchPoint(TimeLineID current_tli, List *tles,
 										   int *num_descendant_tlis,
 										   TimeLineID **descendant_tlis);
-static void ProcessWalSummarizerInterrupts(void);
+static void ProcessWalSummarizerConfigReloadInterrupt(void);
 static XLogRecPtr SummarizeWAL(TimeLineID tli, XLogRecPtr start_lsn,
 							   bool exact, XLogRecPtr switch_lsn,
 							   XLogRecPtr maximum_lsn,
@@ -253,16 +251,15 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 			(errmsg_internal("WAL summarizer started")));
 
 	/*
-	 * Properly accept or ignore signals the postmaster might send us
+	 * Set up interrupt handlers
 	 */
-	pqsignal(SIGHUP, SignalHandlerForConfigReload);
-	pqsignal(SIGINT, PG_SIG_IGN);	/* no query to cancel */
-	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
-	/* SIGQUIT handler was already set up by InitPostmasterChild */
-	pqsignal(SIGALRM, PG_SIG_IGN);
-	pqsignal(SIGPIPE, PG_SIG_IGN);
-	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
-	pqsignal(SIGUSR2, PG_SIG_IGN);	/* not used */
+	SetStandardInterruptHandlers();
+
+	/* we can just proc_exit(0) at any point if requested to terminate */
+	SetInterruptHandler(INTERRUPT_TERMINATE, ProcessAuxProcessShutdownInterrupt);
+	EnableInterrupt(INTERRUPT_TERMINATE);
+	SetInterruptHandler(INTERRUPT_CONFIG_RELOAD, ProcessWalSummarizerConfigReloadInterrupt);
+	EnableInterrupt(INTERRUPT_CONFIG_RELOAD);
 
 	/* Advertise ourselves. */
 	on_shmem_exit(WalSummarizerShutdown, (Datum) 0);
@@ -322,10 +319,8 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 		 * So a really fast retry time doesn't seem to be especially
 		 * beneficial, and it will clutter the logs.
 		 */
-		(void) WaitLatch(NULL,
-						 WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 10000,
-						 WAIT_EVENT_WAL_SUMMARIZER_ERROR);
+		(void) WaitInterrupt(0, WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 10000,
+							 WAIT_EVENT_WAL_SUMMARIZER_ERROR);
 	}
 
 	/* We can now handle ereport(ERROR) */
@@ -363,7 +358,7 @@ WalSummarizerMain(const void *startup_data, size_t startup_data_len)
 		MemoryContextReset(context);
 
 		/* Process any signals received recently. */
-		ProcessWalSummarizerInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
 		/* If it's time to remove any old WAL summaries, do that now. */
 		MaybeRemoveOldWalSummaries();
@@ -665,8 +660,8 @@ GetOldestUnsummarizedLSN(TimeLineID *tli, bool *lsn_is_exact)
  *
  * This might not work, because there's no guarantee that the WAL summarizer
  * process was successfully started, and it also might have started but
- * subsequently terminated. So, under normal circumstances, this will get the
- * latch set, but there's no guarantee.
+ * subsequently terminated. So, under normal circumstances, this will send
+ * the interrupt, but there's no guarantee.
  */
 void
 WakeupWalSummarizer(void)
@@ -681,7 +676,7 @@ WakeupWalSummarizer(void)
 	LWLockRelease(WALSummarizerLock);
 
 	if (pgprocno != INVALID_PROC_NUMBER)
-		SetLatch(&GetPGProcByNumber(pgprocno)->procLatch);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, pgprocno);
 }
 
 /*
@@ -946,27 +941,17 @@ WalSummarizerSwitchPoint(TimeLineID current_tli, List *tles,
  * Interrupt handler for main loop of WAL summarizer process.
  */
 static void
-ProcessWalSummarizerInterrupts(void)
+ProcessWalSummarizerConfigReloadInterrupt(void)
 {
-	if (ProcSignalBarrierPending)
-		ProcessProcSignalBarrier();
+	ProcessConfigFile(PGC_SIGHUP);
 
-	if (ConfigReloadPending)
-	{
-		ConfigReloadPending = false;
-		ProcessConfigFile(PGC_SIGHUP);
-	}
-
-	if (ShutdownRequestPending || !summarize_wal)
+	/* If 'summarize_wal' was turned off, exit */
+	if (!summarize_wal && !InterruptPending(INTERRUPT_TERMINATE))
 	{
 		ereport(DEBUG1,
-				errmsg_internal("WAL summarizer shutting down"));
-		proc_exit(0);
+				errmsg_internal("WAL summarizer shutting down because summarize_wal was disabled"));
+		RaiseInterrupt(INTERRUPT_TERMINATE);
 	}
-
-	/* Perform logging of memory contexts of this process */
-	if (LogMemoryContextPending)
-		ProcessLogMemoryContextInterrupt();
 }
 
 /*
@@ -1115,7 +1100,7 @@ SummarizeWAL(TimeLineID tli, XLogRecPtr start_lsn, bool exact,
 		XLogRecord *record;
 		uint8		rmid;
 
-		ProcessWalSummarizerInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
 		/* We shouldn't go backward. */
 		Assert(summary_start_lsn <= xlogreader->EndRecPtr);
@@ -1655,7 +1640,7 @@ summarizer_read_local_xlog_page(XLogReaderState *state,
 	WALReadError errinfo;
 	SummarizerReadLocalXLogPrivate *private_data;
 
-	ProcessWalSummarizerInterrupts();
+	CHECK_FOR_INTERRUPTS();
 
 	private_data = (SummarizerReadLocalXLogPrivate *)
 		state->private_data;
@@ -1693,7 +1678,7 @@ summarizer_read_local_xlog_page(XLogReaderState *state,
 				 * current timeline, so more data might show up.  Delay here
 				 * so we don't tight-loop.
 				 */
-				ProcessWalSummarizerInterrupts();
+				CHECK_FOR_INTERRUPTS();
 				summarizer_wait_for_wal();
 
 				/* Recheck end-of-WAL. */
@@ -1793,11 +1778,11 @@ summarizer_wait_for_wal(void)
 	pgstat_report_wal(false);
 
 	/* OK, now sleep. */
-	(void) WaitLatch(MyLatch,
-					 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					 sleep_quanta * MS_PER_SLEEP_QUANTUM,
-					 WAIT_EVENT_WAL_SUMMARIZER_WAL);
-	ResetLatch(MyLatch);
+	(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						 sleep_quanta * MS_PER_SLEEP_QUANTUM,
+						 WAIT_EVENT_WAL_SUMMARIZER_WAL);
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 
 	/* Reset count of pages read. */
 	pages_read_since_last_sleep = 0;
@@ -1844,7 +1829,7 @@ MaybeRemoveOldWalSummaries(void)
 		XLogRecPtr	oldest_lsn = InvalidXLogRecPtr;
 		TimeLineID	selected_tli;
 
-		ProcessWalSummarizerInterrupts();
+		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * Pick a timeline for which some summary files still exist on disk,
@@ -1863,7 +1848,7 @@ MaybeRemoveOldWalSummaries(void)
 		{
 			WalSummaryFile *ws = lfirst(lc);
 
-			ProcessWalSummarizerInterrupts();
+			CHECK_FOR_INTERRUPTS();
 
 			/* If it's not on this timeline, it's not time to consider it. */
 			if (selected_tli != ws->tli)

@@ -3958,7 +3958,6 @@ wait_for_repack_decoding_worker(void)
 	{
 		BgwHandleStatus status;
 		shm_mq	   *mq;
-		int			rc;
 		pid_t		pid;
 
 		/*
@@ -3998,12 +3997,11 @@ wait_for_repack_decoding_worker(void)
 		}
 
 		/* Worker neither started or stopped yet, so wait. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-					   -1, WAIT_EVENT_BGWORKER_STARTUP);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 -1, WAIT_EVENT_BGWORKER_STARTUP);
 
-		if (rc & WL_LATCH_SET)
-			ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 }
 
@@ -4194,7 +4192,7 @@ ProcessRepackMessages(void)
 
 			case SHM_MQ_WOULD_BLOCK:
 				/* no more messages to process for now */
-				break;
+				return;
 
 			case SHM_MQ_DETACHED:
 

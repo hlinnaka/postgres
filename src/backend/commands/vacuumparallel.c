@@ -740,8 +740,11 @@ parallel_vacuum_propagate_shared_delay_params(void)
  * Reload the configuration file if requested, and refresh the cost-based
  * delay parameters of an autovacuum worker running a parallel vacuum
  * (leader), propagating any change to its parallel workers.
+ *
+ * Returns an interrupt mask to indicate whether the caller should wake
+ * up and call us on INTERRUPT_CONFIG_RELOAD or not.
  */
-void
+InterruptMask
 parallel_vacuum_refresh_cost_params(void)
 {
 	Assert(AmAutoVacuumWorkerProcess());
@@ -751,11 +754,10 @@ parallel_vacuum_refresh_cost_params(void)
 	 * parallel workers.
 	 */
 	if (pv_shared_cost_params == NULL)
-		return;
+		return 0;
 
-	if (ConfigReloadPending)
+	if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 	{
-		ConfigReloadPending = false;
 		ProcessConfigFile(PGC_SIGHUP);
 
 		/* This re-divides the cost limit too */
@@ -768,6 +770,8 @@ parallel_vacuum_refresh_cost_params(void)
 	}
 
 	parallel_vacuum_propagate_shared_delay_params();
+
+	return INTERRUPT_CONFIG_RELOAD;
 }
 
 /*

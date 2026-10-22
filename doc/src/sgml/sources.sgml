@@ -988,22 +988,25 @@ MemoryContextSwitchTo(MemoryContext context)
      call async-signal safe functions (as defined in POSIX) and access
      variables of type <literal>volatile sig_atomic_t</literal>. A few
      functions in <command>postgres</command> are also deemed signal safe, importantly
-     <function>SetLatch()</function>.
+     <function>RaiseInterrupt()</function>.
     </para>
     <para>
      In most cases signal handlers should do nothing more than note
      that a signal has arrived, and wake up code running outside of
-     the handler using a latch. An example of such a handler is the
+     the handler using RaiseInterrupt(). An example of such a handler is the
      following:
 <programlisting>
 static void
 handle_sighup(SIGNAL_ARGS)
 {
-    got_SIGHUP = true;
-    SetLatch(MyLatch);
+    RaiseInterrupt(INTERRUPT_CONFIG_RELOAD);
 }
 </programlisting>
     </para>
+    <!-- TODO: This section is not wrong, but should be updated. Should
+         document and emphasize the interrupt mechanism more, and the
+         handle_sighup example is bad because the standard signal handler for
+         SIGHUP already does that -->
    </simplesect>
 
    <simplesect id="source-conventions-function-pointers">
