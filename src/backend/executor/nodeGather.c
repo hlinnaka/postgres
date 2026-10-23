@@ -192,6 +192,7 @@ ExecGather(PlanState *pstate)
 			/* Set up tuple queue readers to read the results. */
 			if (pcxt->nworkers_launched > 0)
 			{
+				elog(LOG, "KRAAH:  calling ExecParallelCreateReaders");
 				ExecParallelCreateReaders(node->pei);
 				/* Make a working array showing the active readers */
 				node->nreaders = pcxt->nworkers_launched;
@@ -212,6 +213,8 @@ ExecGather(PlanState *pstate)
 		node->need_to_scan_locally = (node->nreaders == 0)
 			|| (!gather->single_copy && parallel_leader_participation);
 		node->initialized = true;
+
+		elog(LOG, "KRAAH:  paralllel Gather initialized");
 	}
 
 	/*
@@ -330,7 +333,9 @@ gather_readnext(GatherState *gatherstate)
 		 */
 		Assert(gatherstate->nextreader < gatherstate->nreaders);
 		reader = gatherstate->reader[gatherstate->nextreader];
+		elog(LOG, "KRAAH:  Gather calling TupleQueueReaderNext");
 		tup = TupleQueueReaderNext(reader, true, &readerdone);
+		elog(LOG, "KRAAH:  Gather TupleQueueReaderNext done");
 
 		/*
 		 * If this reader is done, remove it from our working array of active
@@ -381,12 +386,14 @@ gather_readnext(GatherState *gatherstate)
 				return NULL;
 
 			/* Nothing to do except wait for developments. */
+			elog(LOG, "KRAAH:  Gather waiting");
 			(void) WaitInterrupt(CheckForInterruptsMask |
 								 INTERRUPT_WAIT_WAKEUP,
 								 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
 								 WAIT_EVENT_EXECUTE_GATHER);
 			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 			nvisited = 0;
+			elog(LOG, "KRAAH:  Gather woke up");
 		}
 	}
 }

@@ -610,16 +610,20 @@ SPI_execute(const char *src, bool read_only, long tcount)
 	plan.parse_mode = RAW_PARSE_DEFAULT;
 	plan.cursor_options = CURSOR_OPT_PARALLEL_OK;
 
+	elog(LOG, "KRAAH:  preparing oneshot");
+	
 	_SPI_prepare_oneshot_plan(src, &plan);
 
 	memset(&options, 0, sizeof(options));
 	options.read_only = read_only;
 	options.tcount = tcount;
 
+	elog(LOG, "KRAAH:  executing");
 	res = _SPI_execute_plan(&plan, &options,
 							InvalidSnapshot, InvalidSnapshot,
 							true);
 
+	elog(LOG, "KRAAH:  execute_plan done : %d", res);
 	_SPI_end_call(true);
 	return res;
 }
@@ -2492,14 +2496,17 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("empty query does not return tuples")));
-
+	
 	foreach(lc1, plan->plancache_list)
 	{
 		CachedPlanSource *plansource = (CachedPlanSource *) lfirst(lc1);
 		List	   *stmt_list;
 		ListCell   *lc2;
 
+
 		spicallbackarg.query = plansource->query_string;
+
+		elog(LOG, "KRAAH:  execute_plan looping");
 
 		/*
 		 * If this is a one-shot plan, we still need to do parse analysis.
@@ -2509,6 +2516,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 			RawStmt    *parsetree = plansource->raw_parse_tree;
 			const char *src = plansource->query_string;
 			List	   *querytree_list;
+
+			elog(LOG, "KRAAH:  execute_plan analyzing oneshot");
 
 			/*
 			 * Parameter datatypes are driven by parserSetup hook if provided,
@@ -2534,6 +2543,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 																	_SPI_current->queryEnv);
 			}
 
+			elog(LOG, "KRAAH:  execute_plan analyzed");
+			
 			/* Finish filling in the CachedPlanSource */
 			CompleteCachedPlan(plansource,
 							   querytree_list,
@@ -2544,6 +2555,7 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 							   plan->parserSetupArg,
 							   plan->cursor_options,
 							   false);	/* not fixed result */
+			elog(LOG, "KRAAH:  execute_plan analyze finished");
 		}
 
 		/*
@@ -2574,6 +2586,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 		 */
 		cplan = GetCachedPlan(plansource, options->params,
 							  plan_owner, _SPI_current->queryEnv);
+
+		elog(LOG, "KRAAH:  execute_plan got cached plan");
 
 		stmt_list = cplan->stmt_list;
 
@@ -2619,6 +2633,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 			bool		canSetTag = stmt->canSetTag;
 			DestReceiver *dest;
 
+			elog(LOG, "KRAAH:  execute_plan running it");
+		
 			/*
 			 * Reset output state.  (Note that if a non-SPI receiver is used,
 			 * _SPI_current->processed will stay zero, and that's what we'll
@@ -2687,6 +2703,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 				else
 					snap = InvalidSnapshot;
 
+				elog(LOG, "KRAAH:  execute_plan pquery");
+				
 				qdesc = CreateQueryDesc(stmt,
 										plansource->query_string,
 										snap, crosscheck_snapshot,
@@ -2703,6 +2721,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 				ProcessUtilityContext context;
 				QueryCompletion qc;
 
+				elog(LOG, "KRAAH:  execute_plan processing utility");
+				
 				/*
 				 * If we're not allowing nonatomic operations, tell
 				 * ProcessUtility this is an atomic execution context.
@@ -2761,6 +2781,7 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 					Assert(qc.commandTag == CMDTAG_COPY);
 					_SPI_current->processed = qc.nprocessed;
 				}
+				elog(LOG, "KRAAH:  execute_plan running done");
 			}
 
 			/*
@@ -2798,6 +2819,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 		ReleaseCachedPlan(cplan, plan_owner);
 		cplan = NULL;
 
+		elog(LOG, "KRAAH:  execute_plan relesed plan");
+		
 		/*
 		 * If not read-only mode, advance the command counter after the last
 		 * command.  This ensures that its effects are visible, in case it was
@@ -2808,6 +2831,8 @@ _SPI_execute_plan(SPIPlanPtr plan, const SPIExecuteOptions *options,
 	}
 
 fail:
+
+	elog(LOG, "KRAAH:  execute_plan returning %d", my_res);
 
 	/* Pop the snapshot off the stack if we pushed one */
 	if (pushed_active_snap)
@@ -2925,8 +2950,10 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 	else
 		eflags = EXEC_FLAG_SKIP_TRIGGERS;
 
+	elog(LOG, "KRAAH:  pquery ExecutorStart");
 	ExecutorStart(queryDesc, eflags);
 
+	elog(LOG, "KRAAH:  pquery ExecutorRun");
 	ExecutorRun(queryDesc, ForwardScanDirection, tcount);
 
 	_SPI_current->processed = queryDesc->estate->es_processed;
@@ -2938,7 +2965,9 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 			elog(ERROR, "consistency check on SPI tuple count failed");
 	}
 
+	elog(LOG, "KRAAH:  pquery ExecutorFinish");
 	ExecutorFinish(queryDesc);
+	elog(LOG, "KRAAH:  pquery ExecutorEnd");
 	ExecutorEnd(queryDesc);
 	/* FreeQueryDesc is done by the caller */
 
@@ -2947,6 +2976,7 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 		ShowUsage("SPI EXECUTOR STATS");
 #endif
 
+	elog(LOG, "KRAAH:  pquery done %d", res);
 	return res;
 }
 

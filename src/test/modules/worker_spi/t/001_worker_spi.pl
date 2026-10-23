@@ -10,6 +10,12 @@ use Test::More;
 
 my $node = PostgreSQL::Test::Cluster->new('mynode');
 $node->init;
+
+$node->append_conf(
+	'postgresql.conf', q{
+log_min_messages='debug5'
+});
+
 $node->start;
 
 note "testing dynamic bgworkers";

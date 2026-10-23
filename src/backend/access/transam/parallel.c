@@ -172,6 +172,8 @@ CreateParallelContext(const char *library_name, const char *function_name,
 	MemoryContext oldcontext;
 	ParallelContext *pcxt;
 
+	elog(LOG, "KRAAH:  CreateParallelContext");
+	
 	/* It is unsafe to create a parallel context if not in parallel mode. */
 	Assert(IsInParallelMode());
 
@@ -225,6 +227,8 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Snapshot	transaction_snapshot = GetTransactionSnapshot();
 	Snapshot	active_snapshot = GetActiveSnapshot();
 
+	elog(LOG, "KRAAH:  InitializeParallelDSM");
+	
 	/* We might be running in a very short-lived memory context. */
 	oldcontext = MemoryContextSwitchTo(TopTransactionContext);
 
@@ -584,9 +588,13 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	if (pcxt->nworkers == 0 || pcxt->nworkers_to_launch == 0)
 		return;
 
+	elog(LOG, "KRAAH:  LaunchParallelWorkers");
+	
 	/* We need to be a lock group leader. */
 	BecomeLockGroupLeader();
 
+	elog(LOG, "KRAAH:  LaunchParallelWorkers: x1");
+	
 	/* If we do have workers, we'd better have a DSM segment. */
 	Assert(pcxt->seg != NULL);
 
@@ -617,6 +625,7 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	 */
 	for (i = 0; i < pcxt->nworkers_to_launch; ++i)
 	{
+		elog(LOG, "KRAAH:  registering worker %d / %d", i, pcxt->nworkers_to_launch);
 		memcpy(worker.bgw_extra, &i, sizeof(int));
 		if (!any_registrations_failed &&
 			RegisterDynamicBackgroundWorker(&worker,
@@ -835,13 +844,18 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 			 * certain to be notified when it exits.
 			 */
 			if (pcxt->worker[i].error_mqh == NULL)
+			{
 				++nfinished;
+				elog(LOG, "KRAAH: worker %d finished", i);
+			}
 			else if (pcxt->known_attached_workers[i])
 			{
 				anyone_alive = true;
-				break;
+				elog(LOG, "KRAAH: worker %d is alive", i);
+				//break;
 			}
 		}
+		elog(LOG, "KRAAH:  launched %d, nfinished %d", pcxt->nworkers_launched, nfinished);
 
 		if (!anyone_alive)
 		{
@@ -906,10 +920,12 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 		 * counterparty has detached, so wake up on that too
 		 */
 		mask |= CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP;
+		elog(LOG, "KRAAH:  waiting for worker finish: 0x%lx", mask);
 		(void) WaitInterrupt(mask,
 							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, -1,
 							 WAIT_EVENT_PARALLEL_FINISH);
 		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+		elog(LOG, "KRAAH:  woke up");
 	}
 
 	if (pcxt->toc != NULL)
@@ -922,6 +938,8 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 		if (last_xlog_end > XactLastRecEnd)
 			XactLastRecEnd = last_xlog_end;
 	}
+
+	elog(LOG, "KRAAH: worker finish wait done");
 }
 
 /*
@@ -937,6 +955,8 @@ WaitForParallelWorkersToExit(ParallelContext *pcxt)
 {
 	int			i;
 
+	elog(LOG, "KRAAH: WaitForParallelWorkersToExit");
+	
 	/* Wait until the workers actually die. */
 	for (i = 0; i < pcxt->nworkers_launched; ++i)
 	{
@@ -1260,6 +1280,7 @@ ProcessParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 
 		case PqMsg_Terminate:
 			{
+				elog(LOG, "KRAAH Received PqMsg_Terminate for worker %d", i);
 				shm_mq_detach(pcxt->worker[i].error_mqh);
 				pcxt->worker[i].error_mqh = NULL;
 				break;
@@ -1604,7 +1625,9 @@ ParallelWorkerMain(Datum main_arg)
 	DetachSession();
 
 	/* Report success. */
+	elog(LOG, "KRAAH: Sending PqMsg_Terminate");
 	pq_putmessage(PqMsg_Terminate, NULL, 0);
+	elog(LOG, "KRAAH: PqMsg_Terminate sent, all done");
 }
 
 /*

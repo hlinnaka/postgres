@@ -139,6 +139,7 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 			shm_mq_detach(pq_mq_handle);
 			pq_mq_handle = NULL;
 		}
+		elog(LOG, "KRAAH: mq_putmessage: was busy");
 		return EOF;
 	}
 
@@ -149,7 +150,10 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 	 * been detached.
 	 */
 	if (pq_mq_handle == NULL)
+	{
+		elog(LOG, "KRAAH: mq_putmessage: no handle");
 		return 0;
+	}
 
 	pq_mq_busy = true;
 
@@ -190,7 +194,11 @@ mq_putmessage(char msgtype, const char *s, size_t len)
 
 	Assert(result == SHM_MQ_SUCCESS || result == SHM_MQ_DETACHED);
 	if (result != SHM_MQ_SUCCESS)
+	{
+		elog(LOG, "KRAAH: mq_putmessage: error: %d", result);
 		return EOF;
+	}
+	elog(LOG, "KRAAH: mq_putmessage: success");
 	return 0;
 }
 

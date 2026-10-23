@@ -1296,6 +1296,8 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 	BgwHandleStatus status;
 	int			rc;
 
+	elog(LOG, "KRAAH: WaitForBackgroundWorkerShutdown");
+	
 	for (;;)
 	{
 		pid_t		pid;
@@ -1303,6 +1305,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 		CHECK_FOR_INTERRUPTS();
 
 		status = GetBackgroundWorkerPid(handle, &pid);
+		elog(LOG, "KRAAH: status %d pid %d", status, pid);
 		if (status == BGWH_STOPPED)
 			break;
 
@@ -1318,6 +1321,7 @@ WaitForBackgroundWorkerShutdown(BackgroundWorkerHandle *handle)
 
 		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
+	elog(LOG, "KRAAH: WaitForBackgroundWorkerShutdown done");
 
 	return status;
 }

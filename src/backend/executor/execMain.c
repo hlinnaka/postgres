@@ -358,6 +358,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	sendTuples = (operation == CMD_SELECT ||
 				  queryDesc->plannedstmt->hasReturning);
 
+	elog(LOG, "KRAAH:  ExecutorRun: rStartup");
 	if (sendTuples)
 		dest->rStartup(dest, operation, queryDesc->tupDesc);
 
@@ -373,6 +374,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	 * necessarily non-parallel execution request occurs after completing a
 	 * parallel execution.  (That case should work, but it's untested.)
 	 */
+	elog(LOG, "KRAAH:  ExecutorRun: ExecutePlan");
 	if (!ScanDirectionIsNoMovement(direction))
 		ExecutePlan(queryDesc,
 					operation,

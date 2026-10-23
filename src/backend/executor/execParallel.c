@@ -493,6 +493,8 @@ ExecParallelInitializeDSM(PlanState *planstate,
 		d->instrumentation->plan_node_id[d->nnodes] =
 			planstate->plan->plan_node_id;
 
+	elog(LOG, "KRAAH:  ExecParallelInitializeDSM");
+	
 	/* Count this node. */
 	d->nnodes++;
 
@@ -847,6 +849,8 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	shm_toc_insert(pcxt->toc, PARALLEL_KEY_WAL_USAGE, walusage_space);
 	pei->wal_usage = walusage_space;
 
+	elog(LOG, "KRAAH:  calling ExecParallelSetupTupleQueues");
+	
 	/* Set up the tuple queues that the workers will write into. */
 	pei->tqueue = ExecParallelSetupTupleQueues(pcxt, false);
 
@@ -938,6 +942,8 @@ ExecInitParallelPlan(PlanState *planstate, EState *estate,
 	if (e.nnodes != d.nnodes)
 		elog(ERROR, "inconsistent count of PlanState nodes");
 
+	elog(LOG, "KRAAH:  ExecParallelInitializeDSM done");
+	
 	/* OK, we're ready to rock and roll. */
 	return pei;
 }
@@ -1238,6 +1244,8 @@ ExecParallelFinish(ParallelExecutorInfo *pei)
 	if (pei->finished)
 		return;
 
+	elog(LOG, "KRAAH:  ExecParallelFinish called");
+	
 	/*
 	 * Detach from tuple queues ASAP, so that any still-active workers will
 	 * notice that no further results are wanted.
@@ -1263,6 +1271,7 @@ ExecParallelFinish(ParallelExecutorInfo *pei)
 	}
 
 	/* Now wait for the workers to finish. */
+	elog(LOG, "KRAAH:  calling WaitForParallelWorkersToFinish");
 	WaitForParallelWorkersToFinish(pei->pcxt);
 
 	/*
