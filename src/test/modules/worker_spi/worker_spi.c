@@ -72,22 +72,28 @@ initialize_worker_spi(worktable *table)
 	bool		isnull;
 	StringInfoData buf;
 
+	elog(LOG, "KRAAH:  initialize_worker_spi called!");
+	
 	SetCurrentStatementStartTimestamp();
 	StartTransactionCommand();
 	SPI_connect();
 	PushActiveSnapshot(GetTransactionSnapshot());
 	pgstat_report_activity(STATE_RUNNING, "initializing worker_spi schema");
-
+	
 	/* XXX could we use CREATE SCHEMA IF NOT EXISTS? */
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "select count(*) from pg_namespace where nspname = '%s'",
 					 table->schema);
+
+	elog(LOG, "KRAAH:  initialize_worker_spi executing %s", buf.data);
 
 	debug_query_string = buf.data;
 	ret = SPI_execute(buf.data, true, 0);
 	if (ret != SPI_OK_SELECT)
 		elog(FATAL, "SPI_execute failed: error code %d", ret);
 
+	elog(LOG, "KRAAH:  initialize_worker_spi executed");
+	
 	if (SPI_processed != 1)
 		elog(FATAL, "not a singleton result");
 
@@ -110,12 +116,16 @@ initialize_worker_spi(worktable *table)
 						 "WHERE type = 'total'",
 						 table->schema, table->name, table->name, table->name);
 
+		elog(LOG, "KRAAH:  initialize_worker_spi creating: %s", buf.data);
+		
 		/* set statement start time */
 		SetCurrentStatementStartTimestamp();
 
 		debug_query_string = buf.data;
 		ret = SPI_execute(buf.data, false, 0);
 
+		elog(LOG, "KRAAH:  initialize_worker_spi created");
+		
 		if (ret != SPI_OK_UTILITY)
 			elog(FATAL, "failed to create my schema");
 

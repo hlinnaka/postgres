@@ -172,6 +172,8 @@ CreateParallelContext(const char *library_name, const char *function_name,
 	MemoryContext oldcontext;
 	ParallelContext *pcxt;
 
+	elog(LOG, "KRAAH:  CreateParallelContext");
+	
 	/* It is unsafe to create a parallel context if not in parallel mode. */
 	Assert(IsInParallelMode());
 
@@ -225,6 +227,8 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Snapshot	transaction_snapshot = GetTransactionSnapshot();
 	Snapshot	active_snapshot = GetActiveSnapshot();
 
+	elog(LOG, "KRAAH:  InitializeParallelDSM");
+	
 	/* We might be running in a very short-lived memory context. */
 	oldcontext = MemoryContextSwitchTo(TopTransactionContext);
 
