@@ -127,6 +127,7 @@ initialize_worker_spi(worktable *table)
 	CommitTransactionCommand();
 	debug_query_string = NULL;
 	pgstat_report_activity(STATE_IDLE, NULL);
+	elog(LOG, "KRAAH:  initialize_worker_spi done!");
 }
 
 void
@@ -209,6 +210,8 @@ worker_spi_main(Datum main_arg)
 		if (worker_spi_wait_event_main == 0)
 			worker_spi_wait_event_main = WaitEventExtensionNew("WorkerSpiMain");
 
+		elog(LOG, "KRAAH: in loop: waiting");
+
 		/*
 		 * Background workers mustn't call usleep() or any direct equivalent:
 		 * instead, they may use WaitInterrupt, which sleeps as necessary, but
@@ -220,8 +223,10 @@ worker_spi_main(Datum main_arg)
 							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							 worker_spi_naptime * 1000L,
 							 worker_spi_wait_event_main);
+		elog(LOG, "KRAAH: in loop: woke up");
 
 		CHECK_FOR_INTERRUPTS();
+		elog(LOG, "KRAAH: in loop: CHECK_FOR_INTERRUPTS() done");
 
 		/*
 		 * Reload configuration if requested.  This is not done by
@@ -231,6 +236,8 @@ worker_spi_main(Datum main_arg)
 		if (ConsumeInterrupt(INTERRUPT_CONFIG_RELOAD))
 			ProcessConfigFile(PGC_SIGHUP);
 
+		elog(LOG, "KRAAH: in loop: one");
+		
 		/*
 		 * Start a transaction on which we can run queries.  Note that each
 		 * StartTransactionCommand() call should be preceded by a
@@ -254,9 +261,13 @@ worker_spi_main(Datum main_arg)
 		debug_query_string = buf.data;
 		pgstat_report_activity(STATE_RUNNING, buf.data);
 
+		elog(LOG, "KRAAH: in loop: two, in transaction");
+		
 		/* We can now execute queries via SPI */
 		ret = SPI_execute(buf.data, false, 0);
 
+		elog(LOG, "KRAAH: in loop: three, executed");
+		
 		if (ret != SPI_OK_UPDATE_RETURNING)
 			elog(FATAL, "cannot select from table %s.%s: error code %d",
 				 table->schema, table->name, ret);
@@ -284,6 +295,8 @@ worker_spi_main(Datum main_arg)
 		debug_query_string = NULL;
 		pgstat_report_stat(true);
 		pgstat_report_activity(STATE_IDLE, NULL);
+
+		elog(LOG, "KRAAH: in loop: four, done");
 	}
 
 	/* Not reachable */
@@ -379,6 +392,8 @@ _PG_init(void)
 
 		RegisterBackgroundWorker(&worker);
 	}
+
+	elog(LOG, "KRAAH: registered %d workers", worker_spi_total_workers);
 }
 
 /*
