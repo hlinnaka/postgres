@@ -172,6 +172,9 @@ ProcessInterrupts(void)
 
 	if (interruptsToProcess != 0)
 	{
+		/* FIXME: re-arm the attention flag, just in case we longjmp out here */
+		(void) pg_atomic_write_u32(&MyPendingInterrupts->flags, PI_FLAG_ATTENTION);
+
 		Assert(InterruptHoldoffCount == 0 && CritSectionCount == 0);
 
 		/* Interrupt handlers are not expected to be re-entrant. */
