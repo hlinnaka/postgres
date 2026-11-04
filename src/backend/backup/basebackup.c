@@ -120,7 +120,7 @@ static void sendFileWithContent(bbsink *sink, const char *filename,
 								const char *content, int len,
 								backup_manifest_info *manifest);
 static int64 _tarWriteHeader(bbsink *sink, const char *filename,
-							 const char *linktarget, struct stat *statbuf,
+							 const char *linktarget, const struct stat *statbuf,
 							 bool sizeonly);
 static void _tarWritePadding(bbsink *sink, int len);
 static void convert_link_to_directory(const char *pathbuf, struct stat *statbuf);
@@ -2158,7 +2158,7 @@ verify_page_checksum(Page page, XLogRecPtr start_lsn, BlockNumber blkno,
 
 static int64
 _tarWriteHeader(bbsink *sink, const char *filename, const char *linktarget,
-				struct stat *statbuf, bool sizeonly)
+				const struct stat *statbuf, bool sizeonly)
 {
 	enum tarError rc;
 
