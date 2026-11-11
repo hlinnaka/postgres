@@ -43,7 +43,6 @@ typedef struct
 	int			child_slot;		/* PMChildSlot for this backend, if any */
 	BackendType bkend_type;		/* child process flavor, see above */
 	struct RegisteredBgWorker *rw;	/* bgworker info, if this is a bgworker */
-	bool		bgworker_notify;	/* gets bgworker start/stop notifications */
 	dlist_node	elem;			/* list link in ActiveChildList */
 } PMChild;
 
@@ -96,7 +95,6 @@ extern void InitProcessGlobals(void);
 
 extern int	MaxLivePostmasterChildren(void);
 
-extern bool PostmasterMarkPIDForWorkerNotify(int);
 
 #ifdef WIN32
 extern void pgwin32_register_deadchild_callback(HANDLE procHandle, DWORD procId);

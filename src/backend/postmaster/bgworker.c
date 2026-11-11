@@ -544,16 +544,28 @@ ReportBackgroundWorkerExit(RegisteredBgWorker *rw)
 void
 BackgroundWorkerStopNotifications(int pmchild)
 {
-	dlist_iter	iter;
+	Assert(pmchild != 0);
 
-	dlist_foreach(iter, &BackgroundWorkerList)
+	/*
+	 * Scan all the shared memory slots, not just the workers we have
+	 * registered in BackgroundWorkerList, because the exiting backend might
+	 * have registered a worker that we haven't processed in
+	 * BackgroundWorkerStateChange() yet.
+	 *
+	 * Skip slots that are not in use.  A backend may be concurrently filling
+	 * in such a slot, and we must not overwrite its notification target.  An
+	 * in-use slot can only be freed by the postmaster, so it's safe to
+	 * modify.
+	 */
+	for (int slotno = 0; slotno < BackgroundWorkerData->total_slots; slotno++)
 	{
-		RegisteredBgWorker *rw;
-		BackgroundWorkerSlot *slot;
+		BackgroundWorkerSlot *slot = &BackgroundWorkerData->slot[slotno];
 
-		rw = dlist_container(RegisteredBgWorker, rw_lnode, iter.cur);
-		Assert(rw->rw_shmem_slot < max_worker_processes);
-		slot = &BackgroundWorkerData->slot[rw->rw_shmem_slot];
+		if (!slot->in_use)
+			continue;
+
+		/* See BackgroundWorkerStateChange */
+		pg_read_barrier();
 
 		if (slot->notify_pmchild == pmchild)
 		{

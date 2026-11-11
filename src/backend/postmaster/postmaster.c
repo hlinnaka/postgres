@@ -2610,7 +2610,6 @@ CleanupBackend(PMChild *bp,
 	bool		logged = false;
 	pid_t		bp_pid;
 	int			bp_child_slot;
-	bool		bp_bgworker_notify;
 	BackendType bp_bkend_type;
 	RegisteredBgWorker *rw;
 
@@ -2658,7 +2657,6 @@ CleanupBackend(PMChild *bp,
 	 */
 	bp_pid = bp->pid;
 	bp_child_slot = bp->child_slot;
-	bp_bgworker_notify = bp->bgworker_notify;
 	bp_bkend_type = bp->bkend_type;
 	rw = bp->rw;
 	if (!ReleasePostmasterChildSlot(bp))
@@ -2687,11 +2685,9 @@ CleanupBackend(PMChild *bp,
 	/*
 	 * This backend may have been slated to receive INTERRUPT_WAIT_WAKEUP when
 	 * some background worker started or stopped.  Cancel those notifications,
-	 * as we don't want to signal PIDs that are not PostgreSQL backends.  This
-	 * gets skipped in the (probably very common) case where the backend has
-	 * never requested any such notifications.
+	 * as its ProcNumber may soon be reused by an unrelated process.
 	 */
-	if (bp_bgworker_notify)
+	if (bp_child_slot != 0)
 		BackgroundWorkerStopNotifications(bp_child_slot);
 
 	/*
@@ -3647,9 +3643,6 @@ BackendStartup(ClientSocket *client_sock)
 	startup_data.canAcceptConnections = cac;
 	bn->rw = NULL;
 
-	/* Hasn't asked to be notified about any bgworkers yet */
-	bn->bgworker_notify = false;
-
 	pid = postmaster_child_launch(bn->bkend_type, bn->child_slot,
 								  &startup_data, sizeof(startup_data),
 								  client_sock);
@@ -4120,7 +4113,6 @@ StartAutovacuumWorker(void)
 		bn = StartChildProcess(B_AUTOVAC_WORKER);
 		if (bn)
 		{
-			bn->bgworker_notify = false;
 			bn->rw = NULL;
 			return;
 		}
@@ -4224,7 +4216,6 @@ StartBackgroundWorker(RegisteredBgWorker *rw)
 	}
 	bn->rw = rw;
 	bn->bkend_type = B_BG_WORKER;
-	bn->bgworker_notify = false;
 
 	ereport(DEBUG1,
 			(errmsg_internal("starting background worker process \"%s\"",
@@ -4576,29 +4567,6 @@ maybe_start_io_workers(void)
 	 */
 }
 
-
-/*
- * When a backend asks to be notified about worker state changes, we
- * set a flag in its backend entry.  The background worker machinery needs
- * to know when such backends exit.
- */
-bool
-PostmasterMarkPIDForWorkerNotify(int pid)
-{
-	dlist_iter	iter;
-	PMChild    *bp;
-
-	dlist_foreach(iter, &ActiveChildList)
-	{
-		bp = dlist_container(PMChild, elem, iter.cur);
-		if (bp->pid == pid)
-		{
-			bp->bgworker_notify = true;
-			return true;
-		}
-	}
-	return false;
-}
 
 #ifdef WIN32
 

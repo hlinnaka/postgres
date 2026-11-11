@@ -155,7 +155,6 @@ InitPostmasterChildSlots(void)
 			slots[slotno].child_slot = slotno + 1;
 			slots[slotno].bkend_type = B_INVALID;
 			slots[slotno].rw = NULL;
-			slots[slotno].bgworker_notify = false;
 			dlist_push_tail(&pmchild_pools[btype].freelist, &slots[slotno].elem);
 			slotno++;
 		}
@@ -191,7 +190,6 @@ AssignPostmasterChildSlot(BackendType btype)
 	pmchild->pid = 0;
 	pmchild->bkend_type = btype;
 	pmchild->rw = NULL;
-	pmchild->bgworker_notify = true;
 
 	/*
 	 * pmchild->child_slot for each entry was initialized when the array of
@@ -234,7 +232,6 @@ AllocDeadEndChild(void)
 		pmchild->child_slot = 0;
 		pmchild->bkend_type = B_DEAD_END_BACKEND;
 		pmchild->rw = NULL;
-		pmchild->bgworker_notify = false;
 
 		dlist_push_head(&ActiveChildList, &pmchild->elem);
 	}
