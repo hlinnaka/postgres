@@ -338,11 +338,31 @@ SwitchToLocalInterrupts(void)
 /*
  * Switch to shared memory interrupts.  Other backends can send interrupts to
  * this one if they know its ProcNumber, and we'll now see any that we missed.
+ *
+ * This is called right after taking a PGPROC entry into use, before our
+ * ProcNumber has been advertised anywhere.  Any interrupts already pending
+ * in the shared vector at that point were sent to the previous owner of the
+ * PGPROC entry, after it had stopped accepting interrupts, by a sender using
+ * a stale ProcNumber.  Discard those, so that we don't act on e.g. a
+ * termination request meant for another process.  Interrupts that we
+ * raised ourselves in the local vector are carried over.
  */
 void
 SwitchToSharedInterrupts(void)
 {
-	SwitchMyPendingInterruptsPtr(&MyProc->pendingInterrupts);
+	PendingInterrupts *shared = &MyProc->pendingInterrupts;
+
+	Assert(MyPendingInterrupts == &LocalPendingInterrupts);
+
+#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+	pg_atomic_write_u64(&shared->pending_mask, 0);
+#else
+	pg_atomic_write_u32(&shared->pending_mask_lo, 0);
+	pg_atomic_write_u32(&shared->pending_mask_hi, 0);
+#endif
+	pg_atomic_write_u32(&shared->flags, 0);
+
+	SwitchMyPendingInterruptsPtr(shared);
 }
 
 static bool
