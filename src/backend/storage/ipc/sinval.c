@@ -18,6 +18,7 @@
 #include "miscadmin.h"
 #include "storage/latch.h"
 #include "storage/sinvaladt.h"
+#include "utils/injection_point.h"
 #include "utils/inval.h"
 
 
@@ -78,6 +79,19 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	 */
 	static volatile int nextmsg = 0;
 	static volatile int nummsgs = 0;
+	bool		read_any = false;
+	bool		catchup_requested = false;
+
+	/*
+	 * Check and reset the catchup signal before reading any messages, so that
+	 * if a new catchup request arrives while we're processing, we'll process
+	 * it too.
+	 */
+	if (catchupInterruptPending)
+	{
+		catchupInterruptPending = false;
+		catchup_requested = true;
+	}
 
 	/* Deal with any messages still pending from an outer recursion */
 	while (nextmsg < nummsgs)
@@ -96,6 +110,8 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 
 		/* Try to get some more messages */
 		getResult = SIGetDataEntries(messages, MAXINVALMSGS);
+		if (getResult != 0)
+			read_any = true;
 
 		if (getResult < 0)
 		{
@@ -125,16 +141,23 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	} while (nummsgs == MAXINVALMSGS);
 
 	/*
-	 * We are now caught up.  If we received a catchup signal, reset that
-	 * flag, and call SICleanupQueue().  This is not so much because we need
-	 * to flush dead messages right now, as that we want to pass on the
-	 * catchup signal to the next slowest backend.  "Daisy chaining" the
-	 * catchup signal this way avoids creating spikes in system load for what
-	 * should be just a background maintenance activity.
+	 * Allow tests to pause here, after we have caught up, but before we pass
+	 * on any catchup request.  Only if we read any messages or a reset, so
+	 * that this is not reached on every call.
 	 */
-	if (catchupInterruptPending)
+	if (read_any)
+		INJECTION_POINT("sinval-caught-up", NULL);
+
+	/*
+	 * We are now caught up.  If we received a catchup signal, call
+	 * SICleanupQueue().  This is not so much because we need to flush dead
+	 * messages right now, as that we want to pass on the catchup signal to
+	 * the next slowest backend.  "Daisy chaining" the catchup signal this way
+	 * avoids creating spikes in system load for what should be just a
+	 * background maintenance activity.
+	 */
+	if (catchup_requested)
 	{
-		catchupInterruptPending = false;
 		elog(DEBUG4, "sinval catchup complete, cleaning queue");
 		SICleanupQueue(false, 0);
 	}
@@ -177,9 +200,11 @@ ProcessCatchupInterrupt(void)
 		/*
 		 * What we need to do here is cause ReceiveSharedInvalidMessages() to
 		 * run, which will do the necessary work and also reset the
-		 * catchupInterruptPending flag.  If we are inside a transaction we
-		 * can just call AcceptInvalidationMessages() to do this.  If we
-		 * aren't, we start and immediately end a transaction; the call to
+		 * catchupInterruptPending flag.  (If a new catchup signal arrives
+		 * after it has reset the flag, we loop to process that too.)  If we
+		 * are inside a transaction we can just call
+		 * AcceptInvalidationMessages() to do this.  If we aren't, we start
+		 * and immediately end a transaction; the call to
 		 * AcceptInvalidationMessages() happens down inside transaction start.
 		 *
 		 * It is awfully tempting to just call AcceptInvalidationMessages()
