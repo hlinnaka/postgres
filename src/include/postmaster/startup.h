@@ -25,12 +25,10 @@
 
 extern PGDLLIMPORT int log_startup_progress_interval;
 
-extern void ProcessStartupProcInterrupts(void);
+extern void StartupProcCheckPostmasterDeath(void);
 pg_noreturn extern void StartupProcessMain(const void *startup_data, size_t startup_data_len);
 extern void PreRestoreCommand(void);
 extern void PostRestoreCommand(void);
-extern bool IsPromoteSignaled(void);
-extern void ResetPromoteSignaled(void);
 
 extern void enable_startup_progress_timeout(void);
 extern void disable_startup_progress_timeout(void);

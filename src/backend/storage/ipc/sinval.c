@@ -15,30 +15,14 @@
 #include "postgres.h"
 
 #include "access/xact.h"
+#include "ipc/interrupt.h"
 #include "miscadmin.h"
-#include "storage/latch.h"
 #include "storage/sinvaladt.h"
 #include "utils/injection_point.h"
 #include "utils/inval.h"
 
 
 uint64		SharedInvalidMessageCounter;
-
-
-/*
- * Because backends sitting idle will not be reading sinval events, we
- * need a way to give an idle backend a swift kick in the rear and make
- * it catch up before the sinval queue overflows and forces it to go
- * through a cache reset exercise.  This is done by sending
- * PROCSIG_CATCHUP_INTERRUPT to any backend that gets too far behind.
- *
- * The signal handler will set an interrupt pending flag and will set the
- * processes latch. Whenever starting to read from the client, or when
- * interrupted while doing so, ProcessClientReadInterrupt() will call
- * ProcessCatchupEvent().
- */
-volatile sig_atomic_t catchupInterruptPending = false;
-
 
 /*
  * SendSharedInvalidMessages
@@ -83,15 +67,12 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	bool		catchup_requested = false;
 
 	/*
-	 * Check and reset the catchup signal before reading any messages, so that
-	 * if a new catchup request arrives while we're processing, we'll process
-	 * it too.
+	 * Consume the catchup interrupt before reading any messages, so that if a
+	 * new catchup interrupt arrives while we're processing, we'll process it
+	 * too.
 	 */
-	if (catchupInterruptPending)
-	{
-		catchupInterruptPending = false;
+	if (ConsumeInterrupt(INTERRUPT_SINVAL_CATCHUP))
 		catchup_requested = true;
-	}
 
 	/* Deal with any messages still pending from an outer recursion */
 	while (nextmsg < nummsgs)
@@ -163,49 +144,52 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	}
 }
 
-
-/*
- * HandleCatchupInterrupt
- *
- * This is called when PROCSIG_CATCHUP_INTERRUPT is received.
- *
- * We used to directly call ProcessCatchupEvent directly when idle. These days
- * we just set a flag to do it later and notify the process of that fact by
- * setting the process's latch.
- */
-void
-HandleCatchupInterrupt(void)
-{
-	/*
-	 * Note: this is called by a SIGNAL HANDLER. You must be very wary what
-	 * you do here.
-	 */
-
-	catchupInterruptPending = true;
-
-	/* latch will be set by procsignal_sigusr1_handler */
-}
-
 /*
  * ProcessCatchupInterrupt
+ *		Process a pending INTERRUPT_SINVAL_CATCHUP interrupt
  *
- * The portion of catchup interrupt handling that runs outside of the signal
- * handler, which allows it to actually process pending invalidations.
+ * This is not a CHECK_FOR_INTERRUPTS() handler, because most code is not
+ * prepared for cache invalidations to be processed at an arbitrary
+ * CHECK_FOR_INTERRUPTS(), e.g. in the middle of a transaction or while
+ * building a cache entry.  Instead, processes that can sit idle for a long
+ * time include INTERRUPT_SINVAL_CATCHUP in their wait mask, and call this
+ * explicitly at a point where it's safe.
+ *
+ * This must be called with interrupts not held off, as catching up can
+ * involve catalog access and lock waits, and we want e.g. a termination
+ * request to be processed meanwhile.
  */
 void
 ProcessCatchupInterrupt(void)
 {
-	while (catchupInterruptPending)
+	Assert(INTERRUPTS_CAN_BE_PROCESSED());
+
+	/*
+	 * The caller is expected to only call this function if
+	 * INTERRUPT_SINVAL_CATCHUP was set, but they may have already cleared it
+	 * before calling.  Re-arm it, because ReceiveSharedInvalidMessages() uses
+	 * it as a signal to call SICleanupQueue().
+	 *
+	 * It would be more straightforward for the caller to refrain from
+	 * clearing the interrupt before calling this function, but the convention
+	 * with interrupt handlers is that the ProcessInterrupts() clears the
+	 * interrupt before calling the handler.  Even though this function is not
+	 * registered as interrupt handler, it seems better to stick to that
+	 * convention here too.
+	 */
+	RaiseInterrupt(INTERRUPT_SINVAL_CATCHUP);
+
+	while (InterruptPending(INTERRUPT_SINVAL_CATCHUP))
 	{
 		/*
 		 * What we need to do here is cause ReceiveSharedInvalidMessages() to
-		 * run, which will do the necessary work and also reset the
-		 * catchupInterruptPending flag.  (If a new catchup signal arrives
-		 * after it has reset the flag, we loop to process that too.)  If we
-		 * are inside a transaction we can just call
-		 * AcceptInvalidationMessages() to do this.  If we aren't, we start
-		 * and immediately end a transaction; the call to
-		 * AcceptInvalidationMessages() happens down inside transaction start.
+		 * run, which will do the necessary work and also clear the interrupt.
+		 * (If a new catchup signal arrives after it has cleared the
+		 * interrupt, we loop to process that too.)  If we are inside a
+		 * transaction we can just call AcceptInvalidationMessages() to do
+		 * this.  If we aren't, we start and immediately end a transaction;
+		 * the call to AcceptInvalidationMessages() happens down inside
+		 * transaction start.
 		 *
 		 * It is awfully tempting to just call AcceptInvalidationMessages()
 		 * without the rest of the xact start/stop overhead, and I think that
@@ -214,14 +198,19 @@ ProcessCatchupInterrupt(void)
 		 */
 		if (IsTransactionOrTransactionBlock())
 		{
-			elog(DEBUG4, "ProcessCatchupEvent inside transaction");
+			elog(DEBUG4, "ProcessCatchupInterrupt inside transaction");
 			AcceptInvalidationMessages();
 		}
 		else
 		{
-			elog(DEBUG4, "ProcessCatchupEvent outside transaction");
+			elog(DEBUG4, "ProcessCatchupInterrupt outside transaction");
 			StartTransactionCommand();
 			CommitTransactionCommand();
 		}
+
+		/*
+		 * If another catchup interrupt arrived while we were processing the
+		 * previous one, loop to process the new one too.
+		 */
 	}
 }

@@ -13,8 +13,6 @@
 #ifndef REPACK_H
 #define REPACK_H
 
-#include <signal.h>
-
 #include "nodes/parsenodes.h"
 #include "parser/parse_node.h"
 #include "storage/lockdefs.h"
@@ -34,7 +32,6 @@ typedef struct ClusterParams
 {
 	uint32		options;		/* bitmask of CLUOPT_* */
 } ClusterParams;
-
 
 extern void ExecRepack(ParseState *pstate, RepackStmt *stmt, bool isTopLevel);
 

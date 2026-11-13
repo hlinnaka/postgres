@@ -135,6 +135,7 @@ header_subdirs = [
   'executor',
   'fe_utils',
   'foreign',
+  'ipc',
   'jit',
   'lib',
   'libpq',
