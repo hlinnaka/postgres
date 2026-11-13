@@ -3698,19 +3698,13 @@ ProcessInterrupts(void)
 		ProcessProcSignalBarrier();
 
 	if (ParallelMessagePending)
-		ProcessParallelMessages();
+		ProcessParallelMessageInterrupt();
 
 	if (LogMemoryContextPending)
 		ProcessLogMemoryContextInterrupt();
 
-	if (ParallelApplyMessagePending)
-		ProcessParallelApplyMessages();
-
 	if (SlotSyncShutdownPending)
 		ProcessSlotSyncMessage();
-
-	if (RepackMessagePending)
-		ProcessRepackMessages();
 }
 
 /*

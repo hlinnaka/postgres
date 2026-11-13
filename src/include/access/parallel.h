@@ -73,7 +73,7 @@ extern void DestroyParallelContext(ParallelContext *pcxt);
 extern bool ParallelContextActive(void);
 
 extern void HandleParallelMessageInterrupt(void);
-extern void ProcessParallelMessages(void);
+extern void ProcessParallelMessageInterrupt(void);
 extern void AtEOXact_Parallel(bool isCommit);
 extern void AtEOSubXact_Parallel(bool isCommit, SubTransactionId mySubId);
 extern void ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end);
