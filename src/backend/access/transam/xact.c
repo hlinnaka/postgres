@@ -5079,17 +5079,28 @@ IsTransactionBlock(void)
 
 /*
  * IsTransactionOrTransactionBlock --- are we within either a transaction
- * or a transaction block?	(The backend is only really "idle" when this
- * returns false.)
+ * or a transaction block?
  *
- * This should match up with IsTransactionBlock and IsTransactionState.
+ * The backend is only really "idle" when this returns false.  Note that the
+ * purpose of this function is different from that of IsTransactionState().
+ * IsTransactionState() is used to check if we're in a live transaction where
+ * it's safe to access the database, while !IsTransactionOrTransactionBlock()
+ * is used to check if we're completely out of a transaction.  When we're in
+ * the middle of starting or ending a transaction, we're neither in a live
+ * transaction nor completely out of a transaction.
  */
 bool
 IsTransactionOrTransactionBlock(void)
 {
 	TransactionState s = CurrentTransactionState;
 
-	if (s->blockState == TBLOCK_DEFAULT)
+	/*
+	 * blockState == TBLOCK_DEFAULT is usually what indicates that there's no
+	 * transaction in progress, but also check the low-level state, in case
+	 * we're starting a transaction, or cleaning up a transaction that failed
+	 * to start.  We are not idle at those times either.
+	 */
+	if (s->blockState == TBLOCK_DEFAULT && s->state == TRANS_DEFAULT)
 		return false;
 
 	return true;
