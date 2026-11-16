@@ -17,6 +17,7 @@
 
 #include "catalog/pg_type_d.h"
 #include "funcapi.h"
+#include "ipc/interrupt.h"
 #include "mb/pg_wchar.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
@@ -268,7 +269,6 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 {
 	int			pid = PG_GETARG_INT32(0);
 	PGPROC	   *proc;
-	ProcNumber	procNumber = INVALID_PROC_NUMBER;
 
 	/*
 	 * See if the process with given pid is a backend or an auxiliary process.
@@ -297,12 +297,16 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 		PG_RETURN_BOOL(false);
 	}
 
-	procNumber = GetNumberFromPGProc(proc);
-	if (SendProcSignal(pid, PROCSIG_LOG_MEMORY_CONTEXT, procNumber) < 0)
+	/*
+	 * Re-check the PID when sending, in case the process exited and its
+	 * PGPROC was reused by another process in the meantime.
+	 */
+	if (!SendInterruptWithPid(INTERRUPT_LOG_MEMORY_CONTEXT,
+							  GetNumberFromPGProc(proc), pid))
 	{
 		/* Again, just a warning to allow loops */
 		ereport(WARNING,
-				(errmsg("could not send signal to process %d: %m", pid)));
+				(errmsg("PID %d is not a PostgreSQL server process", pid)));
 		PG_RETURN_BOOL(false);
 	}
 

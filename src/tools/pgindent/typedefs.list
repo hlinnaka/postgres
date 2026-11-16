@@ -1362,6 +1362,7 @@ Integer
 IntegerSet
 InternalDefaultACL
 InternalGrant
+InterruptMask
 Interval
 IntervalAggState
 IntoClause
@@ -1603,7 +1604,6 @@ LZ4State
 LabelProvider
 LagTracker
 LargeObjectDesc
-Latch
 LauncherLastStartTimesEntry
 LerpFunc
 LexDescr
@@ -2074,6 +2074,7 @@ PLyUnicode_FromStringAndSize_t
 PLy_elog_impl_t
 PMChild
 PMChildPool
+PMChildSlotData
 PMINIDUMP_CALLBACK_INFORMATION
 PMINIDUMP_EXCEPTION_INFORMATION
 PMINIDUMP_USER_STREAM_INFORMATION
@@ -2233,6 +2234,7 @@ Pattern_Prefix_Status
 Pattern_Type
 PendingCancelRequest
 PendingFsyncEntry
+PendingInterrupts
 PendingListenAction
 PendingListenEntry
 PendingRelDelete

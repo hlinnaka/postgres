@@ -47,6 +47,7 @@
 #include "catalog/storage_xlog.h"
 #include "common/hashfn.h"
 #include "executor/instrument.h"
+#include "ipc/interrupt.h"
 #include "lib/binaryheap.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
@@ -3465,7 +3466,7 @@ WakePinCountWaiter(BufferDesc *buf)
 		UnlockBufHdrExt(buf, buf_state,
 						0, BM_PIN_COUNT_WAITER,
 						0);
-		ProcSendSignal(wait_backend_pgprocno);
+		SendInterrupt(INTERRUPT_WAIT_WAKEUP, wait_backend_pgprocno);
 	}
 	else
 		UnlockBufHdr(buf);
@@ -3645,7 +3646,7 @@ BufferSync(int flags)
 						0);
 
 		/* Check for barrier events in case NBuffers is large. */
-		if (ProcSignalBarrierPending)
+		if (ConsumeInterrupt(INTERRUPT_BARRIER))
 			ProcessProcSignalBarrier();
 	}
 
@@ -3726,7 +3727,7 @@ BufferSync(int flags)
 		s->num_to_scan++;
 
 		/* Check for barrier events. */
-		if (ProcSignalBarrierPending)
+		if (ConsumeInterrupt(INTERRUPT_BARRIER))
 			ProcessProcSignalBarrier();
 	}
 
@@ -3817,7 +3818,7 @@ BufferSync(int flags)
 		/*
 		 * Sleep to throttle our I/O rate.
 		 *
-		 * (This will check for barrier events even if it doesn't sleep.)
+		 * (This will check for interrupts even if it doesn't sleep.)
 		 */
 		CheckpointWriteDelay(flags, (double) num_processed / num_to_scan);
 	}
@@ -6820,12 +6821,18 @@ LockBufferForCleanup(Buffer buffer)
 			SetStartupBufferPinWaitBuf(InvalidBuffer);
 		}
 		else
-			ProcWaitForSignal(WAIT_EVENT_BUFFER_CLEANUP);
+		{
+			WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						  WL_INTERRUPT | WL_EXIT_ON_PM_DEATH, 0,
+						  WAIT_EVENT_BUFFER_CLEANUP);
+			ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
+			CHECK_FOR_INTERRUPTS();
+		}
 
 		/*
 		 * Remove flag marking us as waiter. Normally this will not be set
-		 * anymore, but ProcWaitForSignal() can return for other signals as
-		 * well.  We take care to only reset the flag if we're the waiter, as
+		 * anymore, but WaitInterrupt can return for other signals as well. We
+		 * take care to only reset the flag if we're the waiter, as
 		 * theoretically another backend could have started waiting. That's
 		 * impossible with the current usages due to table level locking, but
 		 * better be safe.

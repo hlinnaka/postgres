@@ -17,11 +17,10 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include "miscadmin.h"
+#include "ipc/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/procnumber.h"
-#include "storage/procsignal.h"
 #include "storage/shmem.h"
 #include "storage/sinvaladt.h"
 #include "storage/subsystems.h"
@@ -112,7 +111,7 @@
  * we exceed CLEANUP_MIN.  Should be a power of 2 for speed.
  *
  * SIG_THRESHOLD: the minimum number of messages a backend must have fallen
- * behind before we'll send it PROCSIG_CATCHUP_INTERRUPT.
+ * behind before we'll send it INTERRUPT_SINVAL_CATCHUP.
  *
  * WRITE_QUANTUM: the max number of messages to push into the buffer per
  * iteration of SIInsertDataEntries.  Noncritical but should be less than
@@ -552,11 +551,11 @@ SIGetDataEntries(SharedInvalidationMessage *data, int datasize)
  * callerHasWriteLock is true if caller is holding SInvalWriteLock.
  * minFree is the minimum number of message slots to make free.
  *
- * Possible side effects of this routine include marking one or more
- * backends as "reset" in the array, and sending PROCSIG_CATCHUP_INTERRUPT
- * to some backend that seems to be getting too far behind.  We signal at
- * most one backend at a time, for reasons explained at the top of the file.
- * We also clear catchupInterruptPending, unless this backend has been
+ * Possible side effects of this routine include marking one or more backends
+ * as "reset" in the array, and sending INTERRUPT_SINVAL_CATCHUP to some
+ * backend that seems to be getting too far behind.  We signal at most one
+ * backend at a time, for reasons explained at the top of the file.  We also
+ * clear INTERRUPT_SINVAL_CATCHUP in this backend, unless we have been
  * signaled again since we last caught up.
  *
  * Caution: because we transiently release write lock when we have to signal
@@ -658,22 +657,22 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		segP->nextThreshold = (numMsgs / CLEANUP_QUANTUM + 1) * CLEANUP_QUANTUM;
 
 	/*
-	 * Clear our local catchupInterruptPending flag, now that we have
+	 * Clear our own INTERRUPT_SINVAL_CATCHUP interrupt, now that we have
 	 * processed the catchup request.
 	 *
 	 * "signaled" is expected to be false if we were called in response to a
 	 * catchup signal, because the caller consumes all the messages for this
 	 * backend before performing cleanup.  But it's possible that more
 	 * messages arrived after that, causing us to be signaled again.  Don't
-	 * clear catchupInterruptPending in that case, or we'd miss the new
+	 * clear INTERRUPT_SINVAL_CATCHUP in that case, or we'd miss the new
 	 * catchup request.
 	 */
 	if (!segP->procState[MyProcNumber].signaled)
-		catchupInterruptPending = false;
+		ClearInterrupt(INTERRUPT_SINVAL_CATCHUP);
 
 	/*
-	 * Lastly, signal anyone who needs a catchup interrupt.  Since
-	 * SendProcSignal() might not be fast, we don't want to hold locks while
+	 * Lastly, signal anyone who needs a catchup interrupt.  SendInterrupt()
+	 * is pretty fast, but we nevertheless don't want to hold locks while
 	 * executing it.
 	 */
 	if (needSig)
@@ -684,8 +683,8 @@ SICleanupQueue(bool callerHasWriteLock, int minFree)
 		needSig->signaled = true;
 		LWLockRelease(SInvalReadLock);
 		LWLockRelease(SInvalWriteLock);
-		elog(DEBUG4, "sending sinval catchup signal to PID %d", (int) his_pid);
-		SendProcSignal(his_pid, PROCSIG_CATCHUP_INTERRUPT, his_procNumber);
+		elog(DEBUG4, "sending sinval catchup interrupt to backend PID %d", (int) his_pid);
+		SendInterrupt(INTERRUPT_SINVAL_CATCHUP, his_procNumber);
 		if (callerHasWriteLock)
 			LWLockAcquire(SInvalWriteLock, LW_EXCLUSIVE);
 	}

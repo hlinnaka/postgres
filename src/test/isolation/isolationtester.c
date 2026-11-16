@@ -762,7 +762,7 @@ try_complete_steps(TestSpec *testspec, PermutationStep **waiting,
 	{
 		int			w = 0;
 
-		/* Reset latch; we only care about notices received within loop. */
+		/* Reset flag; we only care about notices received within loop. */
 		any_new_notice = false;
 
 		/* Likewise, these variables reset for each retry. */
