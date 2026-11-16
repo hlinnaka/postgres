@@ -18,6 +18,7 @@
 #include "miscadmin.h"
 #include "storage/latch.h"
 #include "storage/sinvaladt.h"
+#include "utils/injection_point.h"
 #include "utils/inval.h"
 
 
@@ -78,6 +79,7 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 	 */
 	static volatile int nextmsg = 0;
 	static volatile int nummsgs = 0;
+	bool		read_any = false;
 
 	/* Deal with any messages still pending from an outer recursion */
 	while (nextmsg < nummsgs)
@@ -96,6 +98,8 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 
 		/* Try to get some more messages */
 		getResult = SIGetDataEntries(messages, MAXINVALMSGS);
+		if (getResult != 0)
+			read_any = true;
 
 		if (getResult < 0)
 		{
@@ -123,6 +127,14 @@ ReceiveSharedInvalidMessages(void (*invalFunction) (SharedInvalidationMessage *m
 		 * have been within a recursive call) returned a full buffer.
 		 */
 	} while (nummsgs == MAXINVALMSGS);
+
+	/*
+	 * Allow tests to pause here, after we have caught up, but before we pass
+	 * on any catchup request.  Only if we read any messages or a reset, so
+	 * that this is not reached on every call.
+	 */
+	if (read_any)
+		INJECTION_POINT("sinval-caught-up", NULL);
 
 	/*
 	 * We are now caught up.  If we received a catchup signal, call
