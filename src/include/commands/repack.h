@@ -35,8 +35,6 @@ typedef struct ClusterParams
 	uint32		options;		/* bitmask of CLUOPT_* */
 } ClusterParams;
 
-extern PGDLLIMPORT volatile sig_atomic_t RepackMessagePending;
-
 
 extern void ExecRepack(ParseState *pstate, RepackStmt *stmt, bool isTopLevel);
 
@@ -58,7 +56,6 @@ extern void finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 							 MultiXactId cutoffMulti,
 							 char newrelpersistence);
 
-extern void HandleRepackMessageInterrupt(void);
 extern void ProcessRepackMessages(void);
 
 /* in repack_worker.c */
