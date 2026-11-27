@@ -34,7 +34,6 @@
 #include "utils/hsearch.h"
 #include "utils/injection_point.h"
 #include "utils/ps_status.h"
-#include "utils/timeout.h"
 #include "utils/timestamp.h"
 #include "utils/wait_event.h"
 
@@ -66,11 +65,6 @@ typedef struct RecoveryLockXidEntry
 
 static HTAB *RecoveryLockHash = NULL;
 static HTAB *RecoveryLockXidHash = NULL;
-
-/* Flags set by timeout handlers */
-static volatile sig_atomic_t got_standby_deadlock_timeout = false;
-static volatile sig_atomic_t got_standby_delay_timeout = false;
-static volatile sig_atomic_t got_standby_lock_timeout = false;
 
 /*
  * Frequency with which to resend buffer pin conflicts, in case new pinners
@@ -608,8 +602,8 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
  * The WaitLatch sleep normally done in ProcSleep()
  * (when not InHotStandby) is performed here, for code clarity.
  *
- * We either resolve conflicts immediately or set a timeout to wake us at
- * the limit of our patience.
+ * We either resolve conflicts immediately or wait until the max standby
+ * delay is reached.
  *
  * Resolve conflicts by canceling to all backends holding a conflicting
  * lock.  As we are already queued to be granted the lock, no new lock
@@ -632,12 +626,14 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
 void
 ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 {
-	TimestampTz ltime;
+	TimestampTz limit_time;
+	TimestampTz deadlock_time;
+	TimestampTz wakeup_time;
 	TimestampTz now;
 
 	Assert(InHotStandby);
 
-	ltime = GetStandbyLimitTime();
+	limit_time = GetStandbyLimitTime();
 	now = GetCurrentTimestamp();
 
 	/*
@@ -645,10 +641,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	 * started waiting for the lock. It should not be updated every time
 	 * ResolveRecoveryConflictWithLock() is called during the wait.
 	 *
-	 * Use the current time obtained for comparison with ltime as waitStart
-	 * (i.e., the time when this process started waiting for the lock). Since
-	 * getting the current time newly can cause overhead, we reuse the
-	 * already-obtained time to avoid that overhead.
+	 * Use the current time obtained for comparison with limit_time as
+	 * waitStart (i.e., the time when this process started waiting for the
+	 * lock). Since getting the current time newly can cause overhead, we
+	 * reuse the already-obtained time to avoid that overhead.
 	 *
 	 * Note that waitStart is updated without holding the lock table's
 	 * partition lock, to avoid the overhead by additional lock acquisition.
@@ -660,7 +656,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 	if (pg_atomic_read_u64(&MyProc->waitStart) == 0)
 		pg_atomic_write_u64(&MyProc->waitStart, now);
 
-	if (now >= ltime && ltime != 0)
+	if (now >= limit_time && limit_time != 0)
 	{
 		/*
 		 * We're already behind, so clear a path as quickly as possible.
@@ -678,54 +674,50 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 											   RECOVERY_CONFLICT_LOCK,
 											   PG_WAIT_LOCK | locktag.locktag_type,
 											   false);
+
+		/* Wait to be signaled by the release of the Relation Lock */
+		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
+						 0, PG_WAIT_LOCK | locktag.locktag_type);
+		ResetLatch(MyLatch);
+		CHECK_FOR_INTERRUPTS();
+		return;
 	}
-	else
-	{
-		/*
-		 * Wait (or wait again) until ltime, and check for deadlocks as well
-		 * if we will be waiting longer than deadlock_timeout
-		 */
-		EnableTimeoutParams timeouts[2];
-		int			cnt = 0;
-
-		if (ltime != 0)
-		{
-			got_standby_lock_timeout = false;
-			timeouts[cnt].id = STANDBY_LOCK_TIMEOUT;
-			timeouts[cnt].type = TMPARAM_AT;
-			timeouts[cnt].fin_time = ltime;
-			cnt++;
-		}
-
-		got_standby_deadlock_timeout = false;
-		timeouts[cnt].id = STANDBY_DEADLOCK_TIMEOUT;
-		timeouts[cnt].type = TMPARAM_AFTER;
-		timeouts[cnt].delay_ms = DeadlockTimeout;
-		cnt++;
-
-		enable_timeouts(timeouts, cnt);
-	}
-
-	/* Wait to be signaled by the release of the Relation Lock */
-	ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
 
 	/*
-	 * Exit if ltime is reached. Then all the backends holding conflicting
-	 * locks will be canceled in the next ResolveRecoveryConflictWithLock()
-	 * call.
+	 * Wait (or wait again) until limit_time, and check for deadlocks as well
+	 * if we will be waiting longer than deadlock_timeout.
 	 */
-	if (got_standby_lock_timeout)
-		goto cleanup;
+	deadlock_time = TimestampTzPlusMilliseconds(now, DeadlockTimeout);
+	if (limit_time != 0 && limit_time < deadlock_time)
+		wakeup_time = limit_time;
+	else
+		wakeup_time = deadlock_time;
+	(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
+					 TimestampDifferenceMilliseconds(now, wakeup_time),
+					 PG_WAIT_LOCK | locktag.locktag_type);
+	ResetLatch(MyLatch);
+	CHECK_FOR_INTERRUPTS();
 
-	if (got_standby_deadlock_timeout)
+	/*
+	 * Exit if limit_time is reached. Then all the backends holding
+	 * conflicting locks will be canceled in the next
+	 * ResolveRecoveryConflictWithLock() call.
+	 */
+	now = GetCurrentTimestamp();
+	if (limit_time != 0 && now >= limit_time)
+		return;
+
+	if (now >= deadlock_time)
 	{
 		VirtualTransactionId *backends;
+		int			wakeEvents;
+		long		timeout;
 
 		backends = GetLockConflicts(&locktag, AccessExclusiveLock, NULL);
 
 		/* Quick exit if there's no work to be done */
 		if (!VirtualTransactionIdIsValid(*backends))
-			goto cleanup;
+			return;
 
 		/*
 		 * Send signals to all the backends holding the conflicting locks, to
@@ -745,38 +737,36 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * for the lock to be released.
 		 */
 		if (logging_conflict)
-			goto cleanup;
+			return;
 
 		/*
 		 * Wait again here to be signaled by the release of the Relation Lock,
 		 * to prevent the subsequent RecoveryConflictWithLock() from causing
 		 * deadlock_timeout and sending a request for deadlocks check again.
 		 * Otherwise the request continues to be sent every deadlock_timeout
-		 * until the relation locks are released or ltime is reached.
+		 * until the relation locks are released or limit_time is reached.
 		 */
-		got_standby_deadlock_timeout = false;
-		ProcWaitForSignal(PG_WAIT_LOCK | locktag.locktag_type);
+		wakeEvents = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
+		timeout = 0;
+		if (limit_time != 0)
+		{
+			now = GetCurrentTimestamp();
+			timeout = TimestampDifferenceMilliseconds(now, limit_time);
+			wakeEvents |= WL_TIMEOUT;
+		}
+		(void) WaitLatch(MyLatch, wakeEvents, timeout,
+						 PG_WAIT_LOCK | locktag.locktag_type);
+		ResetLatch(MyLatch);
+		CHECK_FOR_INTERRUPTS();
 	}
-
-cleanup:
-
-	/*
-	 * Clear any timeout requests established above.  We assume here that the
-	 * Startup process doesn't have any other outstanding timeouts than those
-	 * used by this function. If that stops being true, we could cancel the
-	 * timeouts individually, but that'd be slower.
-	 */
-	disable_all_timeouts(false);
-	got_standby_lock_timeout = false;
-	got_standby_deadlock_timeout = false;
 }
 
 /*
  * ResolveRecoveryConflictWithBufferPin is called from LockBufferForCleanup()
  * to resolve conflicts with other backends holding buffer pins.
  *
- * The ProcWaitForSignal() sleep normally done in LockBufferForCleanup()
- * (when not InHotStandby) is performed here, for code clarity.
+ * The sleep normally done in LockBufferForCleanup() (when not InHotStandby)
+ * is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or set a timeout to wake us at
  * the limit of our patience (and then again afterwards).
@@ -801,78 +791,75 @@ cleanup:
 void
 ResolveRecoveryConflictWithBufferPin(void)
 {
-	TimestampTz ltime;
-	bool		limit_expired = false;
+	TimestampTz limit_time;
+	TimestampTz deadlock_time;
+	TimestampTz wakeup_time;
+	TimestampTz now;
 
 	Assert(InHotStandby);
 
-	ltime = GetStandbyLimitTime();
+	limit_time = GetStandbyLimitTime();
+	now = GetCurrentTimestamp();
 
-	if (GetCurrentTimestamp() >= ltime && ltime != 0)
+	if (now >= limit_time && limit_time != 0)
 	{
 		/*
 		 * We're already behind, so clear a path as quickly as possible.
 		 */
 		SendRecoveryConflictWithBufferPin(RECOVERY_CONFLICT_BUFFERPIN);
-		limit_expired = true;
-	}
-	else
-	{
+
 		/*
-		 * Wake up at ltime, and check for deadlocks as well if we will be
-		 * waiting longer than deadlock_timeout
+		 * Wait to be signaled by UnpinBuffer, or for the self-imposed timeout
+		 * to expire.
+		 *
+		 * (The timeout is needed because a backend that pins the buffer after
+		 * it has processed our signal would never be told to cancel, and
+		 * UnpinBuffer only wakes us when the last other pin goes away.  So
+		 * wake up periodically, to let our caller recheck the buffer and come
+		 * back here to resend the signal.)
 		 */
-		EnableTimeoutParams timeouts[2];
-		int			cnt = 0;
-
-		if (ltime != 0)
-		{
-			timeouts[cnt].id = STANDBY_TIMEOUT;
-			timeouts[cnt].type = TMPARAM_AT;
-			timeouts[cnt].fin_time = ltime;
-			cnt++;
-		}
-
-		got_standby_deadlock_timeout = false;
-		timeouts[cnt].id = STANDBY_DEADLOCK_TIMEOUT;
-		timeouts[cnt].type = TMPARAM_AFTER;
-		timeouts[cnt].delay_ms = DeadlockTimeout;
-		cnt++;
-
-		enable_timeouts(timeouts, cnt);
-	}
-
-	/*
-	 * Wait to be signaled by UnpinBuffer, or for the wait to be interrupted:
-	 * either by one of the timeouts established above, or by a self-imposed
-	 * latch timeout if the limit already expired.
-	 *
-	 * (The latter is needed because a backend that pins the buffer after it
-	 * has processed our signal would never be told to cancel, and UnpinBuffer
-	 * only wakes us when the last other pin goes away.  So wake up
-	 * periodically, to let our caller recheck the buffer and come back here
-	 * to resend the signal.)
-	 *
-	 * We assume that only UnpinBuffer() and the timeout requests established
-	 * above can wake us up here. WakeupRecovery() called by walreceiver or
-	 * SIGHUP signal handler, etc cannot do that because it uses the different
-	 * latch from that ProcWaitForSignal() waits on.
-	 */
-	if (limit_expired)
-	{
 		(void) WaitLatch(MyLatch,
 						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						 BUFFERPIN_CONFLICT_RESEND_MS,
 						 WAIT_EVENT_BUFFER_CLEANUP);
 		ResetLatch(MyLatch);
 		CHECK_FOR_INTERRUPTS();
+		return;
 	}
-	else
-		ProcWaitForSignal(WAIT_EVENT_BUFFER_CLEANUP);
 
-	if (got_standby_delay_timeout)
+	/*
+	 * Wait to be signaled by UnpinBuffer, or until limit_time is reached.
+	 * Check for deadlocks as well if we will be waiting longer than
+	 * deadlock_timeout.
+	 *
+	 * We assume that only UnpinBuffer() or timeout can wake us up here.
+	 * WakeupRecovery() called by walreceiver cannot do that because it uses a
+	 * different latch than what ProcSendSignal() / ProcWaitForSignal()
+	 * uses. Other uses of the general process latch, like procsignals or
+	 * SIGALRM timers, can cause spurious wakeups though. That's harmless,
+	 * because the caller rechecks the buffer and calls us again, as long as
+	 * it doesn't happen so frequently that it prevents us from ever reaching
+	 * the deadlock timeout.
+	 */
+	deadlock_time = TimestampTzPlusMilliseconds(now, DeadlockTimeout);
+	if (limit_time != 0 && limit_time < deadlock_time)
+		wakeup_time = limit_time;
+	else
+		wakeup_time = deadlock_time;
+	(void) WaitLatch(MyLatch,
+					 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+					 TimestampDifferenceMilliseconds(now, wakeup_time),
+					 WAIT_EVENT_BUFFER_CLEANUP);
+	ResetLatch(MyLatch);
+	CHECK_FOR_INTERRUPTS();
+
+	now = GetCurrentTimestamp();
+	if (limit_time != 0 && now >= limit_time)
+	{
+		/* Limit reached, time to signal the backends holding the pin */
 		SendRecoveryConflictWithBufferPin(RECOVERY_CONFLICT_BUFFERPIN);
-	else if (got_standby_deadlock_timeout)
+	}
+	else if (now >= deadlock_time)
 	{
 		/*
 		 * Send out a request for hot-standby backends to check themselves for
@@ -882,23 +869,13 @@ ResolveRecoveryConflictWithBufferPin(void)
 		 * to be signaled by UnpinBuffer() again and send a request for
 		 * deadlocks check if deadlock_timeout happens. This causes the
 		 * request to continue to be sent every deadlock_timeout until the
-		 * buffer is unpinned or ltime is reached. This would increase the
-		 * workload in the startup process and backends. In practice it may
-		 * not be so harmful because the period that the buffer is kept pinned
-		 * is basically no so long. But we should fix this?
+		 * buffer is unpinned or limit_time is reached. This would increase
+		 * the workload in the startup process and backends. In practice it
+		 * may not be so harmful because the period that the buffer is kept
+		 * pinned is basically no so long. But we should fix this?
 		 */
 		SendRecoveryConflictWithBufferPin(RECOVERY_CONFLICT_BUFFERPIN_DEADLOCK);
 	}
-
-	/*
-	 * Clear any timeout requests established above.  We assume here that the
-	 * Startup process doesn't have any other timeouts than what this function
-	 * uses.  If that stops being true, we could cancel the timeouts
-	 * individually, but that'd be slower.
-	 */
-	disable_all_timeouts(false);
-	got_standby_delay_timeout = false;
-	got_standby_deadlock_timeout = false;
 }
 
 static void
@@ -950,39 +927,6 @@ CheckRecoveryConflictDeadlock(void)
 			 errdetail("User transaction caused buffer deadlock with recovery.")));
 }
 
-
-/* --------------------------------
- *		timeout handler routines
- * --------------------------------
- */
-
-/*
- * StandbyDeadLockHandler() will be called if STANDBY_DEADLOCK_TIMEOUT is
- * exceeded.
- */
-void
-StandbyDeadLockHandler(void)
-{
-	got_standby_deadlock_timeout = true;
-}
-
-/*
- * StandbyTimeoutHandler() will be called if STANDBY_TIMEOUT is exceeded.
- */
-void
-StandbyTimeoutHandler(void)
-{
-	got_standby_delay_timeout = true;
-}
-
-/*
- * StandbyLockTimeoutHandler() will be called if STANDBY_LOCK_TIMEOUT is exceeded.
- */
-void
-StandbyLockTimeoutHandler(void)
-{
-	got_standby_lock_timeout = true;
-}
 
 /*
  * -----------------------------------------------------
