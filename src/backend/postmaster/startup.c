@@ -235,13 +235,6 @@ StartupProcessMain(const void *startup_data, size_t startup_data_len)
 	pqsignal(SIGUSR2, StartupProcTriggerHandler);
 
 	/*
-	 * Register timeouts needed for standby mode
-	 */
-	RegisterTimeout(STANDBY_DEADLOCK_TIMEOUT, StandbyDeadLockHandler);
-	RegisterTimeout(STANDBY_TIMEOUT, StandbyTimeoutHandler);
-	RegisterTimeout(STANDBY_LOCK_TIMEOUT, StandbyLockTimeoutHandler);
-
-	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
 	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
