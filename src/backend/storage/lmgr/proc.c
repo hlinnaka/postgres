@@ -1051,12 +1051,13 @@ ProcKill(int code, Datum arg)
 	MyProc = NULL;
 	MyProcNumber = INVALID_PROC_NUMBER;
 
+	SpinLockAcquire(&ProcGlobal->freeProcsLock);
+
 	/* Mark the proc no longer in use */
 	proc->pid = 0;
 	proc->vxid.procNumber = INVALID_PROC_NUMBER;
 	proc->vxid.lxid = InvalidTransactionId;
 
-	SpinLockAcquire(&ProcGlobal->freeProcsLock);
 	if (push_leader)
 	{
 		/* Return leader PGPROC (and semaphore) to appropriate freelist */
