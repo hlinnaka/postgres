@@ -460,6 +460,9 @@ bootstrap_signals(void)
 {
 	Assert(!IsUnderPostmaster);
 
+	pqsignal(SIGCHLD, PG_SIG_DFL);	/* system() requires this on some
+									 * platforms */
+
 	/*
 	 * We don't actually need any non-default signal handling in bootstrap
 	 * mode; "curl up and die" is a sufficient response for all these cases.

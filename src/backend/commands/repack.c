@@ -3903,7 +3903,6 @@ start_repack_decoding_worker(Oid relid)
 	snprintf(bgw.bgw_library_name, MAXPGPATH, "postgres");
 	snprintf(bgw.bgw_function_name, BGW_MAXLEN, "RepackWorkerMain");
 	bgw.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(decoding_worker->seg));
-	bgw.bgw_notify_pid = MyProcPid;
 
 	if (!RegisterDynamicBackgroundWorker(&bgw, &decoding_worker->handle))
 		ereport(ERROR,
@@ -3976,7 +3975,6 @@ wait_for_repack_decoding_worker(void)
 	{
 		BgwHandleStatus status;
 		shm_mq	   *mq;
-		int			rc;
 		pid_t		pid;
 
 		/*
@@ -4016,12 +4014,11 @@ wait_for_repack_decoding_worker(void)
 		}
 
 		/* Worker neither started or stopped yet, so wait. */
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-					   -1, WAIT_EVENT_BGWORKER_STARTUP);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 -1, WAIT_EVENT_BGWORKER_STARTUP);
 
-		if (rc & WL_LATCH_SET)
-			ResetLatch(MyLatch);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	}
 }
 

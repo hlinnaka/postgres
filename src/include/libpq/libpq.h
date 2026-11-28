@@ -64,7 +64,7 @@ extern const PGDLLIMPORT PQcommMethods *PqCommMethods;
 extern PGDLLIMPORT WaitEventSet *FeBeWaitSet;
 
 #define FeBeWaitSetSocketPos 0
-#define FeBeWaitSetLatchPos 1
+#define FeBeWaitSetInterruptPos 1
 #define FeBeWaitSetNEvents 3
 
 extern int	ListenServerPort(int family, const char *hostName,

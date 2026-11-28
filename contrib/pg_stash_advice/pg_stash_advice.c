@@ -761,7 +761,6 @@ pgsa_start_worker(void)
 	 * complete. (If we do happen to be in single-user mode, this will error
 	 * out, which is fine.)
 	 */
-	worker.bgw_notify_pid = MyProcPid;
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),

@@ -14,7 +14,7 @@
 #define EXECASYNC_H
 
 #include "nodes/execnodes.h"
-#include "storage/latch.h"
+#include "storage/waiteventset.h"
 
 extern void ExecAsyncRequest(AsyncRequest *areq);
 extern void ExecAsyncConfigureWait(AsyncRequest *areq);

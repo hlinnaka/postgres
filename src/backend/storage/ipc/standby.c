@@ -26,7 +26,6 @@
 #include "pgstat.h"
 #include "replication/slot.h"
 #include "storage/bufmgr.h"
-#include "storage/latch.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/sinvaladt.h"
@@ -599,7 +598,7 @@ ResolveRecoveryConflictWithDatabase(Oid dbid)
  * ResolveRecoveryConflictWithLock is called from ProcSleep()
  * to resolve conflicts with other backends holding relation locks.
  *
- * The WaitLatch sleep normally done in ProcSleep()
+ * The WaitInterrupt sleep normally done in ProcSleep()
  * (when not InHotStandby) is performed here, for code clarity.
  *
  * We either resolve conflicts immediately or wait until the max standby
@@ -676,9 +675,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 											   false);
 
 		/* Wait to be signaled by the release of the Relation Lock */
-		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
-						 0, PG_WAIT_LOCK | locktag.locktag_type);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH,
+							 0, PG_WAIT_LOCK | locktag.locktag_type);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 		return;
 	}
@@ -692,10 +692,11 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		wakeup_time = limit_time;
 	else
 		wakeup_time = deadlock_time;
-	(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
-					 TimestampDifferenceMilliseconds(now, wakeup_time),
-					 PG_WAIT_LOCK | locktag.locktag_type);
-	ResetLatch(MyLatch);
+	(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						 WL_INTERRUPT | WL_EXIT_ON_PM_DEATH | WL_TIMEOUT,
+						 TimestampDifferenceMilliseconds(now, wakeup_time),
+						 PG_WAIT_LOCK | locktag.locktag_type);
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	CHECK_FOR_INTERRUPTS();
 
 	/*
@@ -746,7 +747,7 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 		 * Otherwise the request continues to be sent every deadlock_timeout
 		 * until the relation locks are released or limit_time is reached.
 		 */
-		wakeEvents = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
+		wakeEvents = WL_INTERRUPT | WL_EXIT_ON_PM_DEATH;
 		timeout = 0;
 		if (limit_time != 0)
 		{
@@ -754,9 +755,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
 			timeout = TimestampDifferenceMilliseconds(now, limit_time);
 			wakeEvents |= WL_TIMEOUT;
 		}
-		(void) WaitLatch(MyLatch, wakeEvents, timeout,
-						 PG_WAIT_LOCK | locktag.locktag_type);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 wakeEvents, timeout,
+							 PG_WAIT_LOCK | locktag.locktag_type);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 	}
 }
@@ -771,9 +773,10 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag, bool logging_conflict)
  * We either resolve conflicts immediately or set a timeout to wake us at
  * the limit of our patience (and then again afterwards).
  *
- * Resolve conflicts by sending a PROCSIG signal to all backends to check if
- * they hold one of the buffer pins that is blocking Startup process. If so,
- * those backends will take an appropriate error action, ERROR or FATAL.
+ * Resolve conflicts by sending RECOVERY_CONFLICT_BUFFERPIN to all
+ * backends to check if they hold one of the buffer pins that is blocking
+ * Startup process. If so, those backends will take an appropriate error
+ * action, ERROR or FATAL.
  *
  * We also must check for deadlocks.  Deadlocks occur because if queries
  * wait on a lock, that must be behind an AccessExclusiveLock, which can only
@@ -818,11 +821,11 @@ ResolveRecoveryConflictWithBufferPin(void)
 		 * wake up periodically, to let our caller recheck the buffer and come
 		 * back here to resend the signal.)
 		 */
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-						 BUFFERPIN_CONFLICT_RESEND_MS,
-						 WAIT_EVENT_BUFFER_CLEANUP);
-		ResetLatch(MyLatch);
+		(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+							 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 BUFFERPIN_CONFLICT_RESEND_MS,
+							 WAIT_EVENT_BUFFER_CLEANUP);
+		ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 		CHECK_FOR_INTERRUPTS();
 		return;
 	}
@@ -834,23 +837,23 @@ ResolveRecoveryConflictWithBufferPin(void)
 	 *
 	 * We assume that only UnpinBuffer() or timeout can wake us up here.
 	 * WakeupRecovery() called by walreceiver cannot do that because it uses a
-	 * different latch than what ProcSendSignal() / ProcWaitForSignal()
-	 * uses. Other uses of the general process latch, like procsignals or
-	 * SIGALRM timers, can cause spurious wakeups though. That's harmless,
-	 * because the caller rechecks the buffer and calls us again, as long as
-	 * it doesn't happen so frequently that it prevents us from ever reaching
-	 * the deadlock timeout.
+	 * different interrupt (INTERRUPT_WAL_ARRIVED). Other uses of
+	 * INTERRUPT_WAIT_WAKEUP or any interrupt that CHECK_FOR_INTERRUPTS()
+	 * processes can cause spurious wakeups though. That's harmless, because
+	 * the caller rechecks the buffer and calls us again, as long as it
+	 * doesn't happen so frequently that it prevents us from ever reaching the
+	 * deadlock timeout.
 	 */
 	deadlock_time = TimestampTzPlusMilliseconds(now, DeadlockTimeout);
 	if (limit_time != 0 && limit_time < deadlock_time)
 		wakeup_time = limit_time;
 	else
 		wakeup_time = deadlock_time;
-	(void) WaitLatch(MyLatch,
-					 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					 TimestampDifferenceMilliseconds(now, wakeup_time),
-					 WAIT_EVENT_BUFFER_CLEANUP);
-	ResetLatch(MyLatch);
+	(void) WaitInterrupt(CheckForInterruptsMask | INTERRUPT_WAIT_WAKEUP,
+						 WL_INTERRUPT | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						 TimestampDifferenceMilliseconds(now, wakeup_time),
+						 WAIT_EVENT_BUFFER_CLEANUP);
+	ClearInterrupt(INTERRUPT_WAIT_WAKEUP);
 	CHECK_FOR_INTERRUPTS();
 
 	now = GetCurrentTimestamp();
